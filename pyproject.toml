@@ -1,0 +1,33 @@
+[build-system]
+requires = ["setuptools==84.0.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "specromancy-engine"
+version = "0.1.0"
+description = "Harness-agnostic agentic pipeline framework"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/PavelGolitsyn/specromancy"
+Documentation = "https://github.com/PavelGolitsyn/specromancy/blob/v0.1.0/docs/README.md"
+Issues = "https://github.com/PavelGolitsyn/specromancy/issues"
+
+[project.scripts]
+specromancy = "specromancy_engine.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+include-package-data = false
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["specromancy_engine", "specromancy_engine.*"]
+namespaces = false
+
+[tool.setuptools.package-data]
+specromancy_engine = ["schemas/*.json"]
