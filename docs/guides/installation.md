@@ -4,13 +4,31 @@ Python 3.11 or newer is required. The distribution **specromancy-engine** provid
 the **specromancy_engine** Python package and **specromancy** executable, with no
 third-party runtime dependencies. Installation supplies the generic engine and
 four published schemas. Your project supplies its workflow configuration,
-instructions, and skills; these are not installed defaults.
+instructions, and skills; these are not installed defaults. Installing the
+engine does not create a workflow or launch an LLM.
+
+## Install from PyPI
+
+From your consumer project root, create and activate a dedicated environment,
+then install version 0.1.0:
+
+```sh
+python3 -m venv .venv
+. .venv/bin/activate
+python -m pip install specromancy-engine==0.1.0
+specromancy --help
+python -m specromancy_engine --help
+```
+
+Keep `.venv/` ignored. Ensure the harness inherits this environment's `PATH`;
+activating a terminal does not update an already-running GUI process. See
+[Harness usage](harnesses.md) for command environments and generated adapters.
+Before starting a run, [supply your consumer configuration and skills](#supply-consumer-configuration-explicitly).
 
 ## Obtain a local wheel
 
-The initial release baseline is version 0.1.0. These instructions do not assume that
-the package is published or available on PyPI. From a producer checkout, a
-maintainer builds the wheel in a dedicated build environment:
+For local builds or installation without PyPI, a maintainer can build version
+0.1.0 from a producer checkout in a dedicated build environment:
 
 ```sh
 python3 -m venv .venv
@@ -29,7 +47,7 @@ Verify the wheel hash against its build evidence before installation. `bin/specr
 `adapters/generate.py` are producer-checkout conveniences; do not copy them or
 the engine source into each consumer project.
 
-## CLI-only project environment
+## Install a local wheel
 
 From the consumer project root (which may be a non-Python project):
 
@@ -55,21 +73,24 @@ existing dependency list; preserve its other metadata and dependencies:
 dependencies = ["specromancy-engine==0.1.0"]
 ```
 
-Use a directory containing the local wheel when installing that project:
+Install your project and resolve the engine dependency from PyPI:
 
 ```sh
 python3 -m venv .venv
 . .venv/bin/activate
+python -m pip install .
+```
+
+Alternatively, make a local wheel available when installing the project:
+
+```sh
 python -m pip install --find-links /absolute/path/to/wheels .
 ```
 
-The local wheel satisfies the pinned engine dependency. Pip may obtain your
-project's other dependencies and build backend from its configured indexes;
-use `--no-index` only if all of those are supplied locally too. Do not add the
-engine's source directory to `PYTHONPATH`. After a registry release exists, the
-same dependency entry can resolve from that registry, and CLI-only consumers
-can use `python -m pip install specromancy-engine==VERSION` for a published
-version. Registry availability is not asserted by this guide.
+Pip uses its configured package indexes by default; `--find-links` adds the local
+wheel directory as another source. Use `--no-index` only if the engine, your
+project's other dependencies, and its build backend are all supplied locally.
+Do not add the engine's source directory to `PYTHONPATH`.
 
 With the release-documentation example configured, this runnable API example
 initializes a separate run, reads persisted status, and starts the emitted phase:

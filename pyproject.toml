@@ -12,6 +12,11 @@ license = "MIT"
 license-files = ["LICENSE"]
 dependencies = []
 
+[project.urls]
+Homepage = "https://github.com/PavelGolitsyn/specromancy"
+Documentation = "https://github.com/PavelGolitsyn/specromancy/blob/v0.1.0/docs/README.md"
+Issues = "https://github.com/PavelGolitsyn/specromancy/issues"
+
 [project.scripts]
 specromancy = "specromancy_engine.cli:main"
 

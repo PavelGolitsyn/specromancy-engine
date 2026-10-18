@@ -5,14 +5,24 @@ artifact-based agent workflows. A declarative pipeline and canonical skills
 define the work; a small CLI validates transitions and persists recoverable run
 state independently of any harness conversation.
 
+Version 0.1.0 targets Linux and macOS. The release verification matrix covers
+Ubuntu 24.04 and macOS 15 with Python 3.11.15 and 3.14.4. Windows is unverified
+and is not claimed as supported in this release.
+
 ## Use the engine in another project
 
-Install the locally built `specromancy-engine` wheel into your project's Python
-environment, or add it to an existing Python project's dependencies. Follow the
-[installation guide](docs/guides/installation.md) for both routes and the
-[release-documentation consumer](examples/release-documentation/README.md) for
-an executable two-phase example. Registry installation is available only after
-a release exists; this checkout does not claim a published package.
+Install version `0.1.0` from PyPI into your project's Python environment:
+
+```sh
+python -m pip install specromancy-engine==0.1.0
+specromancy --help
+```
+
+Follow the [installation guide](docs/guides/installation.md) to create an isolated
+environment, add the engine to an existing Python project's dependencies, or
+install a local wheel. The
+[release-documentation consumer](examples/release-documentation/README.md)
+provides an executable two-phase example.
 
 Your project explicitly supplies its registry, graphs, templates, instructions,
 and skills. The engine emits actions and verifies agent output; it does not
@@ -38,9 +48,8 @@ bin/specromancy adapters generate --check
 use its exact output path, skill, mutation policy, and final validation command.
 Runtime data is written only under ignored `.specromancy/runs/` storage.
 
-The initial release baseline is `specromancy-engine` version `0.1.0`. It
-provides the `specromancy` console command and `python -m specromancy_engine`. This
-build is for local verification, not publication. The checkout wrappers
+The `specromancy-engine` version `0.1.0` package provides the `specromancy` console
+command and `python -m specromancy_engine`. The checkout wrappers
 `bin/specromancy` and `adapters/generate.py` also work without installation as
 producer-checkout conveniences. Consumers install the dependency; they do not
 copy engine source or launchers into their projects.
