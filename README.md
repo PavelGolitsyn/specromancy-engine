@@ -76,6 +76,7 @@ customization surface. Start with the
 - [Documentation and repository map](docs/README.md)
 - [Consumer installation](docs/guides/installation.md)
 - [Distribution verification and CI](docs/guides/distribution-verification.md)
+- [Publishing a release](docs/guides/releasing.md)
 - [Architecture](docs/reference/architecture.md)
 - [CLI reference](docs/reference/cli.md)
 - [Pipeline authoring](docs/guides/authoring-pipelines.md)

@@ -115,6 +115,11 @@ change from editing a consumer's configuration or approved artifact.
 read-only repository permission, dedicated environments, and the same commands
 on both interpreters/platforms. It prints the retained verifier log even on
 failure. There are no publishing credentials, release steps, or artifact uploads.
+The separate, manually triggered [release workflow](releasing.md) builds one
+candidate artifact set, runs these gates across the same matrix, and publishes
+the verified files to TestPyPI and PyPI using Trusted Publishing. It retains
+the packages and verifier logs as Actions artifacts. The ordinary test workflow
+does not publish.
 The pinned `astral-sh/setup-uv` action installs uv 0.11.27; uv provisions CPython
 on every matrix entry. This avoids relying on GitHub's separate `setup-python`
 catalog, which does not supply macOS Python 3.11.15. Environment creation,
