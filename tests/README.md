@@ -26,6 +26,9 @@ The suite is split by the source of its test data:
   checks completion, immutable outputs, read-only enforcement, unchanged project
   files, blocking, missing configuration, and explicit pipeline selection.
   Existing `engine/fixtures/` remain independent of the user-facing example.
+  `test_release_pipeline.py` checks release commit selection, artifact identity,
+  registry conflicts, and propagation retries using temporary Git repositories
+  and mocked registry responses; it never publishes or contacts a registry.
 
 Create and activate a dedicated environment before testing:
 

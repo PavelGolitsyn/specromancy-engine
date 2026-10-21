@@ -3,6 +3,7 @@
 Current documentation is organized by purpose:
 
 - [Installation](guides/installation.md): CLI-only and Python dependency consumer routes.
+- [Publishing a release](guides/releasing.md): manual GitHub Actions release, registry setup, and recovery.
 - [Release-documentation example](../examples/release-documentation/README.md): wheel-only lifecycle walkthrough.
 - [Architecture](reference/architecture.md): runtime responsibilities and dependencies.
 - [Public contracts](reference/contracts.md): stable imports, CLI behavior, and persisted data.
