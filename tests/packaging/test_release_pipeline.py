@@ -5,6 +5,7 @@ import hashlib
 import importlib.util
 import io
 import json
+import re
 from pathlib import Path
 import subprocess
 import tempfile
@@ -46,6 +47,7 @@ class ReleasePipelineTests(unittest.TestCase):
 
     def test_resolve_commit_reads_selected_metadata_not_working_tree(self):
         commit = self.repository()
+        self.git("tag", "v0.1.0")
         (self.root / "pyproject.toml").write_text("broken working tree")
         result = release.prepare(self.root, commit, commit)
         self.assertEqual(result, {"commit": commit, "version": "0.1.0",
@@ -59,6 +61,7 @@ class ReleasePipelineTests(unittest.TestCase):
 
     def test_rejects_commit_outside_selected_default_branch_history(self):
         base = self.repository()
+        self.git("tag", "v0.1.0")
         self.git("commit", "--allow-empty", "--quiet", "-m", "not merged into selected default")
         other = self.git("rev-parse", "HEAD")
         with self.assertRaisesRegex(release.ReleaseError, "default-branch history"):
@@ -73,6 +76,11 @@ class ReleasePipelineTests(unittest.TestCase):
         other = self.git("rev-parse", "HEAD")
         with self.assertRaisesRegex(release.ReleaseError, "tag points to a different commit"):
             release.prepare(self.root, other, other)
+
+    def test_prepare_allows_missing_tag_without_creating_it(self):
+        commit = self.repository()
+        self.assertEqual(release.prepare(self.root, commit, commit)["commit"], commit)
+        self.assertEqual(self.git("tag", "--list"), "")
 
     def test_rejects_wrong_project_and_nonfinal_version(self):
         self.repository()
@@ -135,6 +143,7 @@ class ReleasePipelineTests(unittest.TestCase):
 
     def test_registry_waits_for_propagation_but_does_not_retry_conflicts(self):
         absent = urllib.error.HTTPError("https://test.pypi.org", 404, "not found", {}, None)
+        self.addCleanup(absent.close)
         found = io.BytesIO(json.dumps(self.registry()).encode())
         with patch.object(release.urllib.request, "urlopen", side_effect=[absent, found]) as request:
             with patch.object(release.time, "sleep") as sleep:
@@ -151,6 +160,7 @@ class ReleasePipelineTests(unittest.TestCase):
 
     def test_missing_registry_release_allowed_only_before_upload(self):
         absent = urllib.error.HTTPError("https://test.pypi.org", 404, "not found", {}, None)
+        self.addCleanup(absent.close)
         with patch.object(release.urllib.request, "urlopen", side_effect=absent):
             release.check_registry("testpypi", "0.1.0", self.expected, allow_missing=True)
             with self.assertRaisesRegex(release.ReleaseError, "both published files"):
@@ -158,6 +168,7 @@ class ReleasePipelineTests(unittest.TestCase):
 
     def test_authentication_error_is_not_treated_as_an_empty_registry(self):
         denied = urllib.error.HTTPError("https://pypi.org", 403, "forbidden", {}, None)
+        self.addCleanup(denied.close)
         with patch.object(release.urllib.request, "urlopen", side_effect=denied):
             with self.assertRaises(urllib.error.HTTPError):
                 release.check_registry("pypi", "0.1.0", self.expected, allow_missing=True)
@@ -200,6 +211,120 @@ class ReleasePipelineTests(unittest.TestCase):
                         release.smoke("pypi", "0.1.0", self.hashes[0])
         self.assertEqual(run.call_count, 12)
         self.assertTrue(all("download" in call.args[0] for call in run.call_args_list))
+
+
+class ReleaseTagTests(unittest.TestCase):
+    commit = "a" * 40
+    tag_object = "b" * 40
+
+    def response(self, data):
+        return io.BytesIO(json.dumps(data).encode())
+
+    def reference(self, sha=None, kind="commit"):
+        return {"ref": "refs/tags/v0.1.0", "object": {"type": kind, "sha": sha or self.commit}}
+
+    def error(self, status):
+        return urllib.error.HTTPError("https://api.github.com", status, "API error", {}, None)
+
+    def ensure(self):
+        release.ensure_tag("owner/repo", "0.1.0", self.commit, "test-token")
+
+    def test_creates_exact_tag_then_verifies_remote_and_retry_does_not_write(self):
+        responses = [self.error(404), self.response(self.reference()),
+                     self.response(self.reference()), self.response(self.reference())]
+        with patch.object(release.urllib.request, "urlopen", side_effect=responses) as request:
+            self.ensure()
+            self.ensure()
+        requests = [call.args[0] for call in request.call_args_list]
+        self.assertEqual([req.get_method() for req in requests], ["GET", "POST", "GET", "GET"])
+        self.assertEqual(requests[1].full_url, "https://api.github.com/repos/owner/repo/git/refs")
+        self.assertEqual(json.loads(requests[1].data), {"ref": "refs/tags/v0.1.0", "sha": self.commit})
+        self.assertEqual(requests[0].full_url, "https://api.github.com/repos/owner/repo/git/ref/tags/v0.1.0")
+        self.assertTrue(all(req.get_header("Authorization") == "Bearer test-token" for req in requests))
+
+    def test_accepts_matching_annotated_tag_without_writes(self):
+        responses = [self.response(self.reference(self.tag_object, "tag")),
+                     self.response({"object": {"type": "commit", "sha": self.commit}})]
+        with patch.object(release.urllib.request, "urlopen", side_effect=responses) as request:
+            self.ensure()
+        self.assertTrue(all(call.args[0].get_method() == "GET" for call in request.call_args_list))
+        self.assertTrue(request.call_args.args[0].full_url.endswith(f"/tags/{self.tag_object}"))
+
+    def test_rejects_conflicting_lightweight_and_annotated_tags_without_writes(self):
+        for responses in ([self.response(self.reference("c" * 40))],
+                          [self.response(self.reference(self.tag_object, "tag")),
+                           self.response({"object": {"type": "commit", "sha": "c" * 40}})]):
+            with patch.object(release.urllib.request, "urlopen", side_effect=responses) as request:
+                with self.assertRaisesRegex(release.ReleaseError, "refusing to replace"):
+                    self.ensure()
+            self.assertTrue(all(call.args[0].get_method() == "GET" for call in request.call_args_list))
+
+    def test_create_race_or_uncertain_response_requires_matching_remote_tag(self):
+        for status in (409, 422, 500, "timeout"):
+            for target in (self.commit, "c" * 40):
+                error = TimeoutError() if status == "timeout" else self.error(status)
+                responses = [self.error(404), error, self.response(self.reference(target))]
+                with self.subTest(status=status, target=target):
+                    with patch.object(release.urllib.request, "urlopen", side_effect=responses) as request:
+                        if target == self.commit:
+                            self.ensure()
+                        else:
+                            with self.assertRaisesRegex(release.ReleaseError, "refusing to replace"):
+                                self.ensure()
+                    self.assertEqual([call.args[0].get_method() for call in request.call_args_list],
+                                     ["GET", "POST", "GET"])
+
+    def test_failed_or_unconfirmed_creation_cannot_report_success(self):
+        cases = ([self.error(404), self.error(422), self.error(404)],
+                 [self.error(404), self.response(self.reference()), self.error(404)],
+                 [self.error(404), TimeoutError(), self.error(404)])
+        for responses in cases:
+            with patch.object(release.urllib.request, "urlopen", side_effect=responses):
+                with self.assertRaises((release.ReleaseError, urllib.error.HTTPError, TimeoutError)):
+                    self.ensure()
+
+    def test_permission_failures_are_not_missing_tags_and_do_not_retry_writes(self):
+        for responses in ([self.error(403)], [self.error(404), self.error(403)]):
+            with patch.object(release.urllib.request, "urlopen", side_effect=responses) as request:
+                with self.assertRaises(urllib.error.HTTPError):
+                    self.ensure()
+            self.assertEqual(request.call_count, len(responses))
+
+    def test_invalid_inputs_are_rejected_before_network_access(self):
+        for repository, version, commit, token in (
+            ("owner/../repo", "0.1.0", self.commit, "token"),
+            ("owner/repo", "0.1.0/other", self.commit, "token"),
+            ("owner/repo", "0.1.0", "main", "token"),
+            ("owner/repo", "0.1.0", self.commit, ""),
+        ):
+            with patch.object(release.urllib.request, "urlopen") as request:
+                with self.assertRaises(release.ReleaseError):
+                    release.ensure_tag(repository, version, commit, token)
+                request.assert_not_called()
+
+    def test_annotated_tag_cycles_and_noncommit_targets_fail(self):
+        for responses in (
+            [self.response(self.reference(self.tag_object, "tag")),
+             self.response({"object": {"type": "tag", "sha": self.tag_object}})],
+            [self.response(self.reference(self.commit, "tree"))],
+        ):
+            with patch.object(release.urllib.request, "urlopen", side_effect=responses):
+                with self.assertRaises(release.ReleaseError):
+                    self.ensure()
+
+    def test_workflow_isolates_write_permission_and_gates_publication_on_tag(self):
+        workflow = (ROOT / ".github/workflows/release.yml").read_text()
+        sections = re.split(r"^  ([a-z][a-z0-9-]*):\n", workflow.split("jobs:\n", 1)[1], flags=re.MULTILINE)
+        jobs = dict(zip(sections[1::2], sections[2::2]))
+        self.assertIn("needs: [prepare, build, verify]", jobs["tag"])
+        self.assertIn("needs: [prepare, build, verify, tag]", jobs["testpypi"])
+        self.assertEqual([name for name, body in jobs.items() if "contents: write" in body], ["tag"])
+        self.assertNotIn("id-token: write", jobs["tag"])
+        self.assertIn("ref: ${{ github.sha }}", jobs["tag"])
+        self.assertIn("persist-credentials: false", jobs["tag"])
+        self.assertIn("RELEASE_COMMIT: ${{ needs.prepare.outputs.commit }}", jobs["tag"])
+        self.assertNotIn("pip install", jobs["tag"])
+        self.assertNotIn("python -m build", jobs["tag"])
 
 
 if __name__ == "__main__":

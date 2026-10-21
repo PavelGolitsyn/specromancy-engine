@@ -55,6 +55,45 @@ own offline, non-isolated rebuild. Do not pass a glob that can select stale
 versions. After changing included files, build a fresh artifact set; the gate
 compares archives with the current checkout and deliberately rejects stale ones.
 
+## README build metadata
+
+`README.md` is the single source for the repository README and PyPI description.
+`setup.py` calls the build-only, standard-library `build_readme.py` helper through
+the normal setuptools build hooks. `python -m build` and editable installs derive
+the description and project URLs automatically; no separate generation command
+or generated README file is needed. The source README is never modified.
+
+Use Markdown reference links for local README destinations:
+
+```markdown
+[Installation][installation]
+[Workflow][workflow]
+![Diagram][image-diagram]
+
+[installation]: docs/guides/installation.md
+[workflow]: workflow/
+[image-diagram]: images/diagram.png
+```
+
+Definitions must be on a single line outside code blocks. Directory destinations
+must end in `/`; image reference labels must start with `image-`. Files use GitHub
+`blob/v<version>/`, directories use `tree/v<version>/`, and images use
+`raw/v<version>/`. Fragment-only references point to the tagged README. Titles,
+query strings, and fragments are preserved; angle brackets support paths with
+spaces. External URLs and fenced or indented code blocks are left unchanged.
+Local inline links are rejected with authoring guidance; inline external links
+are allowed. These conventions apply only to the root README.
+
+The version comes from `[project].version`, and the repository URL comes from
+`[tool.specromancy-build].repository` in `pyproject.toml`. The helper also derives
+Homepage, Documentation, and Issues metadata. It needs neither Git nor network
+access, and does not inspect linked paths: some targets intentionally exist only
+in the full repository. Both helper files are included in the sdist so a rebuild
+produces the same description, while neither is included in the installed wheel.
+The release workflow creates or verifies the matching tag after verification
+and before uploading, as described in [the release guide](releasing.md).
+The converter does not check remote availability.
+
 ## Verifier contract
 
 `tools/verify_distribution.py --wheel PATH --sdist PATH [--log NEW_PATH]` is a
@@ -67,14 +106,14 @@ inventory. Work directories and temporary venvs are removed when verification
 finishes. Keep the original artifact set and the log for release review.
 
 The verifier inspects exact wheel paths, runtime bytes, and metadata, including
-version, Python requirement, license, README, entry point, and empty runtime
-dependencies. It enumerates every runtime module and all four schemas. Wheel
+version, Python requirement, license, generated README and project URLs, entry
+point, and empty runtime dependencies. It enumerates every runtime module and all four schemas. Wheel
 contents are limited to `specromancy_engine` source/schema data and normal
 `.dist-info` metadata. Tests, producer/consumer configurations, skills, wrappers,
 run data, caches, environments, and unrelated projects fail the archive boundary.
 
-`MANIFEST.in` defines a deliberate sdist allowlist: build metadata, runtime source
-and schemas, README, license, the complete release-documentation example
+`MANIFEST.in` defines a deliberate sdist allowlist: build metadata and README
+helpers, runtime source and schemas, README, license, the complete release-documentation example
 (including hidden skills and ignore rules), and current guides and reference
 documentation. Setuptools adds normal sdist metadata. Tests, historical documents,
 producer workflows, generated adapters, and developer tools are not included.

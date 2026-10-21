@@ -25,13 +25,16 @@ class DistributionContractTests(unittest.TestCase):
         self.info = "specromancy_engine-0.1.0.dist-info"
 
     def wheel(self, *, omit=(), extra=None, dependency=False):
+        description = verifier.build_metadata(ROOT)
         members = verifier.inventory(ROOT)
         members.update({f"{self.info}/{name}": content for name, content in {
             "METADATA": ("Metadata-Version: 2.4\nName: specromancy-engine\nVersion: 0.1.0\n"
                          "Requires-Python: >=3.11\nLicense-Expression: MIT\n"
                          "Description-Content-Type: text/markdown\n"
+                         + "".join(f"Project-URL: {label}, {url}\n" for label, url
+                                   in description["project_urls"].items())
                          + ("Requires-Dist: unwanted\n" if dependency else "")
-                         + "\n" + (ROOT / "README.md").read_text()).encode(),
+                         + "\n" + description["long_description"]).encode(),
             "WHEEL": b"Wheel-Version: 1.0\n", "RECORD": b"", "top_level.txt": b"specromancy_engine\n",
             "entry_points.txt": b"[console_scripts]\nspecromancy = specromancy_engine.cli:main\n",
             "licenses/LICENSE": (ROOT / "LICENSE").read_bytes(),
@@ -70,6 +73,17 @@ class DistributionContractTests(unittest.TestCase):
             verifier.inspect_wheel(self.root / "missing.whl", ROOT)
         with self.assertRaisesRegex(verifier.VerificationError, "sdist is missing"):
             verifier.extract_sdist(self.root / "missing.tar.gz", self.root / "extract", ROOT)
+
+    def test_unconverted_description_and_stale_project_urls_are_rejected(self):
+        wheel = self.wheel()
+        with zipfile.ZipFile(wheel) as archive:
+            metadata = archive.read(f"{self.info}/METADATA").decode()
+        bad_description = metadata.split("\n\n", 1)[0] + "\n\n" + (ROOT / "README.md").read_text()
+        for content, error in ((bad_description, "README description differs"),
+                               (metadata.replace("/blob/v0.1.0/docs/README.md",
+                                                 "/blob/main/docs/README.md", 1), "project URLs differ")):
+            with self.subTest(error=error), self.assertRaisesRegex(verifier.VerificationError, error):
+                verifier.inspect_wheel(self.wheel(extra={f"{self.info}/METADATA": content.encode()}), ROOT)
 
     def sdist(self, *, omit=(), special=None):
         members = {name: (ROOT / name).read_bytes() for name in verifier.sdist_sources(ROOT)}

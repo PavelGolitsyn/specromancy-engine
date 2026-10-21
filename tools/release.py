@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Release orchestration checks; not installed as part of the engine.
 
-Network operations are read-only. Uploads belong to the Trusted Publishing action.
+Only the tag command writes to GitHub, creating a missing release reference.
+Package uploads belong to the Trusted Publishing action.
 """
 from __future__ import annotations
 
@@ -63,6 +64,72 @@ def prepare(root: Path, commit: str, default_commit: str) -> dict[str, str]:
         require(git("rev-parse", f"{tag}^{{commit}}") == commit,
                 f"Existing v{version} tag points to a different commit")
     return {"commit": commit, "version": version, "wheel": wheel, "sdist": sdist}
+
+
+def ensure_tag(repository: str, version: str, commit: str, token: str) -> None:
+    """Create a lightweight tag once; accept matching lightweight/annotated tags.
+
+    Inputs come from the validated prepare job. Never update or delete refs.
+    Re-read after a create race or uncertain response before reporting success.
+    """
+    filenames(version)
+    require(re.fullmatch(r"[A-Za-z0-9_-]+/[A-Za-z0-9_.-]+", repository) is not None
+            and repository.split("/")[1] not in {".", ".."}, "Invalid GitHub repository")
+    require(re.fullmatch(r"[0-9a-f]{40}", commit) is not None, "Supply a full commit SHA")
+    require(bool(token), "GH_TOKEN is required for release tag creation")
+    base = f"https://api.github.com/repos/{repository}/git"
+    ref = f"refs/tags/v{version}"
+
+    def request(path: str, data: dict | None = None) -> dict:
+        req = urllib.request.Request(
+            f"{base}/{path}", data=None if data is None else json.dumps(data).encode(),
+            headers={"Accept": "application/vnd.github+json",
+                     "Authorization": f"Bearer {token}", "Content-Type": "application/json",
+                     "X-GitHub-Api-Version": "2026-03-10"},
+            method="GET" if data is None else "POST",
+        )
+        try:
+            with urllib.request.urlopen(req, timeout=30) as response:
+                return json.load(response)
+        except urllib.error.HTTPError as exc:
+            exc.close()
+            raise
+
+    def matches() -> bool:
+        try:
+            data = request(f"ref/tags/v{version}")
+        except urllib.error.HTTPError as exc:
+            if exc.code == 404:
+                return False
+            raise
+        require(data["ref"] == ref, "GitHub returned an unexpected tag reference")
+        obj = data["object"]
+        seen = set()
+        while obj["type"] == "tag":
+            sha = obj["sha"]
+            require(re.fullmatch(r"[0-9a-f]{40}", sha) is not None
+                    and sha not in seen and len(seen) < 16, "Invalid annotated tag chain")
+            seen.add(sha)
+            obj = request(f"tags/{sha}")["object"]
+        require(obj["type"] == "commit" and obj["sha"] == commit,
+                f"Existing v{version} tag points to a different commit; refusing to replace it")
+        return True
+
+    if matches():
+        return
+    try:
+        request("refs", {"ref": ref, "sha": commit})
+    except urllib.error.HTTPError as exc:
+        if exc.code not in {409, 422} and exc.code < 500:
+            raise
+        if not matches():
+            raise
+        return
+    except (urllib.error.URLError, TimeoutError):
+        if not matches():
+            raise
+        return
+    require(matches(), f"Created v{version} tag is not yet visible; retry the failed job")
 
 
 def check_files(directory: Path, version: str, hashes: tuple[str, str]) -> dict[str, str]:
@@ -163,6 +230,10 @@ def main() -> None:
     prepare_parser.add_argument("--root", type=Path, default=Path.cwd())
     prepare_parser.add_argument("--commit", required=True)
     prepare_parser.add_argument("--default-commit", required=True)
+    tag_parser = commands.add_parser("tag")
+    tag_parser.add_argument("--repository", required=True)
+    tag_parser.add_argument("--version", required=True)
+    tag_parser.add_argument("--commit", required=True)
     for command in ("check", "registry", "smoke"):
         check = commands.add_parser(command)
         check.add_argument("--directory", type=Path, required=True)
@@ -174,6 +245,10 @@ def main() -> None:
         if command == "registry":
             check.add_argument("--allow-missing", action="store_true")
     args = parser.parse_args()
+    if args.command == "tag":
+        ensure_tag(args.repository, args.version, args.commit, os.environ.get("GH_TOKEN", ""))
+        print(f"Verified release tag v{args.version} at {args.commit}")
+        return
     if args.command == "prepare":
         outputs = prepare(args.root, args.commit, args.default_commit)
         for key, value in outputs.items():
