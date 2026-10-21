@@ -1,0 +1,330 @@
+name: Release to PyPI
+run-name: Release ${{ inputs.release_commit }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_commit:
+        description: Full 40-character commit SHA already merged into the default branch
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: package-release
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  prepare:
+    # Run trusted release control from the default branch, never a PR branch.
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      commit: ${{ steps.release.outputs.commit }}
+      version: ${{ steps.release.outputs.version }}
+      wheel: ${{ steps.release.outputs.wheel }}
+      sdist: ${{ steps.release.outputs.sdist }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Validate immutable release input and version
+        id: release
+        env:
+          RELEASE_COMMIT: ${{ inputs.release_commit }}
+          DEFAULT_COMMIT: ${{ github.sha }}
+        run: >-
+          python3 tools/release.py prepare
+          --commit "$RELEASE_COMMIT" --default-commit "$DEFAULT_COMMIT"
+      - name: Record release identity
+        env:
+          RELEASE_COMMIT: ${{ steps.release.outputs.commit }}
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          echo "Release version: $VERSION" >> "$GITHUB_STEP_SUMMARY"
+          echo "Source commit: $RELEASE_COMMIT" >> "$GITHUB_STEP_SUMMARY"
+          echo "Workflow commit: $GITHUB_SHA" >> "$GITHUB_STEP_SUMMARY"
+
+  build:
+    needs: prepare
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    outputs:
+      artifact_id: ${{ steps.upload.outputs.artifact-id }}
+      wheel_sha256: ${{ steps.hashes.outputs.wheel_sha256 }}
+      sdist_sha256: ${{ steps.hashes.outputs.sdist_sha256 }}
+    env:
+      WHEEL: ${{ needs.prepare.outputs.wheel }}
+      SDIST: ${{ needs.prepare.outputs.sdist }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ needs.prepare.outputs.commit }}
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: '0.11.27'
+          enable-cache: false
+      - name: Provision build environment
+        run: |
+          uv python install --no-bin 3.11.15
+          test_python="$(uv python find --managed-python 3.11.15)"
+          "$test_python" -m venv .venv
+          echo "$GITHUB_WORKSPACE/.venv/bin" >> "$GITHUB_PATH"
+          .venv/bin/python -m pip install -r tools/requirements-build.txt
+      - name: Build one candidate artifact set
+        run: python -m build --sdist --wheel --no-isolation --outdir "$RUNNER_TEMP/distributions"
+      - name: Record hashes
+        id: hashes
+        run: |
+          cd "$RUNNER_TEMP/distributions"
+          echo "wheel_sha256=$(shasum -a 256 "$WHEEL" | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
+          echo "sdist_sha256=$(shasum -a 256 "$SDIST" | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
+          shasum -a 256 "$WHEEL" "$SDIST" >> "$GITHUB_STEP_SUMMARY"
+      # Pins resolved against upstream GitHub tag refs on 2026-10-18.
+      - name: Retain the exact candidate packages
+        id: upload
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-distributions-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/distributions/
+          if-no-files-found: error
+          retention-days: 90
+
+  verify:
+    needs: [prepare, build]
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-15]
+        python: ['3.11.15', '3.14.4']
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      TEST_PYTHON_VERSION: ${{ matrix.python }}
+      VERSION: ${{ needs.prepare.outputs.version }}
+      WHEEL: ${{ needs.prepare.outputs.wheel }}
+      SDIST: ${{ needs.prepare.outputs.sdist }}
+      WHEEL_SHA256: ${{ needs.build.outputs.wheel_sha256 }}
+      SDIST_SHA256: ${{ needs.build.outputs.sdist_sha256 }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ needs.prepare.outputs.commit }}
+          persist-credentials: false
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ github.sha }}
+          path: release-control
+          sparse-checkout: tools/release.py
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.build.outputs.artifact_id }}
+          path: ${{ runner.temp }}/distributions
+          merge-multiple: true
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+        with:
+          version: '0.11.27'
+          enable-cache: false
+      - name: Provision verification environment and install checkout
+        run: |
+          uv python install --no-bin "$TEST_PYTHON_VERSION"
+          test_python="$(uv python find --managed-python "$TEST_PYTHON_VERSION")"
+          "$test_python" -m venv .venv
+          echo "$GITHUB_WORKSPACE/.venv/bin" >> "$GITHUB_PATH"
+          .venv/bin/python -m pip install -r tools/requirements-build.txt
+          .venv/bin/python -m pip install --no-index --no-build-isolation -e .
+      - name: Check artifact identity, full suite, and generated adapters
+        run: |
+          python release-control/tools/release.py check --directory "$RUNNER_TEMP/distributions" \
+            --version "$VERSION" --wheel-sha256 "$WHEEL_SHA256" --sdist-sha256 "$SDIST_SHA256"
+          python -m unittest discover
+          specromancy adapters generate --check
+          bin/specromancy adapters generate --check
+      - name: Verify direct wheel and sdist rebuild offline
+        run: >-
+          python tools/verify_distribution.py
+          --wheel "$RUNNER_TEMP/distributions/$WHEEL"
+          --sdist "$RUNNER_TEMP/distributions/$SDIST"
+          --log "$RUNNER_TEMP/distribution-verification.log"
+      - name: Retain verification evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: verification-${{ matrix.os }}-${{ matrix.python }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/distribution-verification.log
+          if-no-files-found: warn
+          retention-days: 90
+
+  tag:
+    needs: [prepare, build, verify]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ github.sha }}
+          path: release-control
+          sparse-checkout: tools/release.py
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - name: Create or verify the release tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_REPOSITORY: ${{ github.repository }}
+          RELEASE_COMMIT: ${{ needs.prepare.outputs.commit }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          python3 release-control/tools/release.py tag \
+            --repository "$RELEASE_REPOSITORY" --version "$VERSION" --commit "$RELEASE_COMMIT"
+          echo "Verified tag v$VERSION at $RELEASE_COMMIT" >> "$GITHUB_STEP_SUMMARY"
+
+  testpypi:
+    needs: [prepare, build, verify, tag]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/project/specromancy-engine/${{ needs.prepare.outputs.version }}/
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+      WHEEL_SHA256: ${{ needs.build.outputs.wheel_sha256 }}
+      SDIST_SHA256: ${{ needs.build.outputs.sdist_sha256 }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ github.sha }}
+          path: release-control
+          sparse-checkout: tools/release.py
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.build.outputs.artifact_id }}
+          path: dist
+          merge-multiple: true
+      - name: Reject local or already-published artifact conflicts
+        run: >-
+          python3 release-control/tools/release.py registry --registry testpypi --allow-missing
+          --directory dist --version "$VERSION"
+          --wheel-sha256 "$WHEEL_SHA256" --sdist-sha256 "$SDIST_SHA256"
+      - name: Publish the verified packages to TestPyPI
+        uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd32cbe73a98c7f6766f8a527e # v1.13.0
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          packages-dir: dist/
+          # Safe retries require the preceding hash comparison and following smoke job.
+          skip-existing: true
+          print-hash: true
+
+  testpypi-smoke:
+    needs: [prepare, build, testpypi]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+      WHEEL_SHA256: ${{ needs.build.outputs.wheel_sha256 }}
+      SDIST_SHA256: ${{ needs.build.outputs.sdist_sha256 }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ github.sha }}
+          path: release-control
+          sparse-checkout: tools/release.py
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.build.outputs.artifact_id }}
+          path: dist
+          merge-multiple: true
+      - name: Verify both registry hashes and install the TestPyPI wheel
+        run: >-
+          python3 release-control/tools/release.py smoke --registry testpypi
+          --directory dist --version "$VERSION"
+          --wheel-sha256 "$WHEEL_SHA256" --sdist-sha256 "$SDIST_SHA256"
+
+  pypi:
+    needs: [prepare, build, testpypi-smoke]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    # Configure required reviewers on this environment for a promotion approval.
+    environment:
+      name: pypi
+      url: https://pypi.org/project/specromancy-engine/${{ needs.prepare.outputs.version }}/
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+      WHEEL_SHA256: ${{ needs.build.outputs.wheel_sha256 }}
+      SDIST_SHA256: ${{ needs.build.outputs.sdist_sha256 }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ github.sha }}
+          path: release-control
+          sparse-checkout: tools/release.py
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.build.outputs.artifact_id }}
+          path: dist
+          merge-multiple: true
+      - name: Reject local or already-published artifact conflicts
+        run: >-
+          python3 release-control/tools/release.py registry --registry pypi --allow-missing
+          --directory dist --version "$VERSION"
+          --wheel-sha256 "$WHEEL_SHA256" --sdist-sha256 "$SDIST_SHA256"
+      - name: Publish the same packages to PyPI
+        uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd32cbe73a98c7f6766f8a527e # v1.13.0
+        with:
+          packages-dir: dist/
+          skip-existing: true
+          print-hash: true
+
+  pypi-smoke:
+    needs: [prepare, build, pypi]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    env:
+      VERSION: ${{ needs.prepare.outputs.version }}
+      WHEEL_SHA256: ${{ needs.build.outputs.wheel_sha256 }}
+      SDIST_SHA256: ${{ needs.build.outputs.sdist_sha256 }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ github.sha }}
+          path: release-control
+          sparse-checkout: tools/release.py
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          artifact-ids: ${{ needs.build.outputs.artifact_id }}
+          path: dist
+          merge-multiple: true
+      - name: Verify both registry hashes and install the public wheel
+        run: >-
+          python3 release-control/tools/release.py smoke --registry pypi
+          --directory dist --version "$VERSION"
+          --wheel-sha256 "$WHEEL_SHA256" --sdist-sha256 "$SDIST_SHA256"
+      - name: Record public installation command
+        run: echo "Published specromancy-engine==$VERSION; both registry hashes and installation verified." >> "$GITHUB_STEP_SUMMARY"

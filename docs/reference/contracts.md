@@ -1,6 +1,6 @@
 # Specromancy Engine public contracts
 
-These contracts describe version 0.1.0 of Specromancy Engine. Breaking stored
+These contracts describe version 0.1.1 of Specromancy Engine. Breaking stored
 representation changes require a schema-version change and updated fixtures;
 additive fields with backward-compatible defaults may extend the current version.
 
@@ -18,7 +18,7 @@ The `_config`, `_runs`, `_engine`, `_adapters`, and `_cli` subpackages are priva
 implementation details, not supported import contracts. Use the public facades
 for configuration records, errors, loading, execution, and run storage.
 
-The distribution is named `specromancy-engine`, is version `0.1.0`, requires
+The distribution is named `specromancy-engine`, is version `0.1.1`, requires
 Python 3.11 or newer, and has no third-party runtime dependencies. It installs
 the `specromancy = specromancy_engine.cli:main` console entry point. Module
 invocation is `python -m specromancy_engine`.
