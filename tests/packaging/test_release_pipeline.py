@@ -26,7 +26,7 @@ class ReleasePipelineTests(unittest.TestCase):
         self.root = Path(temporary.name)
         self.directory = self.root / "distributions"
         self.directory.mkdir()
-        self.names = release.filenames("0.1.0")
+        self.names = release.filenames("0.1.1")
         self.hashes = tuple(hashlib.sha256(name.encode()).hexdigest() for name in self.names)
         self.expected = dict(zip(self.names, self.hashes))
         for name in self.names:
@@ -40,7 +40,7 @@ class ReleasePipelineTests(unittest.TestCase):
         self.git("config", "user.email", "release-test@example.invalid")
         self.git("config", "user.name", "Release test")
         project = self.root / "pyproject.toml"
-        project.write_text('[project]\nname = "specromancy-engine"\nversion = "0.1.0"\n')
+        project.write_text('[project]\nname = "specromancy-engine"\nversion = "0.1.1"\n')
         self.git("add", "pyproject.toml")
         self.git("commit", "--quiet", "-m", "release candidate")
         return self.git("rev-parse", "HEAD")
@@ -50,7 +50,7 @@ class ReleasePipelineTests(unittest.TestCase):
         self.git("tag", "v0.1.0")
         (self.root / "pyproject.toml").write_text("broken working tree")
         result = release.prepare(self.root, commit, commit)
-        self.assertEqual(result, {"commit": commit, "version": "0.1.0",
+        self.assertEqual(result, {"commit": commit, "version": "0.1.1",
                                  "wheel": self.names[0], "sdist": self.names[1]})
         self.assertEqual((self.root / "pyproject.toml").read_text(), "broken working tree")
 
@@ -84,7 +84,7 @@ class ReleasePipelineTests(unittest.TestCase):
 
     def test_rejects_wrong_project_and_nonfinal_version(self):
         self.repository()
-        for name, version in (("another-project", "0.1.0"), ("specromancy-engine", "0.1.0rc1")):
+        for name, version in (("another-project", "0.1.1"), ("specromancy-engine", "0.1.0rc1")):
             (self.root / "pyproject.toml").write_text(
                 f'[project]\nname = "{name}"\nversion = "{version}"\n')
             self.git("add", "pyproject.toml")
@@ -94,25 +94,25 @@ class ReleasePipelineTests(unittest.TestCase):
                 release.prepare(self.root, commit, commit)
 
     def test_artifacts_require_exact_files_and_hashes(self):
-        self.assertEqual(release.check_files(self.directory, "0.1.0", self.hashes), self.expected)
+        self.assertEqual(release.check_files(self.directory, "0.1.1", self.hashes), self.expected)
         (self.directory / "stale.whl").write_text("stale")
         with self.assertRaisesRegex(release.ReleaseError, "exactly"):
-            release.check_files(self.directory, "0.1.0", self.hashes)
+            release.check_files(self.directory, "0.1.1", self.hashes)
         (self.directory / "stale.whl").unlink()
         (self.directory / self.names[0]).write_text("tampered")
         with self.assertRaisesRegex(release.ReleaseError, "hash mismatch"):
-            release.check_files(self.directory, "0.1.0", self.hashes)
+            release.check_files(self.directory, "0.1.1", self.hashes)
 
     def test_rejects_missing_or_symlink_artifact(self):
         wheel = self.directory / self.names[0]
         wheel.unlink()
         with self.assertRaisesRegex(release.ReleaseError, "exactly"):
-            release.check_files(self.directory, "0.1.0", self.hashes)
+            release.check_files(self.directory, "0.1.1", self.hashes)
         target = self.root / "target"
         target.write_text(self.names[0])
         wheel.symlink_to(target)
         with self.assertRaisesRegex(release.ReleaseError, "regular artifact"):
-            release.check_files(self.directory, "0.1.0", self.hashes)
+            release.check_files(self.directory, "0.1.1", self.hashes)
 
     def registry(self):
         return {"urls": [{"filename": name, "digests": {"sha256": digest}, "yanked": False}
@@ -147,7 +147,7 @@ class ReleasePipelineTests(unittest.TestCase):
         found = io.BytesIO(json.dumps(self.registry()).encode())
         with patch.object(release.urllib.request, "urlopen", side_effect=[absent, found]) as request:
             with patch.object(release.time, "sleep") as sleep:
-                release.check_registry("testpypi", "0.1.0", self.expected, attempts=2)
+                release.check_registry("testpypi", "0.1.1", self.expected, attempts=2)
         self.assertEqual(request.call_count, 2)
         sleep.assert_called_once_with(10)
         conflicting = self.registry()
@@ -155,23 +155,23 @@ class ReleasePipelineTests(unittest.TestCase):
         with patch.object(release.urllib.request, "urlopen",
                           return_value=io.BytesIO(json.dumps(conflicting).encode())) as request:
             with self.assertRaisesRegex(release.ReleaseError, "different bytes"):
-                release.check_registry("pypi", "0.1.0", self.expected)
+                release.check_registry("pypi", "0.1.1", self.expected)
         request.assert_called_once()
 
     def test_missing_registry_release_allowed_only_before_upload(self):
         absent = urllib.error.HTTPError("https://test.pypi.org", 404, "not found", {}, None)
         self.addCleanup(absent.close)
         with patch.object(release.urllib.request, "urlopen", side_effect=absent):
-            release.check_registry("testpypi", "0.1.0", self.expected, allow_missing=True)
+            release.check_registry("testpypi", "0.1.1", self.expected, allow_missing=True)
             with self.assertRaisesRegex(release.ReleaseError, "both published files"):
-                release.check_registry("testpypi", "0.1.0", self.expected, attempts=1)
+                release.check_registry("testpypi", "0.1.1", self.expected, attempts=1)
 
     def test_authentication_error_is_not_treated_as_an_empty_registry(self):
         denied = urllib.error.HTTPError("https://pypi.org", 403, "forbidden", {}, None)
         self.addCleanup(denied.close)
         with patch.object(release.urllib.request, "urlopen", side_effect=denied):
             with self.assertRaises(urllib.error.HTTPError):
-                release.check_registry("pypi", "0.1.0", self.expected, allow_missing=True)
+                release.check_registry("pypi", "0.1.1", self.expected, allow_missing=True)
 
     def test_smoke_enforces_hash_and_isolates_index_and_imports(self):
         calls = []
@@ -185,7 +185,7 @@ class ReleasePipelineTests(unittest.TestCase):
             if "download" in argv:
                 requirements = Path(argv[argv.index("-r") + 1]).read_text()
                 self.assertEqual(requirements,
-                                 f"specromancy-engine==0.1.0 --hash=sha256:{self.hashes[0]}\n")
+                                 f"specromancy-engine==0.1.1 --hash=sha256:{self.hashes[0]}\n")
                 self.assertIn("--require-hashes", argv)
                 self.assertIn("--no-deps", argv)
                 self.assertEqual(argv[argv.index("--index-url") + 1],
@@ -196,7 +196,7 @@ class ReleasePipelineTests(unittest.TestCase):
                                             "PIP_EXTRA_INDEX_URL": "https://unwanted.invalid"}):
             with patch.object(release.venv.EnvBuilder, "create"):
                 with patch.object(release.subprocess, "run", side_effect=run):
-                    release.smoke("testpypi", "0.1.0", self.hashes[0])
+                    release.smoke("testpypi", "0.1.1", self.hashes[0])
         self.assertEqual(len(calls), 5)
         self.assertIn("--no-index", calls[1])
         self.assertIn("-I", calls[2])
@@ -208,7 +208,7 @@ class ReleasePipelineTests(unittest.TestCase):
                 with patch.object(release.subprocess, "run",
                                   return_value=subprocess.CompletedProcess([], 1)) as run:
                     with self.assertRaisesRegex(release.ReleaseError, "download the verified wheel"):
-                        release.smoke("pypi", "0.1.0", self.hashes[0])
+                        release.smoke("pypi", "0.1.1", self.hashes[0])
         self.assertEqual(run.call_count, 12)
         self.assertTrue(all("download" in call.args[0] for call in run.call_args_list))
 
@@ -227,7 +227,7 @@ class ReleaseTagTests(unittest.TestCase):
         return urllib.error.HTTPError("https://api.github.com", status, "API error", {}, None)
 
     def ensure(self):
-        release.ensure_tag("owner/repo", "0.1.0", self.commit, "test-token")
+        release.ensure_tag("owner/repo", "0.1.1", self.commit, "test-token")
 
     def test_creates_exact_tag_then_verifies_remote_and_retry_does_not_write(self):
         responses = [self.error(404), self.response(self.reference()),
@@ -292,10 +292,10 @@ class ReleaseTagTests(unittest.TestCase):
 
     def test_invalid_inputs_are_rejected_before_network_access(self):
         for repository, version, commit, token in (
-            ("owner/../repo", "0.1.0", self.commit, "token"),
-            ("owner/repo", "0.1.0/other", self.commit, "token"),
-            ("owner/repo", "0.1.0", "main", "token"),
-            ("owner/repo", "0.1.0", self.commit, ""),
+            ("owner/../repo", "0.1.1", self.commit, "token"),
+            ("owner/repo", "0.1.1/other", self.commit, "token"),
+            ("owner/repo", "0.1.1", "main", "token"),
+            ("owner/repo", "0.1.1", self.commit, ""),
         ):
             with patch.object(release.urllib.request, "urlopen") as request:
                 with self.assertRaises(release.ReleaseError):

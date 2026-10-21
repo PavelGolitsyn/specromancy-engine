@@ -42,8 +42,8 @@ Choose a new output directory for each build and keep its exact artifact paths:
 ARTIFACT_DIR="$(mktemp -d /tmp/specromancy-artifacts.XXXXXX)"
 python -m build --sdist --wheel --no-isolation --outdir "$ARTIFACT_DIR"
 python tools/verify_distribution.py \
-  --wheel "$ARTIFACT_DIR/specromancy_engine-0.1.0-py3-none-any.whl" \
-  --sdist "$ARTIFACT_DIR/specromancy_engine-0.1.0.tar.gz"
+  --wheel "$ARTIFACT_DIR/specromancy_engine-0.1.1-py3-none-any.whl" \
+  --sdist "$ARTIFACT_DIR/specromancy_engine-0.1.1.tar.gz"
 ```
 
 `python -m build` is the build frontend. Specifying both `--sdist --wheel`
