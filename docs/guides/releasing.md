@@ -61,8 +61,10 @@ and [manual workflow triggers](https://docs.github.com/en/actions/how-tos/write-
 1. Finish the release changes and merge them into the default branch. The
    workflow accepts only a full lowercase 40-character commit SHA in that
    branch's history, not a branch name, short SHA, or pull-request-only commit.
-2. Confirm that `pyproject.toml`, the runtime `__version__`, version-specific
-   tests, documentation, and project URLs describe the intended release.
+2. Confirm that `pyproject.toml`, the runtime `__version__`, and documentation
+   describe the intended release. Distribution tests read the project version;
+   isolated release tests use their own fixture version, which should not be
+   changed when bumping a release.
    The root `README.md` is also the package description on PyPI and TestPyPI.
    Keep local links as relative Markdown reference links, with single-line
    definitions such as `[installation]: docs/guides/installation.md`.

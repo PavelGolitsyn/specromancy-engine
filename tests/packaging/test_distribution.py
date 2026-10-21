@@ -6,6 +6,7 @@ import io
 from pathlib import Path
 import tarfile
 import tempfile
+import tomllib
 import unittest
 import zipfile
 
@@ -22,13 +23,15 @@ class DistributionContractTests(unittest.TestCase):
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
-        self.info = "specromancy_engine-0.1.1.dist-info"
+        self.version = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["version"]
+        self.prefix = f"specromancy_engine-{self.version}"
+        self.info = f"{self.prefix}.dist-info"
 
     def wheel(self, *, omit=(), extra=None, dependency=False):
         description = verifier.build_metadata(ROOT)
         members = verifier.inventory(ROOT)
         members.update({f"{self.info}/{name}": content for name, content in {
-            "METADATA": ("Metadata-Version: 2.4\nName: specromancy-engine\nVersion: 0.1.1\n"
+            "METADATA": (f"Metadata-Version: 2.4\nName: specromancy-engine\nVersion: {self.version}\n"
                          "Requires-Python: >=3.11\nLicense-Expression: MIT\n"
                          "Description-Content-Type: text/markdown\n"
                          + "".join(f"Project-URL: {label}, {url}\n" for label, url
@@ -49,7 +52,7 @@ class DistributionContractTests(unittest.TestCase):
 
     def test_complete_wheel_inventory_and_metadata(self):
         result = verifier.inspect_wheel(self.wheel(), ROOT)
-        self.assertEqual(result["version"], "0.1.1")
+        self.assertEqual(result["version"], self.version)
         self.assertEqual(set(result["runtime"]), set(verifier.inventory(ROOT)))
 
     def test_missing_schema_and_old_namespace_are_clear_failures(self):
@@ -79,9 +82,13 @@ class DistributionContractTests(unittest.TestCase):
         with zipfile.ZipFile(wheel) as archive:
             metadata = archive.read(f"{self.info}/METADATA").decode()
         bad_description = metadata.split("\n\n", 1)[0] + "\n\n" + (ROOT / "README.md").read_text()
+        documentation_url = verifier.build_metadata(ROOT)["project_urls"]["Documentation"]
+        header = f"Project-URL: Documentation, {documentation_url}"
+        self.assertIn(header, metadata)
+        stale_urls = metadata.replace(header, "Project-URL: Documentation, https://example.invalid/stale", 1)
         for content, error in ((bad_description, "README description differs"),
-                               (metadata.replace("/blob/v0.1.0/docs/README.md",
-                                                 "/blob/main/docs/README.md", 1), "project URLs differ")):
+                               (stale_urls, "project URLs differ")):
+            self.assertNotEqual(content, metadata, "The negative fixture must change the metadata")
             with self.subTest(error=error), self.assertRaisesRegex(verifier.VerificationError, error):
                 verifier.inspect_wheel(self.wheel(extra={f"{self.info}/METADATA": content.encode()}), ROOT)
 
@@ -95,7 +102,7 @@ class DistributionContractTests(unittest.TestCase):
             for name, content in members.items():
                 if name in omit:
                     continue
-                member = tarfile.TarInfo("specromancy_engine-0.1.1/" + name)
+                member = tarfile.TarInfo(self.prefix + "/" + name)
                 member.size = len(content)
                 archive.addfile(member, io.BytesIO(content))
             if special:
@@ -111,9 +118,9 @@ class DistributionContractTests(unittest.TestCase):
 
     def test_sdist_rejects_traversal_links_and_duplicate_members_before_writing(self):
         for name, kind in (("../escaped", tarfile.REGTYPE),
-                           ("specromancy_engine-0.1.1/link", tarfile.SYMTYPE),
-                           ("specromancy_engine-0.1.1/link", tarfile.LNKTYPE),
-                           ("specromancy_engine-0.1.1/README.md", tarfile.REGTYPE)):
+                           (f"{self.prefix}/link", tarfile.SYMTYPE),
+                           (f"{self.prefix}/link", tarfile.LNKTYPE),
+                           (f"{self.prefix}/README.md", tarfile.REGTYPE)):
             with self.subTest(name=name, kind=kind):
                 special = tarfile.TarInfo(name)
                 special.type = kind
