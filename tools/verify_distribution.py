@@ -14,6 +14,7 @@ import importlib.metadata
 import json
 import os
 import platform
+import runpy
 from pathlib import Path, PurePosixPath
 import shutil
 import stat
@@ -26,6 +27,7 @@ import zipfile
 from email.parser import BytesParser
 
 ROOT = Path(__file__).resolve().parents[1]
+build_metadata = runpy.run_path(str(ROOT / "build_readme.py"))["build_metadata"]
 SCHEMAS = {f"specromancy_engine/schemas/{name}.schema.json"
            for name in ("event", "run", "pipeline", "pipelines")}
 TEST_MODULES = (
@@ -94,8 +96,12 @@ def inspect_wheel(wheel: Path, root: Path) -> dict:
                            "Description-Content-Type": "text/markdown"}.items():
             require(metadata[key] == value, f"wheel metadata {key}: expected {value!r}, got {metadata[key]!r}")
         require(not metadata.get_all("Requires-Dist"), "wheel declares runtime dependencies")
-        require(metadata.get_payload().strip() == (root / "README.md").read_text().strip(),
+        description = build_metadata(root)
+        require(metadata.get_payload().strip() == description["long_description"].strip(),
                 "wheel README description differs")
+        require(set(metadata.get_all("Project-URL", [])) == {
+            f"{label}, {url}" for label, url in description["project_urls"].items()
+        }, "wheel project URLs differ")
         require(archive.read(f"{info}/licenses/LICENSE") == (root / "LICENSE").read_bytes(),
                 "wheel license differs")
         entry = configparser.ConfigParser()
@@ -106,7 +112,8 @@ def inspect_wheel(wheel: Path, root: Path) -> dict:
 
 
 def sdist_sources(root: Path) -> set[str]:
-    names = {"pyproject.toml", "MANIFEST.in", "README.md", "LICENSE", "docs/README.md"}
+    names = {"pyproject.toml", "MANIFEST.in", "README.md", "LICENSE", "docs/README.md",
+             "setup.py", "build_readme.py"}
     names.update("src/" + n for n in inventory(root))
     example = "examples/release-documentation"
     names.update(f"{example}/{name}" for name in (

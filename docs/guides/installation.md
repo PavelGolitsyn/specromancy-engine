@@ -10,12 +10,12 @@ engine does not create a workflow or launch an LLM.
 ## Install from PyPI
 
 From your consumer project root, create and activate a dedicated environment,
-then install version 0.1.0:
+then install version 0.1.1:
 
 ```sh
 python3 -m venv .venv
 . .venv/bin/activate
-python -m pip install specromancy-engine==0.1.0
+python -m pip install specromancy-engine==0.1.1
 specromancy --help
 python -m specromancy_engine --help
 ```
@@ -28,7 +28,7 @@ Before starting a run, [supply your consumer configuration and skills](#supply-c
 ## Obtain a local wheel
 
 For local builds or installation without PyPI, a maintainer can build version
-0.1.0 from a producer checkout in a dedicated build environment:
+0.1.1 from a producer checkout in a dedicated build environment:
 
 ```sh
 python3 -m venv .venv
@@ -39,7 +39,7 @@ python -m build --sdist --wheel --no-isolation --outdir dist
 
 The separately provisioned toolchain includes the pinned build backend declared
 in `pyproject.toml`; these are build dependencies, not engine runtime dependencies. The result is
-`dist/specromancy_engine-0.1.0-py3-none-any.whl`. Transfer that wheel to the
+`dist/specromancy_engine-0.1.1-py3-none-any.whl`. Transfer that wheel to the
 consumer. The consumer needs no engine source or editable install. The
 [distribution verification guide](distribution-verification.md) documents the
 repeatable wheel and sdist gates and links their executed evidence.
@@ -54,7 +54,7 @@ From the consumer project root (which may be a non-Python project):
 ```sh
 python3 -m venv .venv
 . .venv/bin/activate
-python -m pip install --no-index --no-deps /absolute/path/to/specromancy_engine-0.1.0-py3-none-any.whl
+python -m pip install --no-index --no-deps /absolute/path/to/specromancy_engine-0.1.1-py3-none-any.whl
 specromancy --help
 python -m specromancy_engine --help
 ```
@@ -70,7 +70,7 @@ existing dependency list; preserve its other metadata and dependencies:
 
 ```toml
 [project]
-dependencies = ["specromancy-engine==0.1.0"]
+dependencies = ["specromancy-engine==0.1.1"]
 ```
 
 Install your project and resolve the engine dependency from PyPI:

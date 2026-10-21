@@ -2,13 +2,13 @@
 
 The manual [Release to PyPI workflow](../../.github/workflows/release.yml) takes
 one full release-commit SHA. It builds one wheel and source distribution,
-verifies them, publishes them to TestPyPI, checks the registry installation,
-and promotes those same files to PyPI. Nothing is published by ordinary pushes
+verifies them, creates the version tag, publishes them to TestPyPI, checks the
+registry installation, and promotes those same files to PyPI. Nothing is published by ordinary pushes
 or pull requests.
 
 This is a maintainer workflow in GitHub Actions, separate from the engine's
 consumer-defined pipelines. The engine itself never publishes packages.
-Version 0.1.0 targets Linux/macOS; Windows remains unverified.
+Version 0.1.1 targets Linux/macOS; Windows remains unverified.
 
 ## One-time setup
 
@@ -41,6 +41,11 @@ Version 0.1.0 targets Linux/macOS; Windows remains unverified.
 | Workflow filename | `release.yml` | `release.yml` |
 | Environment | `testpypi` | `pypi` |
 
+The tag job uses the workflow's `GITHUB_TOKEN` with job-scoped `contents: write`.
+Repository or organization policy and tag rules must allow this job to create
+`v*` tags. A permission or ruleset denial fails the job and prevents uploading;
+the workflow does not bypass those rules or require a personal access token.
+
 Enter the filename `release.yml`, not its full `.github/workflows/` path. Do not
 add a PyPI API token to GitHub secrets. The publishing jobs use short-lived OIDC
 credentials through PyPA's publishing action. A pending publisher creates the
@@ -56,38 +61,44 @@ and [manual workflow triggers](https://docs.github.com/en/actions/how-tos/write-
 1. Finish the release changes and merge them into the default branch. The
    workflow accepts only a full lowercase 40-character commit SHA in that
    branch's history, not a branch name, short SHA, or pull-request-only commit.
-2. Confirm that `pyproject.toml`, the runtime `__version__`, version-specific
-   tests, documentation, and project URLs describe the intended release.
+2. Confirm that `pyproject.toml`, the runtime `__version__`, and documentation
+   describe the intended release. Distribution tests read the project version;
+   isolated release tests use their own fixture version, which should not be
+   changed when bumping a release.
+   The root `README.md` is also the package description on PyPI and TestPyPI.
+   Keep local links as relative Markdown reference links, with single-line
+   definitions such as `[installation]: docs/guides/installation.md`.
+   The build converts their destinations to absolute GitHub URLs using
+   `v<project.version>` and generates the Documentation project URL from the
+   same version. No manual tag edits in README links are needed. See the
+   [build metadata contract](distribution-verification.md#readme-build-metadata)
+   for authoring conventions.
    The workflow reads the version from the selected commit's `pyproject.toml`;
    it does not edit files or bump versions. It currently accepts final
-   `MAJOR.MINOR.PATCH` versions, such as `0.1.0`, rather than prerelease versions.
+   `MAJOR.MINOR.PATCH` versions, such as `0.1.1`, rather than prerelease versions.
 3. Copy the full SHA from GitHub's commit page or run `git rev-parse HEAD` in a
    clean checkout of that commit. Save it with the release notes.
-4. Ensure version-specific documentation URLs resolve before publishing. If
-   they use `v0.1.0`, create and push that tag for the selected commit. For
-   version 0.1.0, from the verified checkout:
-
-   ```sh
-   git tag -a v0.1.0 -m "Specromancy Engine v0.1.0"
-   git push origin v0.1.0
-   ```
-
-   If the tag already exists, verify it points to your selected commit rather
-   than recreating or moving it. The workflow rejects an existing version tag
-   that points elsewhere. It does not create tags or GitHub Releases.
+4. Include all linked documentation in the selected commit. You do not need to
+   create or push a tag manually: after verification, the workflow creates
+   `v<project.version>` at that exact commit, before uploading to TestPyPI.
+   New tags are lightweight Git tags. An existing lightweight or annotated tag
+   is accepted only if it resolves to the selected commit; a conflicting tag
+   fails the release and is never moved or replaced. Builds can run before the
+   tag exists, and the generated URLs start resolving once it is created.
 
 ## Trigger and follow the release
 
 1. Open **Actions → Release to PyPI → Run workflow** in GitHub.
 2. Leave the branch selector on the repository's default branch.
 3. Paste the full release commit SHA into `release_commit` and click
-   **Run workflow**. This authorizes publishing to both registries, subject to
-   any configured environment approvals.
+   **Run workflow**. This authorizes creating the version tag and publishing to
+   both registries, subject to any configured environment approvals.
 4. Watch the jobs in order:
 
    ```text
    validate commit → build wheel + sdist once
        → verify on Linux/macOS × Python 3.11.15/3.14.4
+       → create or verify the version tag at the release commit
        → upload to TestPyPI → verify hashes + clean installation
        → pypi environment approval (if configured)
        → upload the same files to PyPI → verify hashes + clean installation
@@ -95,14 +106,16 @@ and [manual workflow triggers](https://docs.github.com/en/actions/how-tos/write-
 
 5. If `pypi` requires review, open **Review deployments** after TestPyPI checks
    pass. Inspect the release SHA, version, artifact hashes, verification jobs,
-   and TestPyPI page before approving. Approval promotes the already-built
-   files; it does not rebuild them.
+   and TestPyPI page before approving. Check that the README renders correctly
+   and its documentation, example, and directory links open successfully;
+   package installation checks do not verify these links. Approval promotes
+   the already-built files; it does not rebuild them.
 6. A successful final `pypi-smoke` job confirms that both files are visible on
    PyPI with the expected hashes and the downloaded wheel installs successfully.
    Users can then run:
 
    ```sh
-   python -m pip install specromancy-engine==0.1.0
+   python -m pip install specromancy-engine==0.1.1
    ```
 
 Download the `release-distributions-<attempt>` artifact and verification logs
@@ -119,6 +132,11 @@ keep permanent release evidence separately if needed.
 - Builds and tests have no OIDC publishing permission. Only the two upload jobs
   have `id-token: write`; they do not build or execute the engine. All actions
   are pinned to commit SHAs.
+- Only the tag job has `contents: write`. It runs the release helper from the
+  pinned default-branch workflow commit, receives the validated commit and
+  version from preparation, and never builds or executes candidate package code.
+  It creates the tag through the GitHub API and verifies its resolved commit
+  before allowing TestPyPI publication. It never updates or deletes a tag.
 - All four matrix entries run the full suite, check generated adapters, and
   verify the same downloaded wheel and sdist, including an offline sdist rebuild.
   Rebuilt wheels are verification outputs, never substituted for the release wheel.
@@ -143,6 +161,13 @@ on the original Actions run. Successful build outputs and the retained artifact
 ID are reused. The preflight accepts already-uploaded files only if their hashes
 match; it can safely finish an upload that published just one of the two files.
 
+The same retry applies if tag creation fails or its response is interrupted.
+The job accepts a matching tag left by a previous attempt, including one created
+despite a lost response. A tag remains if a later publishing step fails; do not
+delete or move it to retry. Fix permission/ruleset failures before rerunning the
+failed job. A conflicting tag requires selecting the correct release commit or
+preparing a new version, rather than overwriting the existing tag.
+
 Do not use **Re-run all jobs** or start a new run to promote an already-uploaded
 candidate. A fresh build can have different archive bytes even at the same
 commit, and the registry conflict check will reject it. Re-running a failed
@@ -157,5 +182,5 @@ repeat the release checks. Do not delete a release as a way to reuse its filenam
 
 Local tests and workflow linting cannot prove your account's Trusted Publisher
 or environment configuration. The first real run verifies those external
-settings. The workflow only publishes packages; GitHub Release notes and
-attachments remain a separate maintainer action.
+settings. The workflow creates Git tags and publishes packages; GitHub Release
+notes and attachments remain a separate maintainer action.

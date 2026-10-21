@@ -167,8 +167,33 @@ jobs:
           if-no-files-found: warn
           retention-days: 90
 
-  testpypi:
+  tag:
     needs: [prepare, build, verify]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: ${{ github.sha }}
+          path: release-control
+          sparse-checkout: tools/release.py
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+      - name: Create or verify the release tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_REPOSITORY: ${{ github.repository }}
+          RELEASE_COMMIT: ${{ needs.prepare.outputs.commit }}
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          python3 release-control/tools/release.py tag \
+            --repository "$RELEASE_REPOSITORY" --version "$VERSION" --commit "$RELEASE_COMMIT"
+          echo "Verified tag v$VERSION at $RELEASE_COMMIT" >> "$GITHUB_STEP_SUMMARY"
+
+  testpypi:
+    needs: [prepare, build, verify, tag]
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     environment:
