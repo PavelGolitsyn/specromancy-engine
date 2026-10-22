@@ -17,7 +17,7 @@ review outcome, not a human approval gate or a guarantee of factual accuracy.
 ## Install and copy
 
 Follow the [installation guide](../../docs/guides/installation.md) to build
-`specromancy_engine-0.1.1-py3-none-any.whl`. This is a local wheel workflow;
+`specromancy_engine-0.1.2-py3-none-any.whl`. This is a local wheel workflow;
 registry installation is available only after a release exists.
 
 From the producer checkout, copy into a **new** directory outside that checkout
@@ -32,7 +32,7 @@ cd "$CONSUMER"
 git init --quiet
 python3 -m venv .venv
 . .venv/bin/activate
-python -m pip install --no-index --no-deps /absolute/path/to/specromancy_engine-0.1.1-py3-none-any.whl
+python -m pip install --no-index --no-deps /absolute/path/to/specromancy_engine-0.1.2-py3-none-any.whl
 ```
 
 No commit is required. For an existing project, review and merge the canonical

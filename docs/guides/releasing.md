@@ -8,7 +8,7 @@ or pull requests.
 
 This is a maintainer workflow in GitHub Actions, separate from the engine's
 consumer-defined pipelines. The engine itself never publishes packages.
-Version 0.1.1 targets Linux/macOS; Windows remains unverified.
+Version 0.1.2 targets Linux/macOS; Windows remains unverified.
 
 ## One-time setup
 
@@ -75,7 +75,7 @@ and [manual workflow triggers](https://docs.github.com/en/actions/how-tos/write-
    for authoring conventions.
    The workflow reads the version from the selected commit's `pyproject.toml`;
    it does not edit files or bump versions. It currently accepts final
-   `MAJOR.MINOR.PATCH` versions, such as `0.1.1`, rather than prerelease versions.
+   `MAJOR.MINOR.PATCH` versions, such as `0.1.2`, rather than prerelease versions.
 3. Copy the full SHA from GitHub's commit page or run `git rev-parse HEAD` in a
    clean checkout of that commit. Save it with the release notes.
 4. Include all linked documentation in the selected commit. You do not need to
@@ -115,7 +115,7 @@ and [manual workflow triggers](https://docs.github.com/en/actions/how-tos/write-
    Users can then run:
 
    ```sh
-   python -m pip install specromancy-engine==0.1.1
+   python -m pip install specromancy-engine==0.1.2
    ```
 
 Download the `release-distributions-<attempt>` artifact and verification logs
@@ -177,7 +177,7 @@ checks or replace published files.
 
 For a metadata/version conflict, fix the cause before trying again. A published
 version's filenames cannot be reused for corrected bytes. If package contents
-need correction after publication, prepare a new version, such as `0.1.1`, and
+need correction after publication, prepare a new version, such as `0.1.2`, and
 repeat the release checks. Do not delete a release as a way to reuse its filenames.
 
 Local tests and workflow linting cannot prove your account's Trusted Publisher
