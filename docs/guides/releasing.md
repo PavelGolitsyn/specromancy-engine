@@ -8,7 +8,7 @@ or pull requests.
 
 This is a maintainer workflow in GitHub Actions, separate from the engine's
 consumer-defined pipelines. The engine itself never publishes packages.
-Version 0.1.1 targets Linux/macOS; Windows remains unverified.
+Specromancy Engine targets Linux/macOS; Windows remains unverified.
 
 ## One-time setup
 
@@ -61,8 +61,13 @@ and [manual workflow triggers](https://docs.github.com/en/actions/how-tos/write-
 1. Finish the release changes and merge them into the default branch. The
    workflow accepts only a full lowercase 40-character commit SHA in that
    branch's history, not a branch name, short SHA, or pull-request-only commit.
-2. Confirm that `pyproject.toml`, the runtime `__version__`, and documentation
-   describe the intended release. Distribution tests read the project version;
+2. Set `project.version` in [`pyproject.toml`](../../pyproject.toml) to the intended
+   release; this is the only version field to edit. The runtime `__version__`
+   is derived automatically. Reinstall editable environments with
+   `python -m pip install -e .` after a bump to refresh installed metadata.
+   Keep general documentation version-neutral; update
+   it when behavior or support changes, not for a version bump alone. Preserve
+   versions in historical release evidence. Distribution tests read the project version;
    isolated release tests use their own fixture version, which should not be
    changed when bumping a release.
    The root `README.md` is also the package description on PyPI and TestPyPI.
@@ -75,7 +80,7 @@ and [manual workflow triggers](https://docs.github.com/en/actions/how-tos/write-
    for authoring conventions.
    The workflow reads the version from the selected commit's `pyproject.toml`;
    it does not edit files or bump versions. It currently accepts final
-   `MAJOR.MINOR.PATCH` versions, such as `0.1.1`, rather than prerelease versions.
+   `MAJOR.MINOR.PATCH` versions rather than prerelease versions.
 3. Copy the full SHA from GitHub's commit page or run `git rev-parse HEAD` in a
    clean checkout of that commit. Save it with the release notes.
 4. Include all linked documentation in the selected commit. You do not need to
@@ -112,10 +117,11 @@ and [manual workflow triggers](https://docs.github.com/en/actions/how-tos/write-
    the already-built files; it does not rebuild them.
 6. A successful final `pypi-smoke` job confirms that both files are visible on
    PyPI with the expected hashes and the downloaded wheel installs successfully.
-   Users can then run:
+   Users can then install that release, replacing `<version>` with the version
+   reported by the workflow:
 
    ```sh
-   python -m pip install specromancy-engine==0.1.1
+   python -m pip install "specromancy-engine==<version>"
    ```
 
 Download the `release-distributions-<attempt>` artifact and verification logs
@@ -177,7 +183,7 @@ checks or replace published files.
 
 For a metadata/version conflict, fix the cause before trying again. A published
 version's filenames cannot be reused for corrected bytes. If package contents
-need correction after publication, prepare a new version, such as `0.1.1`, and
+need correction after publication, prepare a new version and
 repeat the release checks. Do not delete a release as a way to reuse its filenames.
 
 Local tests and workflow linting cannot prove your account's Trusted Publisher

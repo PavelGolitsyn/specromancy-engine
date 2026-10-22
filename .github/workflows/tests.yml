@@ -48,11 +48,12 @@ jobs:
       - name: Build exact artifact set
         run: python -m build --sdist --wheel --no-isolation --outdir "$RUNNER_TEMP/distributions"
       - name: Verify direct wheel and sdist rebuild offline
-        run: >-
-          python tools/verify_distribution.py
-          --wheel "$RUNNER_TEMP/distributions/specromancy_engine-0.1.1-py3-none-any.whl"
-          --sdist "$RUNNER_TEMP/distributions/specromancy_engine-0.1.1.tar.gz"
-          --log "$RUNNER_TEMP/distribution-verification.log"
+        run: |
+          VERSION="$(python -c 'import pathlib, tomllib; print(tomllib.loads(pathlib.Path("pyproject.toml").read_text())["project"]["version"])')"
+          python tools/verify_distribution.py \
+            --wheel "$RUNNER_TEMP/distributions/specromancy_engine-$VERSION-py3-none-any.whl" \
+            --sdist "$RUNNER_TEMP/distributions/specromancy_engine-$VERSION.tar.gz" \
+            --log "$RUNNER_TEMP/distribution-verification.log"
       - name: Show retained verification log
         if: always()
         shell: bash

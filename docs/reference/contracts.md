@@ -1,7 +1,7 @@
 # Specromancy Engine public contracts
 
-These contracts describe version 0.1.1 of Specromancy Engine. Breaking stored
-representation changes require a schema-version change and updated fixtures;
+These contracts describe Specromancy Engine.
+Breaking stored representation changes require a schema-version change and updated fixtures;
 additive fields with backward-compatible defaults may extend the current version.
 
 ## Python import surface
@@ -18,10 +18,19 @@ The `_config`, `_runs`, `_engine`, `_adapters`, and `_cli` subpackages are priva
 implementation details, not supported import contracts. Use the public facades
 for configuration records, errors, loading, execution, and run storage.
 
-The distribution is named `specromancy-engine`, is version `0.1.1`, requires
+The distribution is named `specromancy-engine`, requires
 Python 3.11 or newer, and has no third-party runtime dependencies. It installs
 the `specromancy = specromancy_engine.cli:main` console entry point. Module
 invocation is `python -m specromancy_engine`.
+
+`project.version` in [`pyproject.toml`](../../pyproject.toml) is the single version
+source. `specromancy_engine.__version__` reads it when imported from the producer's
+`src/` checkout or source export, including editable installations. Other
+installations read their distribution version through `importlib.metadata`.
+Version lookup is independent of the working directory. A checkout's version
+takes precedence over installed metadata; reinstall after a version bump to
+refresh editable-install metadata. Missing installed metadata raises
+`importlib.metadata.PackageNotFoundError` when no producer checkout is available.
 
 Action packets emit `final_validation_command` as an argv starting with
 `["specromancy"]`. Execute it with the installed console script on `PATH`;

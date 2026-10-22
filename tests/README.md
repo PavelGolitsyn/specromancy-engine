@@ -53,10 +53,11 @@ python -m unittest tests.packaging.test_release_documentation tests.shipped_conf
 ```
 
 The repeatable distribution gate is separate from test discovery. Provision the
-pinned tooling, build a fresh wheel and sdist, then run:
+pinned tooling, build a fresh wheel and sdist, then run with their actual paths
+and version substituted below:
 
 ```sh
-python tools/verify_distribution.py --wheel /absolute/artifacts/specromancy_engine-0.1.1-py3-none-any.whl --sdist /absolute/artifacts/specromancy_engine-0.1.1.tar.gz
+python tools/verify_distribution.py --wheel "/absolute/artifacts/specromancy_engine-<version>-py3-none-any.whl" --sdist "/absolute/artifacts/specromancy_engine-<version>.tar.gz"
 ```
 
 See [distribution verification](../docs/guides/distribution-verification.md) for
@@ -99,7 +100,7 @@ artifact or graph edits and reject changed prepared skills/templates. This is
 deliberately separate from the unchanged-configuration state replay. See the
 [Stage 08 evidence](../docs/implementation-history/migration/evidence/08-release-readiness.md) for historical
 counts, artifact hashes, platform boundaries, and development replay results.
-Those results describe the recorded builds, not the current 0.1.1 artifacts.
+Those results describe the recorded builds, not the current artifacts.
 
 `engine/contract/source_scan.py` recursively discovers runtime Python sources
 under `src/specromancy_engine/`, including nested package initializers, for architecture,
