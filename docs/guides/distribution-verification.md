@@ -41,9 +41,10 @@ Choose a new output directory for each build and keep its exact artifact paths:
 ```sh
 ARTIFACT_DIR="$(mktemp -d /tmp/specromancy-artifacts.XXXXXX)"
 python -m build --sdist --wheel --no-isolation --outdir "$ARTIFACT_DIR"
+VERSION="$(python -c 'import pathlib, tomllib; print(tomllib.loads(pathlib.Path("pyproject.toml").read_text())["project"]["version"])')"
 python tools/verify_distribution.py \
-  --wheel "$ARTIFACT_DIR/specromancy_engine-0.1.1-py3-none-any.whl" \
-  --sdist "$ARTIFACT_DIR/specromancy_engine-0.1.1.tar.gz"
+  --wheel "$ARTIFACT_DIR/specromancy_engine-$VERSION-py3-none-any.whl" \
+  --sdist "$ARTIFACT_DIR/specromancy_engine-$VERSION.tar.gz"
 ```
 
 `python -m build` is the build frontend. Specifying both `--sdist --wheel`
@@ -54,6 +55,8 @@ and asks the frontend to check all declared wheel build requirements before its
 own offline, non-isolated rebuild. Do not pass a glob that can select stale
 versions. After changing included files, build a fresh artifact set; the gate
 compares archives with the current checkout and deliberately rejects stale ones.
+The exact filenames use the version from `pyproject.toml`, so version bumps do
+not require editing the verification command.
 
 ## README build metadata
 
