@@ -10,12 +10,12 @@ engine does not create a workflow or launch an LLM.
 ## Install from PyPI
 
 From your consumer project root, create and activate a dedicated environment,
-then install version 0.1.2:
+then install from PyPI:
 
 ```sh
 python3 -m venv .venv
 . .venv/bin/activate
-python -m pip install specromancy-engine==0.1.2
+python -m pip install specromancy-engine
 specromancy --help
 python -m specromancy_engine --help
 ```
@@ -27,8 +27,8 @@ Before starting a run, [supply your consumer configuration and skills](#supply-c
 
 ## Obtain a local wheel
 
-For local builds or installation without PyPI, a maintainer can build version
-0.1.2 from a producer checkout in a dedicated build environment:
+For local builds or installation without PyPI, a maintainer can build from a
+producer checkout in a dedicated build environment:
 
 ```sh
 python3 -m venv .venv
@@ -39,7 +39,8 @@ python -m build --sdist --wheel --no-isolation --outdir dist
 
 The separately provisioned toolchain includes the pinned build backend declared
 in `pyproject.toml`; these are build dependencies, not engine runtime dependencies. The result is
-`dist/specromancy_engine-0.1.2-py3-none-any.whl`. Transfer that wheel to the
+`dist/specromancy_engine-<version>-py3-none-any.whl`, where `<version>` comes from
+`project.version` in `pyproject.toml`. Transfer that wheel to the
 consumer. The consumer needs no engine source or editable install. The
 [distribution verification guide](distribution-verification.md) documents the
 repeatable wheel and sdist gates and links their executed evidence.
@@ -49,12 +50,13 @@ the engine source into each consumer project.
 
 ## Install a local wheel
 
-From the consumer project root (which may be a non-Python project):
+From the consumer project root (which may be a non-Python project), substitute
+the actual wheel path and version in the command below:
 
 ```sh
 python3 -m venv .venv
 . .venv/bin/activate
-python -m pip install --no-index --no-deps /absolute/path/to/specromancy_engine-0.1.2-py3-none-any.whl
+python -m pip install --no-index --no-deps "/absolute/path/to/specromancy_engine-<version>-py3-none-any.whl"
 specromancy --help
 python -m specromancy_engine --help
 ```
@@ -66,11 +68,12 @@ activating a terminal does not update an already-running GUI process. See
 ## Python project dependency
 
 In an existing Python project's `pyproject.toml`, merge this entry into its
-existing dependency list; preserve its other metadata and dependencies:
+existing dependency list; preserve its other metadata and dependencies.
+Replace `<version>` with the published release you intend to pin:
 
 ```toml
 [project]
-dependencies = ["specromancy-engine==0.1.2"]
+dependencies = ["specromancy-engine==<version>"]
 ```
 
 Install your project and resolve the engine dependency from PyPI:

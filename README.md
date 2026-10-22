@@ -5,16 +5,16 @@ artifact-based agent workflows. A declarative pipeline and canonical skills
 define the work; a small CLI validates transitions and persists recoverable run
 state independently of any harness conversation.
 
-Version 0.1.2 targets Linux and macOS. The release verification matrix covers
+Specromancy Engine targets Linux and macOS. The release verification matrix covers
 Ubuntu 24.04 and macOS 15 with Python 3.11.15 and 3.14.4. Windows is unverified
 and is not claimed as supported in this release.
 
 ## Use the engine in another project
 
-Install version `0.1.2` from PyPI into your project's Python environment:
+Install from PyPI into your project's Python environment:
 
 ```sh
-python -m pip install specromancy-engine==0.1.2
+python -m pip install specromancy-engine
 specromancy --help
 ```
 
@@ -48,7 +48,7 @@ bin/specromancy adapters generate --check
 use its exact output path, skill, mutation policy, and final validation command.
 Runtime data is written only under ignored `.specromancy/runs/` storage.
 
-The `specromancy-engine` version `0.1.2` package provides the `specromancy` console
+The `specromancy-engine` package provides the `specromancy` console
 command and `python -m specromancy_engine`. The checkout wrappers
 `bin/specromancy` and `adapters/generate.py` also work without installation as
 producer-checkout conveniences. Consumers install the dependency; they do not
