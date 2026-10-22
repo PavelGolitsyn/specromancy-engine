@@ -22,6 +22,66 @@ WORKFLOW_FIXTURE = Path("tests/engine/fixtures/example-pipeline")
 
 
 class ReleaseContractTests(unittest.TestCase):
+    def assert_isolated_version(self, search_paths: list[Path], cwd: Path, expected: str) -> None:
+        script = """
+import sys
+sys.path[:0] = sys.argv[1:]
+import specromancy_engine
+print(specromancy_engine.__version__)
+"""
+        result = subprocess.run(
+            [sys.executable, "-I", "-S", "-c", script, *map(str, search_paths)],
+            cwd=cwd, capture_output=True, text=True,
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), expected)
+
+    def test_checkout_version_wins_over_installed_and_working_directory_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            checkout = root / "producer"
+            source = checkout / "src"
+            shutil.copytree(ROOT / "src/specromancy_engine", source / "specromancy_engine")
+            (checkout / "pyproject.toml").write_text(
+                '[project]\nname = "specromancy-engine"\nversion = "9.8.7"\n',
+                encoding="utf-8",
+            )
+            consumer = root / "consumer"
+            consumer.mkdir()
+            (consumer / "pyproject.toml").write_text(
+                '[project]\nname = "specromancy-engine"\nversion = "4.5.6"\n',
+                encoding="utf-8",
+            )
+            # No installation, including when invoked from an unrelated project.
+            self.assert_isolated_version([source], consumer, "9.8.7")
+            metadata = root / "site-packages/specromancy_engine-1.2.3.dist-info"
+            metadata.mkdir(parents=True)
+            (metadata / "METADATA").write_text(
+                "Metadata-Version: 2.4\nName: specromancy-engine\nVersion: 1.2.3\n",
+                encoding="utf-8",
+            )
+            self.assert_isolated_version([metadata.parent, source], consumer, "9.8.7")
+
+    def test_installed_version_uses_distribution_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            # Even a directory named src must not take another project's version.
+            (root / "pyproject.toml").write_text(
+                '[project]\nname = "consumer-project"\nversion = "4.5.6"\n',
+                encoding="utf-8",
+            )
+            for directory in ("site-packages", "src"):
+                with self.subTest(directory=directory):
+                    installed = root / directory
+                    shutil.copytree(ROOT / "src/specromancy_engine", installed / "specromancy_engine")
+                    metadata = installed / "specromancy_engine-1.2.3.dist-info"
+                    metadata.mkdir()
+                    (metadata / "METADATA").write_text(
+                        "Metadata-Version: 2.4\nName: specromancy-engine\nVersion: 1.2.3\n",
+                        encoding="utf-8",
+                    )
+                    self.assert_isolated_version([installed], root, "1.2.3")
+
     def test_package_and_installed_metadata_agree(self) -> None:
         project = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]
         distribution = importlib.metadata.distribution("specromancy-engine")

@@ -1,5 +1,6 @@
 """Harness-agnostic agentic pipeline framework."""
 
+from ._version import get_version as _get_version
 from .config import PipelineConfig, PipelineConfigError, load_pipeline
 from .engine import Engine, EngineError
 from .exit_codes import ExitCode
@@ -28,4 +29,4 @@ __all__ = [
     "load_registry",
     "validate_run_id",
 ]
-__version__ = "0.1.2"
+__version__ = _get_version()

@@ -23,6 +23,15 @@ Python 3.11 or newer, and has no third-party runtime dependencies. It installs
 the `specromancy = specromancy_engine.cli:main` console entry point. Module
 invocation is `python -m specromancy_engine`.
 
+`project.version` in [`pyproject.toml`](../../pyproject.toml) is the single version
+source. `specromancy_engine.__version__` reads it when imported from the producer's
+`src/` checkout or source export, including editable installations. Other
+installations read their distribution version through `importlib.metadata`.
+Version lookup is independent of the working directory. A checkout's version
+takes precedence over installed metadata; reinstall after a version bump to
+refresh editable-install metadata. Missing installed metadata raises
+`importlib.metadata.PackageNotFoundError` when no producer checkout is available.
+
 Action packets emit `final_validation_command` as an argv starting with
 `["specromancy"]`. Execute it with the installed console script on `PATH`;
 source-export users can put the checkout's `bin/` on `PATH`. Consumer-configured

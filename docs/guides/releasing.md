@@ -61,9 +61,11 @@ and [manual workflow triggers](https://docs.github.com/en/actions/how-tos/write-
 1. Finish the release changes and merge them into the default branch. The
    workflow accepts only a full lowercase 40-character commit SHA in that
    branch's history, not a branch name, short SHA, or pull-request-only commit.
-2. Set `project.version` in [`pyproject.toml`](../../pyproject.toml) and
-   `__version__` in [`src/specromancy_engine/__init__.py`](../../src/specromancy_engine/__init__.py)
-   to the intended release. Keep general documentation version-neutral; update
+2. Set `project.version` in [`pyproject.toml`](../../pyproject.toml) to the intended
+   release; this is the only version field to edit. The runtime `__version__`
+   is derived automatically. Reinstall editable environments with
+   `python -m pip install -e .` after a bump to refresh installed metadata.
+   Keep general documentation version-neutral; update
    it when behavior or support changes, not for a version bump alone. Preserve
    versions in historical release evidence. Distribution tests read the project version;
    isolated release tests use their own fixture version, which should not be
