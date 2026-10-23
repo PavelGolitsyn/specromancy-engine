@@ -74,7 +74,7 @@ def render_readme(source: str, repository: str, version: str) -> str:
 def build_metadata(root: Path) -> dict:
     config = tomllib.loads((root / "pyproject.toml").read_text(encoding="utf-8"))
     version = config["project"]["version"]
-    repository = config["tool"]["specromancy-build"]["repository"]
+    repository = config["tool"]["specromancy-engine-build"]["repository"]
     return {
         "long_description": render_readme((root / "README.md").read_text(encoding="utf-8"),
                                           repository, version),

@@ -12,8 +12,8 @@ license = "MIT"
 license-files = ["LICENSE"]
 dependencies = []
 
-[tool.specromancy-build]
-repository = "https://github.com/PavelGolitsyn/specromancy"
+[tool.specromancy-engine-build]
+repository = "https://github.com/PavelGolitsyn/specromancy-engine"
 
 [project.scripts]
 specromancy = "specromancy_engine.cli:main"

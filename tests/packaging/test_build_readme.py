@@ -51,7 +51,7 @@ class BuildReadmeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             (root / "pyproject.toml").write_text(
-                f'[project]\nversion = "9.8.7"\n[tool.specromancy-build]\nrepository = "{REPO}"\n')
+                f'[project]\nversion = "9.8.7"\n[tool.specromancy-engine-build]\nrepository = "{REPO}"\n')
             (root / "README.md").write_text('[Guide][guide]\n[guide]: omitted/guide.md\n')
             before = {p.name: p.read_bytes() for p in root.iterdir()}
             result = metadata(root)
