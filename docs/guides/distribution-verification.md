@@ -88,7 +88,7 @@ Local inline links are rejected with authoring guidance; inline external links
 are allowed. These conventions apply only to the root README.
 
 The version comes from `[project].version`, and the repository URL comes from
-`[tool.specromancy-build].repository` in `pyproject.toml`. The helper also derives
+`[tool.specromancy-engine-build].repository` in `pyproject.toml`. The helper also derives
 Homepage, Documentation, and Issues metadata. It needs neither Git nor network
 access, and does not inspect linked paths: some targets intentionally exist only
 in the full repository. Both helper files are included in the sdist so a rebuild
