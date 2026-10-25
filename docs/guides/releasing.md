@@ -37,7 +37,7 @@ Specromancy Engine targets Linux/macOS; Windows remains unverified.
 | --- | --- | --- |
 | PyPI project name (new project) | `specromancy-engine` | `specromancy-engine` |
 | GitHub owner | `PavelGolitsyn` | `PavelGolitsyn` |
-| Repository | `specromancy` | `specromancy` |
+| Repository | `specromancy-engine` | `specromancy-engine` |
 | Workflow filename | `release.yml` | `release.yml` |
 | Environment | `testpypi` | `pypi` |
 
