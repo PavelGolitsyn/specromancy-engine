@@ -1,6 +1,133 @@
 # Staged refactoring plan
 
-## Current plan: follow-on refactoring
+## Current plan: generated harness files from canonical workflow sources
+
+Status: **planned; implementation has not started**. Prepared on 2026-11-11
+against `d0bd655120dfd6eb2bdbc7e61fc12ae45e46f82b`.
+
+Make `.agents/` skills and root `AGENTS.md` generated outputs, with the same
+ownership and reproducibility requirements as Claude, Copilot, and OpenCode
+adapters. Users author repository instructions and phase procedures under
+`workflow/`; generic harness and orchestration templates ship inside the engine
+release. A fresh consumer must be able to execute its workflow and generate all
+adapters without `.agents/` or root `AGENTS.md` already existing.
+
+Stage 22 then adds explicit, persistent harness selection so consumers generate
+only the files required by their chosen harnesses, including shared surfaces.
+Stage 19 establishes the shared requirement sets and adapter manifest schema 2
+with all targets enabled; Stage 22 filters those sets using the same attribution.
+
+This plan continues the existing numbering and preserves completed stages 01–15
+below. It intentionally supersedes their requirement that canonical procedures
+live under `.agents/skills/`, and their promise of unchanged adapter bytes, for
+this new workstream. Other genericity, run-integrity, ownership, and dependency
+constraints remain in force. The user's requested source/output separation takes
+precedence over the current repository instruction describing the old layout.
+
+| Stage | Deliverable | Depends on |
+| --- | --- | --- |
+| [16 — Contract and baseline](16-generated-harness-contract.md) | Exact source/output layout, configuration and migration decisions, baseline evidence | Completed 01–15 |
+| [17 — Release-owned templates](17-release-owned-templates.md) | Generic templates included in wheels/sdists and read through package resources | 16 |
+| [18 — Workflow-owned procedures](18-workflow-owned-procedures.md) | Explicit canonical skill sources, independent runtime operation, preserved legacy provenance | 16–17 |
+| [19 — Independent adapter rendering](19-independent-adapter-rendering.md) | Workflow-only capture, all generated surfaces, deterministic hashes and safe ownership | 16–18 |
+| [20 — Canonical source cutover](20-canonical-source-cutover.md) | Public generator switch, repository/example migration, regenerated outputs and current docs | 16–19 |
+| [21 — Distribution verification and closeout](21-generated-harness-verification.md) | Clean-consumer wheel/sdist evidence, full-suite verification, final acceptance | 16–20 |
+| [22 — Selective harness generation](22-selective-harness-generation.md) | Persistent harness choice, required-output unions, safe deselection, installed verification | Completed 16–21 |
+
+Execute sequentially. Each stage is independently reviewable, with the generator
+switch and source migration kept together in Stage 20 so a released checkout
+never requires a partially migrated layout. Stages 17–19 prepare and verify the
+new path without disrupting current generation; Stage 20 removes superseded
+adapter code. No permanent dual generator is planned.
+Stage 21 closes the canonical-source work; Stage 22 extends that verified baseline
+and repeats the affected full-suite and distribution gates for selective output.
+
+### Requirements mapped to acceptance
+
+| Request | Planned implementation and proof |
+| --- | --- |
+| No hand-authored workflow skills, canonical skills, or prompts in `.agents` | Workflow sources in 18/20; all `.agents` surfaces generated and manifest-owned in 19/20 |
+| Root `AGENTS.md` generated like other instruction files | `workflow/instructions.md` plus release envelope; ownership/collision and rebuild tests in 19–21 |
+| Canonical templates supplied with an engine release | Package resources and wheel/sdist allowlists in 17; installed-artifact proof in 21 |
+| Adapters do not require `.agents` or root `AGENTS.md` | No output-source fallback; fresh-consumer and deleted-output regeneration cases in 19/21 |
+| Ask for harness choice during setup and generate only required files | Persistent `workflow/adapters.toml`, non-interactive generation/check, shared outputs and safe cleanup in 22 |
+| Clean, minimal, high-quality change | Reuse capture/render/ownership boundaries, one additive phase field, no new dependency/framework/CLI command; focused/full tests and documented migration |
+
+### Cross-stage constraints and verification
+
+- Preserve Python 3.11+, standard-library runtime, public facade imports, CLI
+  commands/envelopes, immutable run outputs, read-only enforcement, approvals,
+  and validated manifest/event recovery. Do not redesign persistence.
+- Keep workflow phase names and policy out of engine code and release templates.
+  User content and generated harness presentation have one-way dependencies.
+- Validate declared and resolved locations of every captured repository source,
+  including indirect dependencies, inside the actual workflow boundary. Generated
+  locations remain excluded regardless of harness selection. Package resources
+  and output/manifest ownership observations follow separate access rules.
+  Adapter CLI bootstrap must guard the registry before its initial parse; direct
+  facade capture validates the supplied registry's root/path and registration
+  locations. Reuse the guarded CLI snapshot; ordinary runtime loading stays
+  separate.
+- Require canonical frontmatter `name == skill` and unique identifier/source
+  bindings within the selected graph at runtime and across registered graphs
+  during adapter generation. Preserve lazy runtime loading and isolation from
+  unrelated invalid graphs. Generate thin phase-discovery wrappers that load
+  canonical files; embed generic orchestration in launch skills. Deduplicate
+  source reads/hashes without suppressing any required harness output or omitting
+  procedure hashes.
+- Introduce `skill_source` additively; preserve old graph hashes when it is absent.
+  Only legacy runtime compatibility retains old location semantics. New adapter
+  generation requires explicit workflow sources and never falls back to outputs.
+- Do not overwrite/adopt existing unowned root instructions or skills. Repository
+  source relocation is a reviewed edit, not an engine cleanup operation. Do not
+  rewrite stored run paths/hashes to make a migration appear compatible.
+- Validate each historical manifest with its original schema/generator-version
+  path and target rules before migration. New output ownership never widens the
+  authority of v2 records; reject forged entries before replacement or cleanup.
+- Establish shared requirements and schema-2 output consumer lists in Stage 19
+  with generator version 3. Stage 22 uses generator version 4 and the same schema
+  for selected subsets, preserving the original all-target version-3 reader.
+- Selection preserves pipeline identity and canonical skill hashes; generation
+  does not directly mutate runs. Configuration/output edits remain visible to
+  repository mutation and approval checks, including active read-only visits.
+- Install the checkout into a dedicated environment with
+  `python -m pip install -e .` before tests. Every implementation stage runs its
+  focused checks, `python -m unittest discover`, the applicable generator check,
+  and `git diff --check`. New rendering is verified in temporary fixtures before
+  cutover; the checkout check uses the current public generator at each stage.
+- Preserve original compatibility evidence. Record deliberate generator/source
+  contract changes explicitly, and keep new expectations separate from legacy
+  captures. Record actual verification and deviations before marking completion.
+- Coordinate overlapping path/packaging changes with the separate
+  [Windows plan](../windows-support/README.md) if it has advanced. This plan does
+  not implement or claim new platform support.
+
+### Planning evidence and scope
+
+The working tree was clean at inspection. This planning pass inspected adapter
+capture/rendering/ownership, phase path resolution and canonicalization,
+action/provenance handling, package inclusion rules, examples, test assumptions,
+and current authoring documentation. The initial plan added this index update
+and six new stage documents. The requested follow-up adds Stage 22 for selective
+harness generation and clarifies the Stage 21 handoff; all changes remain under
+`docs/implementation-history/refactoring/`.
+
+Review amendments strengthen the source boundary and version-specific ownership
+rules, bind skill metadata to identifiers, and replace phase-body copies with
+thin discovery wrappers. Stages 16–22 include corresponding migration and
+regression criteria; these remain planned implementation work.
+Further review amendments move registry guards before adapter CLI parsing,
+preserve runtime graph isolation, narrow selection's run-independence promise,
+and establish shared attribution before selection is introduced. Their regression
+criteria cover CLI bootstrap, unrelated invalid graphs, active-visit mutation
+checks, and schema-2 shared ownership.
+
+No implementation, environment installation, runtime test suite, distribution
+build, or adapter regeneration was performed as part of writing the plan. Stage
+16 establishes the execution baseline. Documentation links and whitespace are
+checked separately; planned acceptance criteria are not completion claims.
+
+## Completed follow-on refactoring: stages 09–15
 
 Prepared on 2026-10-04 against `c29094e58fd0369c5f0c585091a07cf4899f46b6`.
 The first refactoring pass below is complete. The new plan continues its numbering
