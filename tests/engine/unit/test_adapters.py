@@ -128,6 +128,30 @@ class AdapterGenerationTests(unittest.TestCase):
         self.assertEqual(self.fixture.snapshot(), first)
         self.fixture.generate(check=True)
 
+    def test_adapter_text_normalization_preserves_outputs_and_source_hashes(self) -> None:
+        self.fixture.generate()
+        expected = self.fixture.snapshot()
+        paths = [self.fixture.root / "AGENTS.md",
+                 self.fixture.root / ".agents/skills/compose/SKILL.md",
+                 self.fixture.root / ".agents/skills/pipeline/SKILL.md"]
+        originals = {path: path.read_bytes().rstrip(b"\n") for path in paths}
+        for newline, trailing in ((b"\r\n", 3), (b"\r", 2), (b"\n", 0)):
+            with self.subTest(newline=newline, trailing=trailing):
+                for path, content in originals.items():
+                    path.write_bytes(content.replace(b"\n", newline) + newline * trailing)
+                self.fixture.generate(check=True)
+                self.fixture.generate()
+                self.assertEqual(self.fixture.snapshot(), expected)
+
+    def test_missing_root_instructions_are_a_controlled_source_error(self) -> None:
+        # Legacy source requirement; Stage 20 replaces it with workflow/instructions.md.
+        (self.fixture.root / "AGENTS.md").unlink()
+        with self.assertRaises(AdapterError) as caught:
+            self.fixture.generate()
+        self.assertEqual(caught.exception.message, "cannot read canonical adapter source")
+        self.assertEqual(caught.exception.details["path"], "AGENTS.md")
+        self.assertFalse((self.fixture.root / MANIFEST_PATH).exists())
+
     def test_cli_captures_graphs_and_canonical_text_once_per_invocation(self) -> None:
         original_load = PipelineRegistry.load_all
         original_text = adapter_sources._normalized_text
@@ -261,6 +285,49 @@ class AdapterGenerationTests(unittest.TestCase):
         self.assertEqual(caught.exception.details["unowned"], [".claude/CLAUDE.md"])
         self.assertEqual(path.read_text(encoding="utf-8"), "user owned\n")
         self.assertFalse((self.fixture.root / MANIFEST_PATH).exists())
+
+    def test_identical_unowned_output_is_not_adopted(self) -> None:
+        relative = ".claude/CLAUDE.md"
+        expected = render_adapters(
+            self.fixture.root, load_registry(self.fixture.root),
+            adapter_command_metadata(["compose"]),
+        )[relative]
+        path = self.fixture.root / relative
+        path.parent.mkdir(parents=True)
+        path.write_bytes(expected)
+        with patch.object(adapter_ownership, "_atomic_write", side_effect=AssertionError("write")):
+            with self.assertRaises(AdapterError) as caught:
+                self.fixture.generate()
+        self.assertEqual(caught.exception.details["unowned"], [relative])
+        self.assertEqual(path.read_bytes(), expected)
+        self.assertFalse((self.fixture.root / MANIFEST_PATH).exists())
+
+    def test_v2_manifest_cannot_claim_root_instructions_or_canonical_skills(self) -> None:
+        self.fixture.generate()
+        manifest_path = self.fixture.root / MANIFEST_PATH
+        original = manifest_path.read_bytes()
+        for relative in ("AGENTS.md", ".agents/skills/pipeline/SKILL.md",
+                         ".agents/skills/compose/SKILL.md"):
+            with self.subTest(path=relative):
+                source = self.fixture.root / relative
+                content = source.read_bytes()
+                manifest = json.loads(original)
+                manifest["generated"].append({
+                    "path": relative, "sha256": sha256_bytes(content), "target": "codex",
+                })
+                manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+                before = self.fixture.snapshot()
+                for check in (False, True):
+                    with patch.object(adapter_ownership, "_atomic_write", side_effect=AssertionError("write")):
+                        with self.assertRaises(AdapterError) as caught:
+                            self.fixture.generate(check=check)
+                    if check:
+                        # v2 check compares bytes; Stage 19 adds ownership validation here.
+                        self.assertEqual(caught.exception.message, "generated adapter drift detected")
+                    else:
+                        self.assertIn("outside generated adapter locations", caught.exception.message)
+                    self.assertEqual(self.fixture.snapshot(), before)
+                    self.assertEqual(source.read_bytes(), content)
 
     def test_stale_unchanged_file_is_removed(self) -> None:
         extra = self.fixture.write_skill("extra")

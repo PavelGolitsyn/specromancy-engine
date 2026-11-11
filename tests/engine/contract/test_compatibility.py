@@ -133,6 +133,28 @@ class CompatibilityContractTests(unittest.TestCase):
             with self.subTest(state=state):
                 self.assertEqual(files, expected[state])
 
+    def test_visit_provenance_hashes_raw_skill_bytes_and_preserves_old_records(self) -> None:
+        fixture = CompatibilityFixture()
+        self.addCleanup(fixture.close)
+        skill = fixture.pipeline.phase("compose").skill_path
+        normalized = skill.read_bytes()
+        raw = normalized.replace(b"\n", b"\r\n") + b"\r\n"
+        skill.write_bytes(raw)
+        action = fixture.engine.initialize("Capture raw procedure bytes.")["action"]
+        expected = {"path": ".agents/skills/compose/SKILL.md",
+                    "sha256": hashlib.sha256(raw).hexdigest()}
+        self.assertEqual(fixture.store.load(RUN_ID)["visits"][0]["skill"], expected)
+        self.assertEqual(action["skill"]["path"], expected["path"])
+        self.assertEqual(action["skill"]["sha256"], expected["sha256"])
+        before = fixture.snapshot()
+        skill.write_bytes(normalized)
+        self.assertEqual(config.load_pipeline(fixture.path, fixture.root).config_hash,
+                         fixture.pipeline.config_hash)
+        with self.assertRaises(engine.EngineError) as caught:
+            fixture.engine.start_phase(RUN_ID, "compose")
+        self.assertEqual(caught.exception.diagnostic_code, "provenance-hash-mismatch")
+        self.assertEqual(fixture.snapshot(), before)
+
     def test_version_one_records_replay_and_recovery_is_exactly_once(self) -> None:
         states = read_record("states.json")
         responses = read_record("responses-current.json")

@@ -1,6 +1,9 @@
 # Stage 16 — Define the generated-harness contract
 
-Status: **planned; not implemented**. Prepared 2026-11-11 against
+Status: **complete**. Executed 2026-11-11 against
+`b1e64d4efd7b4147a6d0afdaf2d615c36701f43e` with an initially clean working tree.
+Design and characterization only; the new generator remains future work.
+Prepared 2026-11-11 against
 `d0bd655120dfd6eb2bdbc7e61fc12ae45e46f82b`.
 Prerequisite: completed stages 01–15. Category: design and characterization.
 
@@ -204,12 +207,210 @@ Use that environment's interpreter and scripts on `PATH`; an existing provisione
 environment may use `--no-index --no-build-isolation` when it has the pinned build
 backend. Record the actual command. This planning pass did not run these tests.
 
-- [ ] The source/output boundary, additive field, normalization, and compatibility
+- [x] The source/output boundary, additive field, normalization, and compatibility
   policy are documented and backed by an inventory.
-- [ ] No stage requires generated output as an upstream source.
-- [ ] Resolved source boundaries, skill identity, thin wrappers, and versioned
+- [x] No stage requires generated output as an upstream source.
+- [x] Resolved source boundaries, skill identity, thin wrappers, and versioned
   ownership restrictions are explicit, with regression cases assigned below.
-- [ ] Baseline focused/full tests and existing adapter check pass.
-- [ ] No runtime, workflow, generated file, or user run is changed by this stage.
+- [x] Baseline focused/full tests and existing adapter check pass.
+- [x] No runtime, workflow, generated file, or user run is changed by this stage.
 
-Record implementation results in this document before marking it complete.
+## Execution inventory
+
+Rechecked the inspected-evidence table against the execution revision. Its
+source-discovery, configuration, CLI bootstrap, packaging, and ownership
+observations still apply. Stage 16 changes only this record, the plan index, and
+the three specified test modules. No public runtime contract changes yet.
+
+### Canonical files and generated ownership
+
+| Current input or surface | Inventory and migration destination |
+| --- | --- |
+| Root `AGENTS.md` | User-owned instructions, currently read and hashed by capture; move policy to `workflow/instructions.md` in Stage 20, then generate the root envelope |
+| `workflow/pipelines.toml` | One registration, `implementation`, pointing to `pipelines/implementation.toml`; retain registry-relative graph paths |
+| `workflow/pipelines/implementation.toml` | Four phases using `research`, `plan`, `implement`, `review`; add explicit repository-relative `skill_source` declarations in Stage 20 |
+| `.agents/skills/{research,plan,implement,review}/SKILL.md` | Four canonical phase procedures; relocate to corresponding `workflow/skills/<id>/SKILL.md` in Stage 20 |
+| `.agents/skills/pipeline/SKILL.md` | Generic canonical orchestration, required by current capture; package generic content in Stage 17, retire repository source at Stage 20 |
+| `workflow/templates/{implementation,plan,research,review}.md` | Four graph-referenced artifact templates, captured as raw dependency bytes today; remain canonical workflow inputs |
+| `workflow/templates/request.md` and `workflow/README.md` | Workflow support/documentation, not captured adapter inputs; no new arbitrary directory scanning |
+| `_adapters/adapter_rendering.py` | Inline instruction, command, launch, provenance, and skill-mirroring content; release resources replace the generic templates in Stages 17–19 |
+| CLI metadata | Derived command definitions, not a repository filesystem source; retain deterministic capture |
+| `adapters/generate.py` | Compatibility launcher, not canonical policy or a manifest-owned generated output |
+
+The checked-in manifest uses schema **1**, generator **specromancy v2**, and
+canonical-source digest
+`74710ca101bc40c7757e56037e287638d366eba03976365c6a272b04a7e04027`.
+Its 13 inputs are instructions, registry, graph, four template dependencies,
+five canonical skills, and CLI metadata. Release template bytes/identity are not
+currently independent hash inputs. Normalization applies to instruction/skill
+text; registry/graph hashes use canonical JSON; dependencies use raw bytes.
+
+It owns **21 output files**, plus the separately written manifest:
+
+| Target attribution in v2 | Exact output families | Count |
+| --- | --- | --- |
+| Codex | `.agents/skills/specromancy-implementation/SKILL.md` | 1 |
+| Claude | `.claude/CLAUDE.md`; `.claude/commands/specromancy/{init,phase,resume,status}.md`; `.claude/skills/{implement,pipeline,plan,research,review,specromancy-implementation}/SKILL.md` | 11 |
+| Copilot | `.github/copilot-instructions.md`; `.github/prompts/specromancy-{init,phase,resume,status}.prompt.md` | 5 |
+| OpenCode | `.opencode/commands/specromancy-{init,phase,resume,status}.md` | 4 |
+
+Codex and Hermes are recorded as native targets, both discovering the shared
+launch skill; Hermes owns no separate output. Root `AGENTS.md` and ordinary
+`.agents` skills are unowned. The current ownership reader validates schema,
+paths, target mapping, duplicates, and hashes, but **does not validate generator
+identity/version**. Current check mode compares expected bytes without running
+that ownership reader. Stage 19 must validate both modes before granting any
+new output authority. Preserve v1 compatibility captures and document any
+additional supported historical combination under its original restrictions.
+
+### References, fixtures, and packaging
+
+- Current launch skills explicitly load `.agents/skills/pipeline/SKILL.md`;
+  Claude phase mirrors copy full canonical bodies. Stages 19–20 replace these
+  dependencies with embedded generic orchestration and thin canonical-file
+  references. No new source reader may consume a generated wrapper.
+- Audited the five producer procedures and three release-documentation example
+  procedures: no Markdown relative support links or `../` references need
+  rebasing. Procedures use action-packet resource paths and commands from the
+  consumer root. The generic orchestrator references `workflow/pipelines.toml`
+  from that root. Graph template references such as `../templates/research.md`
+  and the example's `../templates/release-notes.md` remain graph-relative.
+  Stage 19 still needs an explicit relative-support-file fixture to prove that
+  thin wrappers preserve the canonical file's reference base.
+- The consumer example owns `AGENTS.md`, its registry/graph, two artifact
+  templates, and `.agents` skills `pipeline`, `draft-release-notes`, and
+  `review-release-notes`. Migrate these together in Stage 20. `MANIFEST.in` and
+  `tools/verify_distribution.py` explicitly list those hidden skill paths;
+  `tools/distribution_smoke.py` and `tests/packaging/test_distribution.py` verify
+  the packaged consumer. Package data currently includes only schema JSON.
+- Ordinary on-disk fixtures to migrate in Stage 20: `config-valid-minimal`,
+  `config-valid-branch`, `config-valid-loop`, `example-pipeline`, and
+  `replacement-pipeline` under `tests/engine/fixtures/`. Phase IDs can differ
+  from skill IDs (for example `inspect` uses `research`); preserve that distinction
+  and validate metadata against `skill` during migration rather than inferring
+  identities from phase IDs or directory names. Temporary fixture builders in unit/contract
+  tests and `tests/engine/support.py` need the same audit. Keep deliberate legacy
+  cases separate.
+- Preserve `tests/engine/fixtures/refactoring-compatibility/` byte-for-byte,
+  including source files, v1/v2 adapter captures, canonical JSON, responses,
+  diagnostics, and stored run/event snapshots. New expectations belong in
+  separate cases, never regenerated historical records.
+- Active documentation to update with cutover: `README.md`, `docs/README.md`,
+  `workflow/README.md`, `tests/README.md`, the consumer example README,
+  guides `installation`, `authoring-pipelines`, `harnesses`, and
+  `distribution-verification`, and references `architecture`, `contracts`,
+  `harness-compatibility`, and `cli`. Leave current usage guidance accurate until
+  Stage 20; this design record describes the future contract.
+
+### Existing-run constraint
+
+Read the local run files directly without invoking recovery or other mutating
+CLI commands. Run `20261029T211240Z-41c13687` has schema 1, revision 2, status
+`awaiting-agent`, current visit 1 (`research`, pending), and no approvals. Its
+saved graph is `workflow/pipelines/implementation.toml` with hash
+`83f485004e10fa7ef664e982f146a793a5fcf7f43e7fcf0fb67eb3f807a93d13`.
+The pending visit seals `.agents/skills/research/SKILL.md` with hash
+`e074c668eac368f16f2ea004a8034a76a4b00f13e4c62d0dfa81f7801bb6431d`
+and `workflow/templates/research.md` with hash
+`a8706ba65d53b85a35a54a186099ab5a40aa847162226cbd4069ff7f3aeb5f88`.
+
+This is a concrete Stage 20 migration constraint, even though the visit has not
+started. Replacing the skill with a wrapper or adding `skill_source` to its graph
+cannot transparently continue that run. Recheck at cutover: finish it under the
+original files or retain an original checkout for continuation before replacing
+overlapping paths. Do not infer permission to finish it from this stage request,
+rewrite provenance, or move its immutable request artifact. All three local run
+files remain unchanged in this stage.
+
+The Windows plan is still marked planned in its index and all seven stages;
+there is no completed implementation to merge here. Its repository-only path
+boundary and canonical hidden-skill statement remain legacy runtime guidance.
+For the new adapter path, this workstream's stricter workflow boundary takes
+precedence. Coordinate shared path helpers, package allowlists, and invocation
+tests when either workstream advances; no native Windows support is claimed.
+
+## Regression allocation and intentional changes
+
+These are future acceptance cases, not skipped or failing baseline tests. Use
+temporary repositories with sentinel source/output bytes and assert rejection
+before source reads or mutations at the boundary concerned.
+
+| Fixture case | Required assertion and implementing stage |
+| --- | --- |
+| Only canonical workflow inputs; no harness directories/root instructions/manifest | Runtime validate/init/phase/resume succeeds (18); generation/check and deleted-output rebuild succeed (19–21) |
+| Missing/unreadable `workflow/instructions.md` or declared skill, with a same-named generated file present | Controlled source-labelled error, no fallback or writes (18–20) |
+| Frontmatter mismatch, missing/invalid supported metadata, reserved `pipeline` or `specromancy-*` identifier | Controlled identity error; never silently rename metadata (18–19) |
+| Repeated identical binding; one ID with distinct sources; two IDs aliasing one file; alternate declared spellings and descendant symlinks | Accept reuse; reject ambiguous identity before read/hash deduplication; render every required wrapper (18–19) |
+| Valid selected graph plus unrelated invalid graph or cross-graph collision | Selected runtime stays lazy/usable; repository-wide generation fails (18–20) |
+| Instructions, skill, registry, graph, template, validator directly or indirectly point at root instructions, harness files, manifest, or owned outputs | Check declared and resolved locations before parse/hash, including malformed target content and absent generated locations; apply to unselected targets too (18–20, 22) |
+| Symlinked workflow root; descendant file/parent symlink outside workflow but inside repository; safe descendant symlink and `../templates` within workflow | Reject root/escape, accept safe descendants and graph-relative resources (18–19) |
+| CLI registry symlink versus already-loaded public facade registry | Guard before initial CLI parse; validate facade root/path/registration locations; reuse one CLI snapshot (18 preparation, 19 capture, 20 dispatch) |
+| Canonical skill referencing adjacent support file; body-only skill edit | Wrapper directs loading canonical file with its reference base; full body remains hashed even when wrapper bytes stay identical (19) |
+| Forged v2 manifest claims root instructions, pipeline skill, or phase skill with matching hashes | Reject as desired output and as stale output before replacement/deletion; validate old target restrictions in generate and check (19) |
+| Missing/malformed/unknown generator/schema combinations and wrong target attribution | Controlled failure before writes; valid v2 and explicitly supported historical manifests migrate under original rules (19) |
+| Unowned root/skill output identical to expected; unrelated skill/support file; modified stale owned output | No adoption, recursive ownership, or collateral deletion; stale removal requires recorded hash (19–20) |
+| Release-template edit, version change, separate install path, CRLF/trailing newlines | Capture actual package bytes/identity; deterministic normalized text; installation location excluded (17, 19, 21) |
+| Legacy run with unchanged sources, moved source, edited body, or normalized line endings | Preserve historical replay and raw-byte drift checks; additive source field changes graph identity; never rewrite old records (18, 20–21) |
+| Selected harness subsets and shared surfaces | Schema-2 consumer unions, no duplicate ownership; source exclusions independent of selection; configuration/output edits still visible to mutation checks (22) |
+
+Expected deltas are limited to adapter source hashes/input labels, generated
+bytes/paths and ownership attribution, explicit-source pipeline identity and
+`action.skill` paths, and missing/unsafe-source diagnostics for the new path.
+Release resources add `@package/...` provenance labels without filesystem
+resolution in consumer repositories. Phase-wrapper headers identify source paths
+and templates, not content digests. Adapter instruction/skill text remains UTF-8,
+LF, one trailing newline; runtime provenance and approved artifacts keep raw
+bytes. CLI commands/envelopes, public adapter signatures, run/event schemas,
+legacy graph hashes without the new field, mutation enforcement, and approval
+invalidation retain their contracts.
+
+Stages 17–19 intentionally retain the existing public generator while preparing
+the independent path; this temporary sequencing does not make generated outputs
+inputs to the new design. Stage 20 switches capture and migrates sources together.
+
+## Characterization and verification results
+
+Added six focused tests without changing fixtures or runtime:
+
+- Adapter text normalization across CRLF, CR, and missing/extra final newlines
+  preserves generated bytes and manifest hashes.
+- Missing legacy root instructions produce the controlled source error.
+- An identical unowned output is rejected without adoption or writes.
+- Matching-hash v2 manifest claims on root instructions and canonical skills
+  cannot authorize writes; check reports drift and preserves files.
+- Legacy skill lookup and diagnostics retain the hidden path; editing procedure
+  content leaves canonical graph bytes/hash unchanged and omits `skill_source`.
+- Visit/action provenance hashes raw CRLF skill bytes; a normalization-only edit
+  blocks activation without rewriting stored run/events.
+
+Existing tests already cover missing orchestration, deterministic generation,
+no-write drift checks, stale-file races, source diagnostics, repository escapes,
+graph-relative dependencies, sequential old-run replay/recovery, and historical
+adapter bytes. The first focused run exposed two test assumptions: the render
+facade requires CLI metadata, and check mode reports byte drift rather than
+ownership diagnostics. Corrected the tests to characterize the public behavior;
+the stronger check-mode validation remains explicitly assigned to Stage 19.
+
+Verification used the existing dedicated `.venv` with Python 3.14.4 on macOS
+(Darwin arm64). Actual
+commands (the PATH prefix selects that environment's interpreter and scripts):
+
+```sh
+.venv/bin/python -m pip install --no-index --no-build-isolation -e .
+PATH="$PWD/.venv/bin:$PATH" python -m unittest tests.engine.unit.test_adapters tests.engine.unit.test_config tests.engine.contract.test_compatibility
+PATH="$PWD/.venv/bin:$PATH" python -m unittest discover
+PATH="$PWD/.venv/bin:$PATH" specromancy adapters generate --check
+git diff --check
+```
+
+Editable installation succeeded using the provisioned pinned backend. Final
+focused tests: **68 passed** in 0.589 seconds. Full suite: **322 passed** in
+49.387 seconds, with no reported skips. Adapter check: **generated adapters are
+up to date**. `git diff --check` passed. A SHA-256 comparison against the
+pre-edit inventory found all 54 protected files unchanged: root instructions,
+workflow, harness surfaces, adapters, local run files, and historical compatibility
+captures. The final diff contains only the two plan documents and three test
+modules listed above. No adapter generation was
+performed in the checkout. Python 3.11, other operating systems, and distribution
+builds were not rerun for this characterization stage; their acceptance remains
+with the implementing stages.

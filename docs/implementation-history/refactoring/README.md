@@ -2,7 +2,11 @@
 
 ## Current plan: generated harness files from canonical workflow sources
 
-Status: **planned; implementation has not started**. Prepared on 2026-11-11
+Status: **Stage 16 complete; Stages 17–22 planned**. Stage 16 recorded the source,
+ownership, reference, and existing-run inventory and added passing characterization
+without changing runtime, workflow, generated files, or runs. See its execution
+record for verification and the concrete unfinished-run migration constraint.
+Prepared on 2026-11-11
 against `d0bd655120dfd6eb2bdbc7e61fc12ae45e46f82b`.
 
 Make `.agents/` skills and root `AGENTS.md` generated outputs, with the same

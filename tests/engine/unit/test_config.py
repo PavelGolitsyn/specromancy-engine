@@ -241,6 +241,22 @@ class ConfigTests(unittest.TestCase):
         )
         self.assert_error(document(phase), "missing-file")
 
+    def test_legacy_skill_resolution_and_hash_do_not_depend_on_procedure_bytes(self) -> None:
+        path = self.fixture.write(document())
+        first = load_pipeline(path)
+        skill = self.fixture.root / ".agents/skills/compose/SKILL.md"
+        self.assertEqual(first.phase("compose").skill_path, skill.resolve())
+        self.assertNotIn("skill_source", json.loads(first.canonical_json)["phases"][0])
+        skill.write_bytes(skill.read_bytes() + b"\nUpdated procedure.\n")
+        self.assertEqual(load_pipeline(path).canonical_json, first.canonical_json)
+        self.assertEqual(load_pipeline(path).config_hash, first.config_hash)
+        skill.unlink()
+        with self.assertRaises(PipelineConfigError) as caught:
+            load_pipeline(path)
+        self.assertEqual(caught.exception.diagnostic_code, "missing-file")
+        self.assertEqual(caught.exception.details["field"], "skill")
+        self.assertEqual(caught.exception.details["value"], ".agents/skills/compose/SKILL.md")
+
     def test_unsafe_template_and_output_paths_are_rejected(self) -> None:
         (self.fixture.root / "outside.md").write_text("# Safe parent\n", encoding="utf-8")
         phase = PHASE.replace(
