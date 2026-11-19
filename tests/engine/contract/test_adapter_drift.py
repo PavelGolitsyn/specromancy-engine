@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import json
 import re
 import shutil
@@ -7,8 +8,13 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from importlib.resources import files
 from pathlib import Path
 
+from specromancy_engine.adapters import MANIFEST_PATH, AdapterError, _generate_workflow_adapters
+from specromancy_engine.registry import load_adapter_registry
+from tests.engine.contract.compatibility_support import read_record
+from tests.engine.support import MultiPipelineFixture, write_workflow_skill
 from specromancy_engine.contracts import RESERVED_COMMANDS
 from specromancy_engine.hashing import sha256_bytes
 
@@ -151,6 +157,188 @@ class AdapterDriftContractTests(unittest.TestCase):
             with self.subTest(path=entry["path"]):
                 for marker in forbidden:
                     self.assertNotIn(marker, text)
+
+
+
+class WorkflowOwnershipTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.fixture = MultiPipelineFixture(workflow_only=True)
+        self.addCleanup(self.fixture.close)
+        self.root = self.fixture.root
+        self.manifest_path = self.root / MANIFEST_PATH
+
+    def generate(self, check=False):
+        return _generate_workflow_adapters(self.root, load_adapter_registry(self.root), check=check)
+
+    def tree(self):
+        return {p.relative_to(self.root): (p.read_bytes(), p.stat().st_mtime_ns)
+                for p in self.root.rglob("*") if p.is_file() and ".git" not in p.parts}
+
+    def rejected(self, message):
+        before = self.tree()
+        for check in (True, False):
+            with self.assertRaisesRegex(AdapterError, message):
+                self.generate(check=check)
+            self.assertEqual(self.tree(), before)
+
+    def install_capture(self, name):
+        snapshot = read_record(name)
+        for relative, record in snapshot.items():
+            target = self.root / relative
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(record["text"], encoding="utf-8")
+        return json.loads(self.manifest_path.read_bytes())
+
+    def test_independent_consumer_and_package_locations_produce_identical_files(self):
+        self.generate()
+        manifest = json.loads(self.manifest_path.read_bytes())
+        outputs = [entry["path"] for entry in manifest["generated"]] + [MANIFEST_PATH]
+        with tempfile.TemporaryDirectory() as directory:
+            install = Path(directory) / "lib"
+            shutil.copytree(files("specromancy_engine"), install / "specromancy_engine",
+                            ignore=shutil.ignore_patterns("__pycache__"))
+            consumer = Path(directory) / "consumer"
+            shutil.copytree(self.root / "workflow", consumer / "workflow")
+            script = """
+import sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+from specromancy_engine import adapters
+from specromancy_engine.registry import load_adapter_registry
+assert Path(adapters.__file__).resolve().is_relative_to(Path(sys.argv[1]).resolve())
+root = Path(sys.argv[2]).resolve()
+for check in (False, True):
+    adapters._generate_workflow_adapters(root, load_adapter_registry(root), check=check)
+"""
+            subprocess.run([sys.executable, "-I", "-c", script, str(install), str(consumer)],
+                           cwd=directory, check=True)
+            for path in outputs:
+                self.assertEqual((self.root / path).read_bytes(), (consumer / path).read_bytes(), path)
+
+    def test_frozen_historical_manifests_migrate_under_original_rules(self):
+        for name in ("adapters.json", "adapters-generator-v2.json"):
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
+                original = self.root
+                self.root = Path(directory).resolve()
+                self.manifest_path = self.root / MANIFEST_PATH
+                shutil.copytree(original / "workflow", self.root / "workflow")
+                historical = self.install_capture(name)
+                # An uppercase skill directory was legal for old Claude mirrors.
+                extra = ".claude/skills/Extra.Name/SKILL.md"
+                target = self.root / extra
+                target.parent.mkdir(parents=True)
+                target.write_bytes(b"old mirror")
+                historical["generated"].append({"path": extra, "sha256": sha256_bytes(b"old mirror"),
+                                                "target": "claude"})
+                claude = next(t for t in historical["targets"] if t["name"] == "claude")
+                claude["paths"] = sorted([*claude["paths"], extra])
+                self.manifest_path.write_text(json.dumps(historical))
+                self.assertIn(extra, self.generate()["adapters"]["removed"])
+                self.assertFalse(target.exists())
+                self.generate(check=True)
+                self.assertEqual(json.loads(self.manifest_path.read_bytes())["schema_version"], 2)
+                self.root = original
+                self.manifest_path = original / MANIFEST_PATH
+
+    def test_forged_v2_cannot_replace_or_remove_even_matching_files(self):
+        manifest = self.install_capture("adapters-generator-v2.json")
+        for path in ("AGENTS.md", ".agents/skills/pipeline/SKILL.md", ".agents/skills/compose/SKILL.md",
+                     ".agents/skills/retired/SKILL.md"):
+            with self.subTest(path=path):
+                target = self.root / path
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(b"private original")
+                forged = copy.deepcopy(manifest)
+                forged["generated"].append({"path": path, "sha256": sha256_bytes(target.read_bytes()),
+                                            "target": "codex"})
+                self.manifest_path.write_text(json.dumps(forged))
+                self.rejected("outside generated adapter locations")
+        manifest["generated"][0]["target"] = "hermes"
+        self.manifest_path.write_text(json.dumps(manifest))
+        self.rejected("target does not match")
+
+    def test_manifest_identity_shape_paths_hashes_and_attribution_are_checked(self):
+        self.generate()
+        original = self.manifest_path.read_bytes()
+
+        def entry(manifest):
+            return next(r for r in manifest["generated"] if r["path"] == "AGENTS.md")
+
+        for change in (
+            lambda m: m.pop("generator"), lambda m: m.update(generator=[]),
+            lambda m: m["generator"].update(name="other"), lambda m: m["generator"].update(version=True),
+            lambda m: m["generator"].update(version="3"), lambda m: m["generator"].update(version=2),
+            lambda m: m["generator"].pop("command"), lambda m: m.update(schema_version=1),
+            lambda m: m["generated"].append(entry(m)), lambda m: entry(m).update(path=MANIFEST_PATH),
+            lambda m: entry(m).update(path=".agents/skills/../owned"), lambda m: entry(m).update(sha256="bad"),
+            lambda m: entry(m).pop("targets"), lambda m: entry(m).update(targets=[]),
+            lambda m: entry(m).update(target="codex"), lambda m: entry(m)["targets"].reverse(),
+            lambda m: entry(m)["targets"].append("other"), lambda m: entry(m)["targets"].append("hermes"),
+            lambda m: entry(m)["targets"].remove("hermes"), lambda m: m["targets"].pop(),
+            lambda m: m["targets"][0]["paths"].append("AGENTS.md"),
+            lambda m: m["targets"][1]["discovery_paths"].append(".claude/CLAUDE.md"),
+        ):
+            manifest = json.loads(original)
+            change(manifest)
+            self.manifest_path.write_text(json.dumps(manifest))
+            with self.subTest(line=change.__code__.co_firstlineno):
+                self.rejected("adapter manifest")
+
+    def test_unowned_expected_files_and_unrelated_skills(self):
+        self.generate()
+        manifest = json.loads(self.manifest_path.read_bytes())
+        original = {r["path"]: (self.root / r["path"]).read_bytes() for r in manifest["generated"]}
+        self.manifest_path.unlink()
+        for path in original:
+            (self.root / path).unlink()
+        for path in ("AGENTS.md", ".agents/skills/pipeline/SKILL.md", ".claude/skills/compose/SKILL.md"):
+            target = self.root / path
+            target.write_bytes(original[path])
+            before = self.tree()
+            with self.assertRaises(AdapterError) as caught:
+                self.generate()
+            self.assertEqual(caught.exception.details["unowned"], [path])
+            self.assertEqual(self.tree(), before)
+            target.unlink()
+        foreign = [self.root / parent / "skills/specromancy-foreign/SKILL.md" for parent in (".agents", ".claude")]
+        for target in foreign:
+            target.parent.mkdir()
+            target.write_bytes(b"unrelated skill")
+        self.generate()
+        self.generate(check=True)
+        self.assertTrue(all(p.read_bytes() == b"unrelated skill" for p in foreign))
+
+    def test_modified_stale_phase_and_launch_block_all_writes(self):
+        beta = self.root / "workflow/pipelines/beta.toml"
+        write_workflow_skill(self.root, "second")
+        beta.write_text(beta.read_text().replace("compose", "second"))
+        self.generate()
+        self.fixture.register("alpha")
+        stale = {f"{directory}/skills/{name}/SKILL.md" for directory in (".agents", ".claude")
+                 for name in ("second", "specromancy-beta")}
+        with self.assertRaises(AdapterError) as caught:
+            self.generate(check=True)
+        self.assertEqual(caught.exception.details["unexpected"], sorted(stale))
+        path = self.root / ".agents/skills/second/SKILL.md"
+        original = path.read_bytes()
+        path.write_bytes(b"modified")
+        before = self.tree()
+        with self.assertRaises(AdapterError) as caught:
+            self.generate()
+        self.assertEqual(caught.exception.details["stale_modified"], [path.relative_to(self.root).as_posix()])
+        self.assertEqual(before, self.tree())
+        path.write_bytes(original)
+        self.assertEqual(self.generate()["adapters"]["removed"], sorted(stale))
+        self.generate(check=True)
+
+    def test_manifest_and_output_symlink_parents_fail_before_writes(self):
+        with tempfile.TemporaryDirectory() as outside:
+            for directory in ("adapters", ".claude"):
+                link = self.root / directory
+                link.symlink_to(outside, target_is_directory=True)
+                self.rejected("unsafe|drift|protect")
+                self.assertEqual(list(Path(outside).iterdir()), [])
+                link.unlink()
 
 
 if __name__ == "__main__":

@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from functools import cache
 from importlib.resources import files
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from .adapter_contracts import ADAPTER_COMMANDS, AdapterError
+from .._config.config_fields import FieldContext
 from .._cli.cli_commands import adapter_command_metadata
 from .._version import get_version
 from ..hashing import canonical_json_bytes, relative_path, sha256_bytes
@@ -52,7 +54,7 @@ def capture_release_inputs() -> tuple[SourceInput, ...]:
 
 
 @dataclass(frozen=True, slots=True)
-class AdapterSources:
+class LegacyAdapterSources:
     pipelines: tuple[PipelineConfig, ...]
     agents: str
     skills: tuple[tuple[str, str], ...]
@@ -65,7 +67,7 @@ def capture_sources(
     command_metadata: Mapping[str, Any] | None,
     *,
     include_manifest_inputs: bool = True,
-) -> AdapterSources:
+) -> LegacyAdapterSources:
     """Read sources once for rendering and hashing; retain no cross-call cache."""
 
     if root != registry.repository_root:
@@ -78,16 +80,7 @@ def capture_sources(
             "canonical pipeline orchestrator skill is missing",
             {"path": ".agents/skills/pipeline/SKILL.md"},
         )
-    if command_metadata is None:
-        phases = sorted({phase for pipeline in pipelines for phase in pipeline.phase_ids})
-        command_metadata = adapter_command_metadata(phases)
-    cli_commands = _known_cli_commands(command_metadata)
-    for command in ADAPTER_COMMANDS:
-        if command.cli_command not in cli_commands:
-            raise AdapterError(
-                "adapter command is absent from CLI metadata",
-                {"command": command.cli_command},
-            )
+    command_metadata = _command_metadata(pipelines, command_metadata)
 
     # Validate portable frontmatter before collecting manifest dependencies, as
     # rendering did before source capture was extracted.
@@ -97,7 +90,7 @@ def capture_sources(
 
     # The public render-only facade historically did not read dependency bytes.
     if not include_manifest_inputs:
-        return AdapterSources(pipelines, agents, tuple(skill_sources), ())
+        return LegacyAdapterSources(pipelines, agents, tuple(skill_sources), ())
 
     inputs = [
         SourceInput("repository-instructions", "AGENTS.md", agents.encode("utf-8")),
@@ -121,7 +114,7 @@ def capture_sources(
     inputs.append(SourceInput(
         "cli-help-metadata", "@cli-help-metadata", canonical_json_bytes(command_metadata),
     ))
-    return AdapterSources(pipelines, agents, tuple(skill_sources), tuple(inputs))
+    return LegacyAdapterSources(pipelines, agents, tuple(skill_sources), tuple(inputs))
 
 
 def _skill_sources(root: Path) -> list[tuple[str, str]]:
@@ -163,3 +156,119 @@ def _known_cli_commands(metadata: Mapping[str, Any]) -> set[str]:
         if isinstance(item, Mapping) and isinstance(item.get("name"), str):
             known.add(item["name"])
     return known
+
+
+def _command_metadata(
+    pipelines: tuple[PipelineConfig, ...], command_metadata: Mapping[str, Any] | None,
+) -> Mapping[str, Any]:
+    if command_metadata is None:
+        phases = sorted({phase for pipeline in pipelines for phase in pipeline.phase_ids})
+        command_metadata = adapter_command_metadata(phases)
+    cli_commands = _known_cli_commands(command_metadata)
+    for command in ADAPTER_COMMANDS:
+        if command.cli_command not in cli_commands:
+            raise AdapterError(
+                "adapter command is absent from CLI metadata",
+                {"command": command.cli_command},
+            )
+
+    return command_metadata
+
+
+@dataclass(frozen=True, slots=True)
+class WorkflowSkill:
+    name: str
+    source: SourceInput
+    frontmatter: str
+
+
+@dataclass(frozen=True, slots=True)
+class AdapterSources:
+    pipelines: tuple[PipelineConfig, ...]
+    instructions: SourceInput
+    skills: tuple[WorkflowSkill, ...]
+    templates: Mapping[str, SourceInput]
+    command_help: Mapping[str, str]
+    inputs: tuple[SourceInput, ...]
+
+
+def capture_workflow_sources(
+    root: Path, registry: PipelineRegistry, command_metadata: Mapping[str, Any] | None,
+    *, include_manifest_inputs: bool = True,
+) -> AdapterSources:
+    """Validate a registry snapshot and capture workflow inputs for generator v3.
+
+    A caller's reads before supplying the registry are outside this guarantee.
+    Render-only still validates graphs but skips bytes needed only for provenance.
+    """
+    context = FieldContext(registry.path, root)
+
+    @cache
+    def read(path: Path) -> bytes:
+        # Declarations have their own guards. Recheck the resolved file on its
+        # first read, including validator reads performed inside graph parsing.
+        label = path.relative_to(root).as_posix()
+        checked = context.workflow_path(label, "adapter-source")
+        if checked != path:
+            raise AdapterError("workflow source location changed during capture", {"path": label})
+        return checked.read_bytes()
+
+    pipelines = registry.load_adapter_pipelines(root, read_bytes=read)
+    label = "workflow/instructions.md"
+    instructions = _workflow_text(
+        "repository-instructions", label, context.workflow_path(label, "instructions"), read,
+    )
+    skills: dict[str, WorkflowSkill] = {}
+    dependencies: set[Path] = set()
+    for pipeline in pipelines:
+        for phase in pipeline.phases:
+            if phase.skill not in skills:
+                assert phase.skill_source is not None  # checked across all registrations
+                source = _workflow_text("canonical-skill", phase.skill_source, phase.skill_path, read)
+                lines = source.content.decode("utf-8").splitlines()
+                frontmatter = "\n".join(lines[1:lines.index("---", 1)])
+                skills[phase.skill] = WorkflowSkill(phase.skill, source, frontmatter)
+            for path in (phase.output_template_path, phase.validator.resolved_path):
+                if path is not None:
+                    dependencies.add(path)
+
+    metadata = _command_metadata(pipelines, command_metadata)
+    command_help = {entry["name"]: entry["help"] for entry in metadata["commands"]
+                    if isinstance(entry, Mapping) and isinstance(entry.get("name"), str)
+                    and isinstance(entry.get("help"), str)}
+    release = capture_release_inputs()
+    templates = {
+        source.path.rsplit("/", 1)[-1]: source for source in release if source.kind == "release-template"
+    }
+    inputs = []
+    if include_manifest_inputs:
+        inputs = [
+            instructions,
+            *release,
+            SourceInput("validated-registry", registry.path.relative_to(root).as_posix(),
+                        registry.canonical_json.encode("utf-8")),
+            SourceInput("cli-help-metadata", "@cli-help-metadata", canonical_json_bytes(metadata)),
+        ]
+        inputs.extend(skill.source for skill in skills.values())
+        for pipeline in pipelines:
+            inputs.append(SourceInput(
+                "validated-pipeline", pipeline.path.relative_to(root).as_posix(), pipeline.canonical_json.encode("utf-8"),
+            ))
+        for path in sorted(dependencies):
+            label = path.relative_to(root).as_posix()
+            try:
+                inputs.append(SourceInput("pipeline-dependency", label, read(path)))
+            except OSError as exc:
+                raise AdapterError("cannot read pipeline dependency", {"path": label}) from exc
+    return AdapterSources(
+        pipelines, instructions, tuple(skills[name] for name in sorted(skills)),
+        templates, command_help, tuple(sorted(inputs, key=lambda source: source.path)),
+    )
+
+
+def _workflow_text(kind: str, label: str, path: Path, read: Callable[[Path], bytes]) -> SourceInput:
+    try:
+        text = read(path).decode("utf-8").replace("\r\n", "\n").replace("\r", "\n")
+    except (OSError, UnicodeError) as exc:
+        raise AdapterError("cannot read canonical adapter source", {"path": label}) from exc
+    return SourceInput(kind, label, (text.rstrip("\n") + "\n").encode("utf-8"))

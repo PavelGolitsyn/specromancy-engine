@@ -5,13 +5,14 @@ from __future__ import annotations
 import json
 import re
 import tomllib
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import NoReturn
 
 from ._config.config_errors import PipelineConfigError
 from ._config.config_fields import FieldContext
-from ._config.config_loader import IDENTIFIER_PATTERN, _load_pipeline, load_pipeline
+from ._config.config_loader import IDENTIFIER_PATTERN, _Loader, load_pipeline, read_pipeline_document
 from ._config.config_models import PipelineConfig
 from ._config.skill_sources import SkillBindings
 
@@ -72,7 +73,9 @@ class PipelineRegistry:
             )
         return pipeline
 
-    def load_adapter_pipelines(self, repository_root: Path) -> tuple[PipelineConfig, ...]:
+    def load_adapter_pipelines(
+        self, repository_root: Path, *, read_bytes: Callable[[Path], bytes] = Path.read_bytes,
+    ) -> tuple[PipelineConfig, ...]:
         """Consume a registry snapshot after checking its sources, without reparsing it."""
         root = repository_root.resolve()
         context = FieldContext(self.path, root)
@@ -85,7 +88,7 @@ class PipelineRegistry:
             declared = item.declared_path
             if declared is None and item.path.is_relative_to(self.path.parent):
                 declared = item.path.relative_to(self.path.parent).as_posix()
-            if not declared or not PIPELINE_PATH_PATTERN.fullmatch(declared):
+            if not isinstance(declared, str) or not PIPELINE_PATH_PATTERN.fullmatch(declared):
                 context.fail("unsafe-pipeline-path", "invalid registered graph location",
                              field="pipelines.path", value=declared,
                              remediation="use a registered TOML file under workflow/pipelines/")
@@ -94,11 +97,32 @@ class PipelineRegistry:
                 context.fail("unsafe-pipeline-path", "registered graph location has changed",
                              field="pipelines.path", value=declared,
                              remediation="restore the registered graph or reload the registry")
+        documents = [(item, read_pipeline_document(item.path, read_bytes=read_bytes)) for item in self.pipelines]
+        migrations = {}
+        for item, raw in documents:
+            phases = raw.get("phases")
+            if isinstance(phases, list):
+                missing = [phase.get("id") for phase in phases
+                           if isinstance(phase, Mapping) and "skill_source" not in phase]
+                if missing:
+                    migrations[item.id] = missing
+        if migrations:
+            context.fail(
+                "missing-skill-source", "adapter generation requires explicit skill_source declarations",
+                field="skill_source", value=migrations,
+                remediation="set skill_source to a workflow file for every listed pipeline and phase",
+            )
+
         bindings = SkillBindings()
-        return tuple(
-            self._check_id(item, _load_pipeline(item.path, root, adapter_bindings=bindings))
-            for item in self.pipelines
-        )
+        pipelines = []
+        for item, raw in documents:
+            loader = _Loader(item.path, root, read_bytes=read_bytes)
+            pipeline = self._check_id(item, loader.parse(raw, adapter_bindings=bindings))
+            pipelines.append(pipeline)
+        # Check all declarations for aliases before reading any skill body.
+        for pipeline in pipelines:
+            bindings.validate_metadata(FieldContext(pipeline.path, root, read_bytes=read_bytes), pipeline.phases)
+        return tuple(pipelines)
 
 
 def load_registry(repository_root: str | Path) -> PipelineRegistry:

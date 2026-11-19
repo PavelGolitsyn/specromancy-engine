@@ -11,8 +11,10 @@ from ._adapters.adapter_contracts import (
     MANIFEST_PATH, REGENERATION_COMMAND, AdapterCommand, AdapterError,
 )
 from ._adapters.adapter_ownership import _compare, _has_drift, write_adapters
-from ._adapters.adapter_rendering import expected_manifest, render_sources
-from ._adapters.adapter_sources import capture_sources
+from ._adapters.adapter_rendering import (
+    expected_manifest, render_sources, render_workflow_sources, workflow_manifest,
+)
+from ._adapters.adapter_sources import capture_sources, capture_workflow_sources
 from .exit_codes import ExitCode
 from .hashing import canonical_json_bytes
 from .registry import PipelineRegistry
@@ -35,10 +37,34 @@ def generate_adapters(
     sources = capture_sources(root, registry, command_metadata)
     rendered = render_sources(sources)
     manifest = expected_manifest(sources, rendered)
+    return _publish(root, rendered, manifest, check=check, workflow=False)
+
+
+def _generate_workflow_adapters(
+    repository_root: Path, registry: PipelineRegistry,
+    command_metadata: Mapping[str, Any] | None = None, *, check: bool = False,
+) -> dict[str, Any]:
+    """Prepared v3 entry point. Stage 20 switches public dispatch and registry bootstrap."""
+    root = repository_root.resolve(strict=True)
+    sources = capture_workflow_sources(root, registry, command_metadata)
+    rendered = render_workflow_sources(sources)
+    return _publish(root, rendered, workflow_manifest(sources, rendered), check=check, workflow=True)
+
+
+def _render_workflow_adapters(
+    repository_root: Path, registry: PipelineRegistry, command_metadata: Mapping[str, Any],
+) -> dict[str, bytes]:
+    sources = capture_workflow_sources(repository_root.resolve(strict=True), registry, command_metadata,
+                                       include_manifest_inputs=False)
+    return render_workflow_sources(sources)
+
+
+def _publish(root: Path, rendered: dict[str, bytes], manifest: dict[str, Any], *,
+             check: bool, workflow: bool) -> dict[str, Any]:
     manifest_bytes = canonical_json_bytes(manifest) + b"\n"
 
     if check:
-        drift = _compare(root, rendered, manifest_bytes)
+        drift = _compare(root, rendered, manifest_bytes, workflow=workflow)
         if _has_drift(drift):
             raise AdapterError("generated adapter drift detected", drift)
         return _result(
@@ -50,7 +76,7 @@ def generate_adapters(
             ],
         )
 
-    removed = write_adapters(root, rendered, manifest_bytes)
+    removed = write_adapters(root, rendered, manifest_bytes, workflow=workflow)
     return _result(
         f"generated {len(rendered)} harness adapter files",
         checked=False,

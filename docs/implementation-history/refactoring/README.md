@@ -2,12 +2,14 @@
 
 ## Current plan: generated harness files from canonical workflow sources
 
-**Stages 16–18 are complete. Stages 19–22 are planned.** Stage 16 recorded
+**Stages 16–19 are complete. Stages 20–22 are planned.** Stage 16 recorded
 the source and ownership inventory and the unfinished-run migration constraint.
 Stage 17 packaged the generic harness templates and verified them in direct
 and sdist-rebuilt wheel installations. Stage 18 added explicit workflow
 procedure sources, selected-graph validation, and guarded adapter registry
-loading. The public generator still uses v2.
+loading. Stage 19 verified workflow-only generation, schema 2 shared ownership,
+and historical manifest migration in isolated consumers. The public generator
+still uses v2 pending the Stage 20 cutover.
 Prepared on 2026-11-11
 against `d0bd655120dfd6eb2bdbc7e61fc12ae45e46f82b`.
 

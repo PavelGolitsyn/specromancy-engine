@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 import re
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any, NoReturn
 
@@ -17,7 +17,10 @@ IDENTIFIER_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 class FieldContext:
     """Source and repository authority shared by configuration parsers."""
 
-    def __init__(self, path: Path, repository_root: Path) -> None:
+    def __init__(
+        self, path: Path, repository_root: Path, *, read_bytes: Callable[[Path], bytes] = Path.read_bytes,
+    ) -> None:
+        self.read_bytes = read_bytes
         self.path = path
         self.repository_root = repository_root
 

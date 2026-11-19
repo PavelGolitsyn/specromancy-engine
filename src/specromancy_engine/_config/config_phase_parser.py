@@ -324,7 +324,7 @@ def parse_validator(
                 remediation="remove the path or use validator = 'json'",
             )
         try:
-            json_schema = load_json_schema(resolved_path)
+            json_schema = load_json_schema(resolved_path, read_bytes=context.read_bytes)
         except SchemaDefinitionError as exc:
             context.fail(
                 "unsupported-json-schema",

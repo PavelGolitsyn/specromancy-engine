@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import tomllib
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -101,18 +101,11 @@ class _Loader(FieldContext):
                 value=raw_phases,
                 remediation="declare one or more [[phases]] tables",
             )
-        if adapter_bindings is not None:
-            legacy = [item.get("id") for item in raw_phases
-                      if isinstance(item, Mapping) and "skill_source" not in item]
-            if legacy:
-                self.fail(
-                    "missing-skill-source", "adapter generation requires explicit skill_source declarations",
-                    field="skill_source", value=legacy,
-                    remediation="set skill_source to a repository-relative file under workflow/ in each listed phase",
-                )
         phases = tuple(self.parse_phase(item) for item in raw_phases)
         bindings = adapter_bindings if adapter_bindings is not None else SkillBindings()
-        bindings.validate_graph(self, phases)
+        bindings.bind_graph(self, phases)
+        if adapter_bindings is None:
+            bindings.validate_metadata(self, phases)
         for phase in phases:
             if phase.id in terminal_outcomes:
                 self.fail(
@@ -180,16 +173,6 @@ def load_pipeline(
     both is rejected to keep path authority unambiguous.
     """
 
-    return _load_pipeline(path, repository_root, root=root)
-
-
-def _load_pipeline(
-    path: str | Path,
-    repository_root: str | Path | None,
-    *,
-    root: str | Path | None = None,
-    adapter_bindings: SkillBindings | None = None,
-) -> PipelineConfig:
     source = Path(path).expanduser()
     try:
         source = source.resolve(strict=True)
@@ -246,9 +229,15 @@ def _load_pipeline(
             value=str(source),
             remediation="place the pipeline inside the repository",
         )
+    return _Loader(source, resolved_root).parse(read_pipeline_document(source))
+
+
+def read_pipeline_document(
+    source: Path, *, read_bytes: Callable[[Path], bytes] = Path.read_bytes,
+) -> dict[str, Any]:
+    """Read graph declarations once, before resolving any phase dependencies."""
     try:
-        with source.open("rb") as stream:
-            raw = tomllib.load(stream)
+        return tomllib.loads(read_bytes(source).decode("utf-8"))
     except (tomllib.TOMLDecodeError, UnicodeDecodeError) as exc:
         raise PipelineConfigError(
             "invalid-toml",
@@ -265,4 +254,3 @@ def _load_pipeline(
             field="pipeline",
             remediation="make the file readable and try again",
         ) from exc
-    return _Loader(source, resolved_root).parse(raw, adapter_bindings=adapter_bindings)

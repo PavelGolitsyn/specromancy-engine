@@ -190,6 +190,44 @@ validated graphs. Generation reuses captured source text and bytes for rendering
 and source hashes, without a cross-invocation cache. Adapter constants and
 `AdapterError` remain available from `specromancy_engine.adapters`.
 
+### Prepared workflow-only generator (Stage 19)
+
+The private v3 generation path takes a registry snapshot and captures
+`workflow/instructions.md`, every registered graph, and its explicitly declared
+workflow procedures and dependencies. It rechecks the registry root, registry
+path, and registration locations before consuming the snapshot. A caller that
+needs this guarantee from the first registry read uses
+`load_adapter_registry(root)`. Earlier reads made by the caller are outside
+the capture guarantee. Render-only validates the same locations and graph
+definitions, including validator schemas. Reading artifact-template contents
+for hashing and inspecting ownership or drift are generation/check operations.
+
+Instructions and complete canonical procedures use UTF-8, LF, and one trailing
+newline for adapter provenance. The manifest also hashes validated configuration,
+dependency bytes, CLI metadata, package version, and exact release template bytes.
+A procedure-body edit can change only the manifest. Phase wrappers retain the
+validated frontmatter and load the declared procedure from the consumer root.
+An action packet identifies the authoritative file. A missing file or a mismatch
+stops the visit. Relative references inside the procedure use its own directory.
+
+V3 writes schema 2. Each output has one `path`, one `sha256`, and a sorted
+`targets` list. Each target lists all its required paths. Root `AGENTS.md`
+serves Codex, Hermes, and OpenCode. Shared `.agents/skills` serve those three
+and Copilot. Claude has its own instructions, skills, and commands. Copilot
+also requires its instructions and prompts, and OpenCode its commands. Codex
+and Hermes list the shared skills in `discovery_paths`. Each launch embeds the
+coordination procedure with the registered pipeline ID.
+
+Generation and check validate the previous manifest's generator identity and
+ownership records. Schema 1 generators 1 and 2 use their original single-target
+mapping. Under `.agents` they own only recorded `skills/specromancy-*/SKILL.md`
+outputs. Their Claude mirrors retain the original `.claude/skills/*/SKILL.md`
+grammar. Schema 2 checks the consuming targets in both directions. Unrelated
+skills beside expected outputs are ignored. An existing expected file requires
+valid prior ownership even when its bytes match. Regeneration restores edited
+current outputs and removes stale owned outputs only while their recorded hashes
+match.
+
 ## Pipeline registry and selection
 
 `workflow/pipelines.toml` is mandatory for workflow and adapter commands:
@@ -279,8 +317,10 @@ avoid self-reference and contains no timestamps or absolute paths.
 
 Generation preflights ownership conflicts before writing, rechecks stale owned
 file hashes before removal, replaces each output atomically, and writes the
-manifest last. This is not a transaction across all generated files. Check mode
-compares expected bytes directly and creates no temporary output files.
+manifest last. An interruption between replacements can leave some new outputs
+alongside the previous manifest. Preserve any user edits and resolve unowned
+collisions before retrying. Check mode validates previous ownership, compares
+expected bytes, and creates no temporary output files.
 
 ## Configuration and state handling
 

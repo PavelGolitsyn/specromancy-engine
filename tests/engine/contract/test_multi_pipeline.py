@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 import sys
 import unittest
 from pathlib import Path
 
+from specromancy_engine.adapters import _generate_workflow_adapters
 from specromancy_engine.config import PipelineConfigError
 from specromancy_engine.exit_codes import ExitCode
 from specromancy_engine.registry import load_adapter_registry, load_registry
@@ -39,6 +41,33 @@ class PipelineCLICase(unittest.TestCase):
 
 class WorkflowOnlyContractTests(PipelineCLICase):
     workflow_only = True
+
+    def test_discovery_and_action_identify_the_same_canonical_procedure(self) -> None:
+        source = self.root / "workflow/skills/compose/SKILL.md"
+        source.write_text(source.read_text().replace("Follow the action packet.", "Read [notes](notes.md)."))
+        source.with_name("notes.md").write_text("Canonical support file.")
+        _generate_workflow_adapters(self.root, load_adapter_registry(self.root))
+        action = self.initialize("alpha")
+        self.assertEqual(Path(action["skill"]["absolute_path"]), source)
+        for harness in (".agents", ".claude"):
+            wrapper = self.root / harness / "skills/compose/SKILL.md"
+            text = wrapper.read_text()
+            self.assertIn("name: compose", text)
+            self.assertIn("description: Record evidence.", text)
+            relative = source.relative_to(self.root).as_posix()
+            self.assertIn(f"Load `{relative}` from the consumer repository root", text)
+            self.assertIn("directory containing the canonical file", text)
+            self.assertIn("skill.absolute_path", text)
+            self.assertIn("Stop if the canonical file is missing", text)
+            self.assertIn("packet identifies a different file", text)
+            self.assertNotIn("notes.md", text)
+            self.assertFalse(wrapper.with_name("notes.md").exists())
+        shutil.rmtree(self.root / ".agents")
+        code, payload = self.command("phase", action["run_id"], "compose")
+        self.assertEqual(code, ExitCode.AGENT_ACTION_REQUIRED, payload)
+        canonical = Path(payload["action"]["skill"]["absolute_path"])
+        self.assertIn("[notes](notes.md)", canonical.read_text())
+        self.assertEqual(canonical.with_name("notes.md").read_text(), "Canonical support file.")
 
     def test_selected_workflow_completes_independently_of_other_registrations(self) -> None:
         beta = self.root / "workflow/pipelines/beta.toml"

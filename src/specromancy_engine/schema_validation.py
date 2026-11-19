@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -28,12 +28,12 @@ class SchemaDefinitionError(ValueError):
         self.location = location
 
 
-def load_json_schema(path: Path) -> dict[str, Any]:
+def load_json_schema(path: Path, *, read_bytes: Callable[[Path], bytes] = Path.read_bytes) -> dict[str, Any]:
     """Load and validate a project-owned subset JSON schema."""
 
     try:
         value = json.loads(
-            path.read_text(encoding="utf-8"),
+            read_bytes(path).decode("utf-8"),
             parse_constant=lambda value: (_ for _ in ()).throw(
                 ValueError(f"invalid JSON constant {value}")
             ),

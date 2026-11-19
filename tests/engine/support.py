@@ -23,6 +23,7 @@ class MultiPipelineFixture:
         self.workflow_only = workflow_only
         if workflow_only:
             write_workflow_skill(self.root)
+            (self.root / "workflow/instructions.md").write_text("# Repository instructions\n", encoding="utf-8")
         else:
             self.write_legacy_skills()
         template = self.root / "workflow/templates/shared.md"

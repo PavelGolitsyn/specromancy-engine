@@ -421,11 +421,7 @@ class AdapterGenerationTests(unittest.TestCase):
                     with patch.object(adapter_ownership, "_atomic_write", side_effect=AssertionError("write")):
                         with self.assertRaises(AdapterError) as caught:
                             self.fixture.generate(check=check)
-                    if check:
-                        # v2 check compares bytes; Stage 19 adds ownership validation here.
-                        self.assertEqual(caught.exception.message, "generated adapter drift detected")
-                    else:
-                        self.assertIn("outside generated adapter locations", caught.exception.message)
+                    self.assertIn("outside generated adapter locations", caught.exception.message)
                     self.assertEqual(self.fixture.snapshot(), before)
                     self.assertEqual(source.read_bytes(), content)
 

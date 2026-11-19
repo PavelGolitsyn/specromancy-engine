@@ -91,11 +91,13 @@ class SkillBindings:
                 remediation="use one declared source per identifier and one identifier per file",
             )
 
-    def validate_graph(self, context: FieldContext, phases: tuple[PhaseConfig, ...]) -> None:
+    def bind_graph(self, context: FieldContext, phases: tuple[PhaseConfig, ...]) -> None:
         if not any(phase.skill_source is not None for phase in phases):
             return
         for phase in phases:
             self._bind(context, phase)
+
+    def validate_metadata(self, context: FieldContext, phases: tuple[PhaseConfig, ...]) -> None:
         for phase in phases:
             if phase.skill_source is not None and phase.skill_path not in self.checked:
                 _validate_skill_metadata(context, phase)
@@ -110,7 +112,7 @@ def _validate_skill_metadata(context: FieldContext, phase: PhaseConfig) -> None:
             remediation="choose an identifier outside the generated launch and orchestration names",
         )
     try:
-        fields = parse_skill_frontmatter(phase.skill_path.read_text(encoding="utf-8"))
+        fields = parse_skill_frontmatter(context.read_bytes(phase.skill_path).decode("utf-8"))
     except (OSError, ValueError) as exc:
         context.fail(
             "invalid-skill-frontmatter", f"cannot read portable frontmatter at {phase.skill_source}: {exc}",

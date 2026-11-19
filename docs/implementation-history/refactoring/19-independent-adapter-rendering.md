@@ -1,6 +1,6 @@
 # Stage 19 — Build independent adapter capture and rendering
 
-Status: **planned; not implemented**. Depends on Stages 16–18.
+Status: **complete**. Executed 2026-11-19 from `f914444` after Stages 16–18.
 Category: adapter implementation, exercised on isolated workflow-only fixtures.
 
 ## Objective
@@ -193,14 +193,37 @@ also pass generate/check round trips inside the isolated fixtures.
 
 ## Exit criteria
 
-- [ ] All required cases pass without hand-authored harness prerequisites.
-- [ ] Capture → pure render → ownership remains the dependency direction.
-- [ ] Templates, manifest inputs, shared requirements, and schema-2 attribution
+- [x] All required cases pass without hand-authored harness prerequisites.
+- [x] Capture → pure render → ownership remains the dependency direction.
+- [x] Templates, manifest inputs, shared requirements, and schema-2 attribution
   agree, with all targets enabled and each output owned once.
-- [ ] Version-specific ownership validation precedes migration, and no canonical
+- [x] Version-specific ownership validation precedes migration, and no canonical
   dependency can resolve through a generated path.
-- [ ] Thin phase wrappers preserve canonical identity and relative-reference
+- [x] Thin phase wrappers preserve canonical identity and relative-reference
   context; source deduplication does not suppress required outputs.
-- [ ] Existing public generation remains usable until Stage 20 cutover.
-- [ ] No framework, target-selection feature, unrelated CLI command, or workflow
+- [x] Existing public generation remains usable until Stage 20 cutover.
+- [x] No framework, target-selection feature, unrelated CLI command, or workflow
   policy has been added to achieve the change.
+
+## Execution record
+
+The private v3 generation and render-only entry points use the guarded registry
+snapshot. Graph validation and provenance share one invocation's captured
+resource bytes. Workflow-only fixtures generated instructions, discovery skills,
+bound launch skills, and commands for all five harnesses. Removing the generated
+root instructions and shared skills produced drift and regeneration restored
+the original bytes. Independent consumer and package locations produced
+byte-identical outputs and manifests.
+
+Schema 2 records each output once and checks both directions of target
+attribution before accepting previous ownership. Both frozen historical
+manifests migrated using their original path rules. Matching hashes on forged
+schema 1 records granted no overwrite or stale-cleanup permission. Tests also
+exercised the canonical action path after removing shared discovery skills.
+
+Verification used the dedicated editable installation on Python 3.14.4.
+The six focused adapter, registry, and compatibility modules passed all 93
+tests. Full discovery passed all 365 tests. The public checkout command
+`specromancy adapters generate --check` reported up-to-date adapters, and
+`git diff --check` passed. The public CLI and shipped workflow remain on v2
+until their coordinated Stage 20 cutover.
