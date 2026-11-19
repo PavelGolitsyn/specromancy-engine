@@ -155,6 +155,25 @@ class CompatibilityContractTests(unittest.TestCase):
         self.assertEqual(caught.exception.diagnostic_code, "provenance-hash-mismatch")
         self.assertEqual(fixture.snapshot(), before)
 
+    def test_adding_skill_source_refuses_a_saved_legacy_run_without_rewriting_it(self) -> None:
+        fixture = CompatibilityFixture()
+        self.addCleanup(fixture.close)
+        fixture.engine.initialize("Preserve the original run")
+        before = fixture.snapshot()
+        legacy = fixture.root / ".agents/skills/compose/SKILL.md"
+        source = "workflow/skills/compose/SKILL.md"
+        canonical = fixture.root / source
+        canonical.parent.mkdir(parents=True)
+        canonical.write_bytes(legacy.read_bytes())
+        fixture.path.write_text(fixture.path.read_text().replace(
+            'skill = "compose"', f'skill = "compose"\nskill_source = "{source}"'))
+        migrated = config.load_pipeline(fixture.path, fixture.root)
+        self.assertNotEqual(migrated.config_hash, read_record("canonical.json")["absent"]["sha256"])
+        with self.assertRaises(engine.EngineError) as caught:
+            Engine(migrated, fixture.store).resume(RUN_ID)
+        self.assertEqual(caught.exception.diagnostic_code, "pipeline-hash-mismatch")
+        self.assertEqual(fixture.snapshot(), before)
+
     def test_version_one_records_replay_and_recovery_is_exactly_once(self) -> None:
         states = read_record("states.json")
         responses = read_record("responses-current.json")

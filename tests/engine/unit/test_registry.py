@@ -9,8 +9,8 @@ from dataclasses import FrozenInstanceError
 from pathlib import Path
 
 from specromancy_engine.config import PipelineConfigError
-from specromancy_engine.registry import load_registry
-from tests.engine.support import MultiPipelineFixture
+from specromancy_engine.registry import load_adapter_registry, load_registry
+from tests.engine.support import MultiPipelineFixture, write_workflow_skill
 
 
 class RegistryTests(unittest.TestCase):
@@ -111,6 +111,71 @@ class RegistryTests(unittest.TestCase):
         self.assertEqual(load_registry(self.root).load("alpha").id, "alpha")
         with self.assertRaises(PipelineConfigError):
             load_registry(self.root).load_all()
+
+    def test_guarded_registry_and_graph_reject_harness_targets_before_toml_parse(self) -> None:
+        target = self.root / "AGENTS.md"
+        target.write_text("invalid TOML [")
+        snapshot = load_registry(self.root)
+        self.path.unlink()
+        self.path.symlink_to(target)
+        for load in (lambda: load_adapter_registry(self.root),
+                     lambda: snapshot.load_adapter_pipelines(self.root)):
+            with self.assertRaises(PipelineConfigError) as caught:
+                load()
+            self.assertEqual(caught.exception.diagnostic_code, "unsafe-path")
+            self.assertEqual(caught.exception.details["field"], "registry")
+
+        self.path.unlink()
+        self.path.write_text(self.valid)
+        alpha = self.root / "workflow/pipelines/alpha.toml"
+        alias = alpha.with_name("alias.toml")
+        alias.symlink_to(alpha)
+        self.path.write_text(self.valid.replace("pipelines/alpha.toml", "pipelines/alias.toml"))
+        snapshot = load_adapter_registry(self.root)
+        self.assertEqual(snapshot.pipelines[0].declared_path, "pipelines/alias.toml")
+        alias.unlink()
+        alias.symlink_to(target)
+        for load in (lambda: load_adapter_registry(self.root),
+                     lambda: snapshot.load_adapter_pipelines(self.root)):
+            with self.assertRaises(PipelineConfigError) as caught:
+                load()
+            self.assertEqual(caught.exception.diagnostic_code, "unsafe-path")
+            self.assertEqual(caught.exception.details["field"], "pipelines.path")
+
+    def test_guard_rejects_symlinked_workflow_root(self) -> None:
+        workflow = self.root / "workflow"
+        workflow.rename(self.root / ".claude")
+        workflow.symlink_to(self.root / ".claude", target_is_directory=True)
+        with self.assertRaises(PipelineConfigError) as caught:
+            load_adapter_registry(self.root)
+        self.assertEqual(caught.exception.diagnostic_code, "unsafe-path")
+
+    def test_adapter_graph_precheck_reports_legacy_source_before_legacy_lookup(self) -> None:
+        registry = load_adapter_registry(self.root)
+        (self.root / ".agents/skills/compose/SKILL.md").unlink()
+        with self.assertRaises(PipelineConfigError) as caught:
+            registry.load_adapter_pipelines(self.root)
+        self.assertEqual(caught.exception.diagnostic_code, "missing-skill-source")
+        self.assertIn("skill_source", caught.exception.details["remediation"])
+
+    def test_adapter_bindings_span_graphs_and_reuse_registry_snapshot(self) -> None:
+        fixture = MultiPipelineFixture(workflow_only=True)
+        self.addCleanup(fixture.close)
+        registry = load_adapter_registry(fixture.root)
+        registry.path.write_text("[invalid")  # adapter capture uses the already parsed registry
+        self.assertEqual([p.id for p in registry.load_adapter_pipelines(fixture.root)], ["alpha", "beta"])
+        write_workflow_skill(fixture.root, source="workflow/other.md")
+        beta = fixture.root / "workflow/pipelines/beta.toml"
+        beta.write_text(beta.read_text().replace("workflow/skills/compose/SKILL.md", "workflow/other.md"))
+        self.assertEqual(registry.load("beta").phases[0].skill_source, "workflow/other.md")
+        with self.assertRaises(PipelineConfigError) as caught:
+            registry.load_adapter_pipelines(fixture.root)
+        self.assertEqual(caught.exception.diagnostic_code, "conflicting-skill-source")
+        beta.write_text(beta.read_text().replace("workflow/other.md", "workflow/skills/compose/SKILL.md")
+                       .replace('skill = "compose"', 'skill = "alternate"'))
+        with self.assertRaises(PipelineConfigError) as caught:
+            registry.load_adapter_pipelines(fixture.root)
+        self.assertEqual(caught.exception.diagnostic_code, "conflicting-skill-source")
 
     def test_registry_schema_publishes_nonempty_registration_contract(self) -> None:
         schema = json.loads(files("specromancy_engine").joinpath("schemas", "pipelines.schema.json").read_text(encoding="utf-8"))

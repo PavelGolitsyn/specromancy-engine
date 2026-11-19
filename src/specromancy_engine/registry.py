@@ -10,8 +10,10 @@ from pathlib import Path
 from typing import NoReturn
 
 from ._config.config_errors import PipelineConfigError
-from ._config.config_loader import IDENTIFIER_PATTERN, load_pipeline
+from ._config.config_fields import FieldContext
+from ._config.config_loader import IDENTIFIER_PATTERN, _load_pipeline, load_pipeline
 from ._config.config_models import PipelineConfig
+from ._config.skill_sources import SkillBindings
 
 
 REGISTRY_PATH = "workflow/pipelines.toml"
@@ -22,6 +24,7 @@ PIPELINE_PATH_PATTERN = re.compile(r"^pipelines/(?:[A-Za-z0-9_-]+/)*[A-Za-z0-9_-
 class PipelineRegistration:
     id: str
     path: Path
+    declared_path: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,17 +50,7 @@ class PipelineRegistry:
     def load(self, pipeline_id: str) -> PipelineConfig:
         for registration in self.pipelines:
             if registration.id == pipeline_id:
-                pipeline = load_pipeline(registration.path, self.repository_root)
-                if pipeline.id != registration.id:
-                    raise PipelineConfigError(
-                        "pipeline-id-mismatch",
-                        "registered ID differs from pipeline ID",
-                        path=self.path,
-                        field="pipelines.id",
-                        value=pipeline_id,
-                        remediation="make the registration and pipeline IDs agree",
-                    )
-                return pipeline
+                return self._check_id(registration, load_pipeline(registration.path, self.repository_root))
         raise PipelineConfigError(
             "unknown-pipeline",
             f"pipeline {pipeline_id!r} is not registered",
@@ -70,12 +63,59 @@ class PipelineRegistry:
     def load_all(self) -> tuple[PipelineConfig, ...]:
         return tuple(self.load(item.id) for item in self.pipelines)
 
+    def _check_id(self, item: PipelineRegistration, pipeline: PipelineConfig) -> PipelineConfig:
+        if pipeline.id != item.id:
+            raise PipelineConfigError(
+                "pipeline-id-mismatch", "registered ID differs from pipeline ID",
+                path=self.path, field="pipelines.id", value=item.id,
+                remediation="make the registration and pipeline IDs agree",
+            )
+        return pipeline
+
+    def load_adapter_pipelines(self, repository_root: Path) -> tuple[PipelineConfig, ...]:
+        """Consume a registry snapshot after checking its sources, without reparsing it."""
+        root = repository_root.resolve()
+        context = FieldContext(self.path, root)
+        if self.repository_root != root or self.path != root / REGISTRY_PATH:
+            context.fail("unsafe-path", "registry does not belong to the adapter root",
+                         field="registry", value=str(self.path),
+                         remediation="load the workflow registry from the selected repository")
+        context.workflow_path(REGISTRY_PATH, "registry")
+        for item in self.pipelines:
+            declared = item.declared_path
+            if declared is None and item.path.is_relative_to(self.path.parent):
+                declared = item.path.relative_to(self.path.parent).as_posix()
+            if not declared or not PIPELINE_PATH_PATTERN.fullmatch(declared):
+                context.fail("unsafe-pipeline-path", "invalid registered graph location",
+                             field="pipelines.path", value=declared,
+                             remediation="use a registered TOML file under workflow/pipelines/")
+            resolved = context.workflow_path(declared, "pipelines.path", base=self.path.parent)
+            if resolved != item.path or not resolved.is_relative_to(self.path.parent / "pipelines"):
+                context.fail("unsafe-pipeline-path", "registered graph location has changed",
+                             field="pipelines.path", value=declared,
+                             remediation="restore the registered graph or reload the registry")
+        bindings = SkillBindings()
+        return tuple(
+            self._check_id(item, _load_pipeline(item.path, root, adapter_bindings=bindings))
+            for item in self.pipelines
+        )
+
 
 def load_registry(repository_root: str | Path) -> PipelineRegistry:
     """Validate the mandatory registry without loading unrelated phase graphs."""
+    return _load_registry(repository_root, workflow_only=False)
 
+
+def load_adapter_registry(repository_root: str | Path) -> PipelineRegistry:
+    """Guard registry and registration locations before adapter configuration reads."""
+    return _load_registry(repository_root, workflow_only=True)
+
+
+def _load_registry(repository_root: str | Path, *, workflow_only: bool) -> PipelineRegistry:
     root = Path(repository_root).expanduser().resolve()
     path = root / REGISTRY_PATH
+    context = FieldContext(path, root)
+    source = context.workflow_path(REGISTRY_PATH, "registry") if workflow_only else path
 
     def fail(code: str, message: str, field: str, value: object = None) -> NoReturn:
         raise PipelineConfigError(
@@ -90,7 +130,7 @@ def load_registry(repository_root: str | Path) -> PipelineRegistry:
     try:
         if not path.resolve().is_relative_to(root):
             fail("unsafe-registry-path", "registry resolves outside the repository", "registry")
-        with path.open("rb") as stream:
+        with source.open("rb") as stream:
             raw = tomllib.load(stream)
     except (OSError, ValueError, RuntimeError) as exc:
         fail("invalid-registry", f"cannot load mandatory registry: {exc}", "registry")
@@ -119,7 +159,8 @@ def load_registry(repository_root: str | Path) -> PipelineRegistry:
         if not PIPELINE_PATH_PATTERN.fullmatch(declared):
             fail("unsafe-pipeline-path", "pipeline path must be under pipelines/", "pipelines.path", declared)
         try:
-            resolved = (path.parent / declared).resolve()
+            resolved = (context.workflow_path(declared, "pipelines.path", base=path.parent)
+                        if workflow_only else (path.parent / declared).resolve())
         except (OSError, ValueError, RuntimeError) as exc:
             fail("unsafe-pipeline-path", f"pipeline path cannot be resolved: {exc}", "pipelines.path", declared)
         if not resolved.is_relative_to(directory) or not resolved.is_relative_to(root):
@@ -130,5 +171,5 @@ def load_registry(repository_root: str | Path) -> PipelineRegistry:
             fail("duplicate-pipeline-path", "pipeline paths must be unique", "pipelines.path", declared)
         ids.add(pipeline_id)
         paths.add(resolved)
-        registrations.append(PipelineRegistration(pipeline_id, resolved))
+        registrations.append(PipelineRegistration(pipeline_id, resolved, declared))
     return PipelineRegistry(path, root, tuple(sorted(registrations, key=lambda item: item.id)))

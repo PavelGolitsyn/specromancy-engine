@@ -28,6 +28,7 @@ from .config_phase_parser import (
     parse_validator,
 )
 from .config_serialization import _canonical_document, _encode_canonical_document
+from .skill_sources import SkillBindings
 from ..graph import validate_graph
 
 
@@ -44,7 +45,7 @@ def _discover_root(path: Path) -> Path | None:
 class _Loader(FieldContext):
     """Pipeline assembly with inherited field helpers and legacy parser delegates."""
 
-    def parse(self, raw: Mapping[str, Any]) -> PipelineConfig:
+    def parse(self, raw: Mapping[str, Any], *, adapter_bindings: SkillBindings | None = None) -> PipelineConfig:
         allowed_top = {
             "schema_version",
             "id",
@@ -100,7 +101,18 @@ class _Loader(FieldContext):
                 value=raw_phases,
                 remediation="declare one or more [[phases]] tables",
             )
+        if adapter_bindings is not None:
+            legacy = [item.get("id") for item in raw_phases
+                      if isinstance(item, Mapping) and "skill_source" not in item]
+            if legacy:
+                self.fail(
+                    "missing-skill-source", "adapter generation requires explicit skill_source declarations",
+                    field="skill_source", value=legacy,
+                    remediation="set skill_source to a repository-relative file under workflow/ in each listed phase",
+                )
         phases = tuple(self.parse_phase(item) for item in raw_phases)
+        bindings = adapter_bindings if adapter_bindings is not None else SkillBindings()
+        bindings.validate_graph(self, phases)
         for phase in phases:
             if phase.id in terminal_outcomes:
                 self.fail(
@@ -168,6 +180,16 @@ def load_pipeline(
     both is rejected to keep path authority unambiguous.
     """
 
+    return _load_pipeline(path, repository_root, root=root)
+
+
+def _load_pipeline(
+    path: str | Path,
+    repository_root: str | Path | None,
+    *,
+    root: str | Path | None = None,
+    adapter_bindings: SkillBindings | None = None,
+) -> PipelineConfig:
     source = Path(path).expanduser()
     try:
         source = source.resolve(strict=True)
@@ -227,7 +249,7 @@ def load_pipeline(
     try:
         with source.open("rb") as stream:
             raw = tomllib.load(stream)
-    except tomllib.TOMLDecodeError as exc:
+    except (tomllib.TOMLDecodeError, UnicodeDecodeError) as exc:
         raise PipelineConfigError(
             "invalid-toml",
             f"pipeline configuration is not valid TOML: {exc}",
@@ -243,4 +265,4 @@ def load_pipeline(
             field="pipeline",
             remediation="make the file readable and try again",
         ) from exc
-    return _Loader(source, resolved_root).parse(raw)
+    return _Loader(source, resolved_root).parse(raw, adapter_bindings=adapter_bindings)

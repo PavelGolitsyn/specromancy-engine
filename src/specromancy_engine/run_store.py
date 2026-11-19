@@ -19,6 +19,7 @@ from .artifacts import (
     write_artifact_atomic,
 )
 from ._config.config_models import PipelineConfig
+from ._config.skill_sources import check_workflow_paths
 from .exit_codes import ExitCode
 from .hashing import (
     relative_path,
@@ -113,6 +114,7 @@ class RunStore:
                     "store_root": str(self.repository_root),
                 },
             )
+        check_workflow_paths(pipeline)
         chosen_id = self.new_run_id() if run_id is None else validate_run_id(run_id)
         self._prepare_runs_root()
         directory = self.runs_root / chosen_id
@@ -597,6 +599,8 @@ class RunStore:
                 },
                 code=ExitCode.INVALID_PIPELINE,
             )
+
+        check_workflow_paths(pipeline)
 
     _visit = staticmethod(visit_by_number)
 

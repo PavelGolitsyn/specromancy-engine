@@ -1,6 +1,6 @@
 # Stage 18 — Resolve canonical procedures from workflow files
 
-Status: **planned; not implemented**. Depends on Stages 16–17.
+Status: **complete**. Executed 2026-11-19 from `2ff4322` after Stages 16–17.
 Category: additive configuration and runtime resource support.
 
 ## Objective
@@ -157,14 +157,40 @@ becomes available. Keep old unmodified graph/hash/runtime cases passing separate
 
 ## Exit criteria
 
-- [ ] New workflows execute without generation or harness directories.
-- [ ] Old unmodified graphs retain compatibility and new source declarations
+- [x] New workflows execute without generation or harness directories.
+- [x] Old unmodified graphs retain compatibility and new source declarations
   deliberately change identity.
-- [ ] Unsafe/missing sources fail before any run mutation.
-- [ ] Adapter registry reads are guarded before parsing; ordinary runtime loading
+- [x] Unsafe/missing sources fail before any run mutation.
+- [x] Adapter registry reads are guarded before parsing; ordinary runtime loading
   remains lazy and independent of unrelated graph content.
-- [ ] New resource sources cannot resolve into generated locations, and canonical
+- [x] New resource sources cannot resolve into generated locations, and canonical
   metadata matches declared skill identity without affecting legacy acceptance.
-- [ ] Prepared provenance, read-only enforcement, approvals, and immutable
+- [x] Prepared provenance, read-only enforcement, approvals, and immutable
   artifacts retain their existing contracts.
-- [ ] Focused/full tests and the still-current checkout adapter check pass.
+- [x] Focused/full tests and the still-current checkout adapter check pass.
+
+
+## Execution record
+
+A workflow-only consumer completed a visit from an unrelated working directory
+using the editable installation. Its action and sealed visit identified the
+canonical procedure and hashed its raw bytes. The selected graph also completed
+with a malformed, incomplete, or conflicting sibling registration.
+
+Configuration parsing, schema 1 serialization, and registry loading now share
+the explicit-source contract. Guarded adapter preparation uses the same TOML
+loader, checks for missing declarations before legacy skill lookup, and checks
+bindings across registrations. The public generator cutover remains in Stage 20.
+
+The visit preparation and action builders already used resolved resources.
+The store and engine now recheck paths when a Python caller retains a parsed
+graph across filesystem changes. Prepared provenance also compares the sealed
+path with the current binding before reading it. Regression tests cover a
+retargeted descendant symlink whose old location points to a byte-identical
+harness file, as well as canonical content edits and immutable legacy replay.
+
+Verification used the checkout's dedicated editable environment on Python 3.14.4.
+The six focused modules passed all 108 tests. Full discovery passed all 351
+tests. The checkout adapter check reported up-to-date generated files, and
+`git diff --check` passed. The frozen compatibility captures supplied the
+legacy hash and replay expectations.

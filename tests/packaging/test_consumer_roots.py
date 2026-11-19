@@ -46,21 +46,23 @@ def snapshot(root: Path, *, exclude_runs: bool = False) -> dict:
     return result
 
 
-def write_consumer(root: Path, phase: str, *, allow_non_git: bool = False) -> None:
+def write_consumer(root: Path, phase: str, *, allow_non_git: bool = False, workflow_owned: bool = False) -> None:
+    skill = ("workflow/skills/compose/SKILL.md" if workflow_owned else ".agents/skills/compose/SKILL.md")
+    source_field = f'skill_source = "{skill}"\n' if workflow_owned else ""
     resources = {
         "workflow/pipelines.toml": 'schema_version = 1\n[[pipelines]]\nid = "shared"\npath = "pipelines/flow.toml"\n',
         "workflow/pipelines/flow.toml": (
             f'schema_version = 1\nid = "shared"\nversion = 1\nstart = "{phase}"\n'
             'terminal_outcomes = ["done"]\nartifact_pattern = "artifacts/{visit:03}-{phase}.json"\n'
             f'allow_non_git = {str(allow_non_git).lower()}\n'
-            f'[[phases]]\nid = "{phase}"\nskill = "compose"\ninputs = ["request"]\n'
+            f'[[phases]]\nid = "{phase}"\nskill = "compose"\n{source_field}inputs = ["request"]\n'
             'output_name = "result.json"\noutput_template = "../templates/result.json"\n'
             'mutation = "read-only"\ncompletion_criteria = ["Record the consumer result."]\n'
             'validator = {type = "json", path = "../schemas/result.json"}\n'
             'approval_conditions = []\nstop_conditions = []\n'
             '[[phases.transitions]]\noutcome = "done"\n'
         ),
-        ".agents/skills/compose/SKILL.md": f"---\nname: compose\ndescription: Record {phase}.\n---\nUse {phase} resources.\n",
+        skill: f"---\nname: compose\ndescription: Record {phase}.\n---\nUse {phase} resources.\n",
         "workflow/templates/result.json": json.dumps({"consumer": phase}) + "\n",
         "workflow/schemas/result.json": json.dumps({
             "type": "object", "required": ["consumer"],
@@ -130,6 +132,21 @@ class ConsumerRootTests(unittest.TestCase):
         run_root = root / ".specromancy/runs" / action["run_id"]
         self.assertTrue(Path(action["output"]["absolute_path"]).is_relative_to(run_root))
         self.assertEqual(action["final_validation_command"][:3], ["specromancy", "--root", str(root)])
+
+    def test_installed_cli_uses_explicit_workflow_resources_from_an_unrelated_directory(self) -> None:
+        root = self.base / "workflow-only"
+        write_consumer(root, "publish", allow_non_git=True, workflow_owned=True)
+        (root / "workflow/templates/result.json").write_text('{"consumer": "pending"}\n')
+        prefix = ("--root", str(root))
+        action = self.command(self.outside, *prefix, "init", "Publish", "--pipeline", "shared", expected=8)["action"]
+        self.assertEqual(Path(action["skill"]["absolute_path"]), root / "workflow/skills/compose/SKILL.md")
+        run = action["run_id"]
+        self.command(self.outside, *prefix, "phase", run, "publish", expected=8)
+        Path(action["output"]["absolute_path"]).write_text('{"consumer": "publish"}\n')
+        self.command(self.outside, *prefix, "validate", run)
+        final = self.command(self.outside, *prefix, "resume", run)
+        self.assertEqual(final["status"]["terminal_result"]["outcome"], "done")
+        self.assertEqual({path.name for path in root.iterdir()}, {"workflow", "request.md", ".specromancy", "nested"})
 
     def test_cli_discovers_both_git_markers_and_keeps_consumers_isolated(self) -> None:
         self.assertTrue((self.first / ".git").is_dir())

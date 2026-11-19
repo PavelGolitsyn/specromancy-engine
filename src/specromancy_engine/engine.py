@@ -14,6 +14,7 @@ from ._engine.command_decisions import (
 )
 from .artifacts import ArtifactError, verify_manifest_artifacts
 from ._config.config_models import PhaseConfig, PipelineConfig
+from ._config.skill_sources import check_workflow_paths
 from ._engine.engine_errors import EngineError
 from .errors import UsageError
 from .exit_codes import ExitCode
@@ -198,6 +199,7 @@ class Engine:
         )
 
     def approve(self, run_id: str, phase_id: str) -> dict[str, Any]:
+        check_workflow_paths(self.pipeline)
         return self._approval_service().approve(run_id, phase_id)
 
     def block(
@@ -251,6 +253,7 @@ class Engine:
         return responses.blocked_response(self.pipeline, manifest, "run is blocked")
 
     def status(self, run_id: str) -> dict[str, Any]:
+        check_workflow_paths(self.pipeline)
         manifest = self.store.load(run_id, verify_artifacts=False)
         warnings: list[dict[str, Any]] = []
         if not pipeline_matches(self.pipeline, manifest):
@@ -315,6 +318,7 @@ class Engine:
         return self._approval_service().advance_approved(manifest, visit, approval)
 
     def _load(self, run_id: str) -> RunRecord:
+        check_workflow_paths(self.pipeline)
         manifest = self.store.load(run_id)
         if not pipeline_matches(self.pipeline, manifest):
             raise EngineError(

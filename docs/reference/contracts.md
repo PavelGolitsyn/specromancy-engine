@@ -60,7 +60,8 @@ Each root owns its registry, graphs, skills, templates, validator schemas, and
 `.specromancy/runs/`. Graph and resource resolution is scoped to that root on
 each load; identical pipeline IDs in different projects do not share state.
 Skills resolve from the root; templates and validator schemas resolve from the
-graph's directory, with repository containment checks. No installed command
+graph's directory. Explicit workflow sources use the containment rules below.
+No installed command
 requires writes to the package, the producer checkout, or home-directory
 configuration. Python bytecode caching can be disabled independently with
 `PYTHONDONTWRITEBYTECODE=1` when testing a read-only installation.
@@ -223,9 +224,40 @@ original files exist. Registry ordering and unrelated graph edits do not alter
 another pipeline's run. Every workflow command requires a valid registry;
 help remains available without one.
 
-Skills are shared by repository-root skill name. Templates and validator paths
-resolve relative to each graph and may reference shared repository files through
-parent segments when containment is preserved.
+### Workflow-owned procedures (pipeline schema 1)
+
+A phase may declare `skill_source = "workflow/skills/compose/SKILL.md"` alongside
+`skill = "compose"`. The identifier remains lowercase kebab-case. The source
+is a repository-relative POSIX file path with no parent segments. The parser
+normalizes redundant separators and current-directory segments, stores this
+declared path as `PhaseConfig.skill_source`, and includes it in canonical JSON.
+`PhaseConfig.skill_path` holds the resolved regular file. Both the declared
+location and the symlink target of each procedure, output template, and validator
+must be inside a non-symlinked `workflow/` directory. Templates and validators
+retain their graph-relative bases, including safe `../templates/` references.
+
+Each explicit skill has portable UTF-8 frontmatter with a matching `name` and a
+nonempty `description`. See [authoring pipelines](../guides/authoring-pipelines.md#skills-and-templates)
+for the supported fields. Each identifier binds to one normalized declaration
+and one resolved file. A file can serve multiple phases under the same identifier.
+Runtime validation checks the selected graph. The guarded adapter preparation
+path checks bindings across the registry and requires explicit sources in every phase.
+`registry.load_adapter_registry(root)` validates source locations before parsing
+the registry. Its `load_adapter_pipelines(root)` method rechecks the supplied
+registry and registration paths before loading graphs and reuses the parsed registry.
+The v2 generator continues to use its existing entry point.
+
+Omitting the field retains legacy skill lookup at `.agents/skills/<skill>/SKILL.md`,
+repository containment for templates and validators, and the original canonical
+bytes and hash. Adding it changes pipeline identity. Keep the original checkout,
+graph and recorded resource bytes available to finish an existing run.
+Prepared visits seal the raw bytes at the resolved procedure path and return
+that path and digest in `action.skill`. A missing declared source is an error,
+even when a same-named discovery file exists. A retained Python configuration
+rechecks its resource locations before run operations. If a descendant symlink
+in the same graph comes to identify a different workflow file for a prepared
+procedure or template, continuation with the reloaded graph reports
+`provenance-path-mismatch` before reading the old recorded location.
 
 ## Filesystem ownership
 

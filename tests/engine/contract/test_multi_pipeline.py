@@ -6,16 +6,20 @@ import sys
 import unittest
 from pathlib import Path
 
+from specromancy_engine.config import PipelineConfigError
 from specromancy_engine.exit_codes import ExitCode
-from tests.engine.support import MultiPipelineFixture
+from specromancy_engine.registry import load_adapter_registry, load_registry
+from tests.engine.support import MultiPipelineFixture, write_workflow_skill
 
 
 ROOT = Path(__file__).resolve().parents[3]
 
 
-class MultiPipelineContractTests(unittest.TestCase):
+class PipelineCLICase(unittest.TestCase):
+    workflow_only = False
+
     def setUp(self) -> None:
-        self.fixture = MultiPipelineFixture()
+        self.fixture = MultiPipelineFixture(workflow_only=self.workflow_only)
         self.root = self.fixture.root
 
     def tearDown(self) -> None:
@@ -33,6 +37,95 @@ class MultiPipelineContractTests(unittest.TestCase):
         self.assertEqual(code, ExitCode.AGENT_ACTION_REQUIRED, payload)
         return payload["action"]
 
+class WorkflowOnlyContractTests(PipelineCLICase):
+    workflow_only = True
+
+    def test_selected_workflow_completes_independently_of_other_registrations(self) -> None:
+        beta = self.root / "workflow/pipelines/beta.toml"
+        graph = beta.read_text()
+        source = "workflow/skills/compose/SKILL.md"
+        write_workflow_skill(self.root, source="workflow/conflict.md")
+        for document, error in (("invalid [", "invalid-toml"),
+                                (graph.replace(source, "workflow/absent.md"), "missing-file"),
+                                (graph.replace(source, "workflow/conflict.md"), "conflicting-skill-source")):
+            with self.subTest(error=error):
+                beta.write_text(document)
+                self.assertEqual(load_registry(self.root).load("alpha").phases[0].skill_source, source)
+                with self.assertRaises(PipelineConfigError) as caught:
+                    load_adapter_registry(self.root).load_adapter_pipelines(self.root)
+                self.assertEqual(caught.exception.diagnostic_code, error)
+                action = self.initialize("alpha")
+                run = action["run_id"]
+                self.assertEqual(action["skill"]["absolute_path"], str(self.root / source))
+                code, active = self.command("phase", run, "compose")
+                self.assertEqual(code, ExitCode.AGENT_ACTION_REQUIRED, active)
+                Path(active["action"]["output"]["absolute_path"]).write_text("## Result\nEvidence.\n")
+                code, payload = self.command("validate", run)
+                self.assertEqual(code, ExitCode.SUCCESS, payload)
+                code, payload = self.command("resume", run)
+                self.assertEqual(code, ExitCode.SUCCESS, payload)
+                self.assertEqual(payload["status"]["terminal_result"]["outcome"], "done")
+        self.assertEqual({p.name for p in self.root.iterdir()}, {".git", "workflow", ".specromancy"})
+
+    def test_missing_or_escaped_canonical_procedure_blocks_init_despite_wrapper(self) -> None:
+        self.fixture.write_legacy_skills()
+        skill = self.root / "workflow/skills/compose/SKILL.md"
+        skill.unlink()
+        for target, diagnostic in ((None, "missing-file"), (self.root / "AGENTS.md", "unsafe-path"),
+                                   (self.root / ".agents/skills/compose/SKILL.md", "unsafe-path")):
+            with self.subTest(target=target):
+                if target is not None:
+                    skill.symlink_to(target)
+                code, payload = self.command("init", "Record evidence", "--pipeline", "alpha")
+                self.assertEqual(code, ExitCode.INVALID_PIPELINE, payload)
+                self.assertEqual(payload["details"]["error_code"], diagnostic)
+                self.assertFalse((self.root / ".specromancy").exists())
+                if target is not None:
+                    skill.unlink()
+
+    def test_retargeted_workflow_link_cannot_redirect_a_prepared_visit(self) -> None:
+        skill = self.root / "workflow/skills/compose/SKILL.md"
+        original = skill.with_name("original.md")
+        skill.rename(original)
+        skill.symlink_to(original)
+        action = self.initialize("alpha")
+        self.assertEqual(Path(action["skill"]["absolute_path"]), original)
+        self.fixture.write_legacy_skills()
+        other = skill.with_name("other.md")
+        other.write_bytes(original.read_bytes())
+        skill.unlink()
+        skill.symlink_to(other)
+        # Even identical bytes at the old recorded location cannot make a
+        # discovery wrapper the procedure for an existing visit.
+        wrapper = self.root / ".agents/skills/compose/SKILL.md"
+        wrapper.write_bytes(original.read_bytes())
+        original.unlink()
+        original.symlink_to(wrapper)
+        directory = self.root / ".specromancy/runs" / action["run_id"]
+        before = {p: p.read_bytes() for p in directory.rglob("*") if p.is_file()}
+        code, payload = self.command("resume", action["run_id"])
+        self.assertEqual(code, ExitCode.INTERNAL_ERROR, payload)
+        self.assertEqual(payload["details"]["error_code"], "provenance-path-mismatch")
+        self.assertEqual({p: p.read_bytes() for p in directory.rglob("*") if p.is_file()}, before)
+
+    def test_only_canonical_procedure_edits_affect_prepared_skill_provenance(self) -> None:
+        action = self.initialize("alpha")
+        run = action["run_id"]
+        directory = self.root / ".specromancy/runs" / run
+        before = {p: p.read_bytes() for p in directory.rglob("*") if p.is_file()}
+        self.fixture.write_legacy_skills()
+        code, payload = self.command("resume", run)
+        self.assertEqual(code, ExitCode.AGENT_ACTION_REQUIRED, payload)
+        self.assertEqual(payload["action"]["skill"], action["skill"])
+        skill = Path(action["skill"]["absolute_path"])
+        skill.write_bytes(skill.read_bytes() + b"Changed procedure.\n")
+        code, payload = self.command("phase", run, "compose")
+        self.assertEqual(code, ExitCode.INTERNAL_ERROR, payload)
+        self.assertEqual(payload["details"]["error_code"], "provenance-hash-mismatch", payload)
+        self.assertEqual({p: p.read_bytes() for p in directory.rglob("*") if p.is_file()}, before)
+
+
+class MultiPipelineContractTests(PipelineCLICase):
     def test_init_requires_registered_id_even_for_one_pipeline(self) -> None:
         for ids in (("alpha", "beta"), ("alpha",)):
             self.fixture.register(*ids)

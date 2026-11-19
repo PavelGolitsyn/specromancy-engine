@@ -42,6 +42,7 @@ def _canonical_document(
                 "output_name": phase.output_name,
                 "output_template": phase.output_template,
                 "skill": phase.skill,
+                **({"skill_source": phase.skill_source} if phase.skill_source is not None else {}),
                 "stop_conditions": list(phase.stop_conditions),
                 "transitions": [
                     {

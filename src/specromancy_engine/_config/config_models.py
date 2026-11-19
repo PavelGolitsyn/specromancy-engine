@@ -55,6 +55,7 @@ class PhaseConfig:
     stop_conditions: tuple[str, ...]
     transitions: tuple[TransitionConfig, ...]
     max_visits: int | None = None
+    skill_source: str | None = None
 
     @property
     def validation_commands(self) -> tuple[ValidationCommand, ...]:
