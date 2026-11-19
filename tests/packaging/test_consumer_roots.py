@@ -17,10 +17,13 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from contextlib import chdir
+from importlib.metadata import version
 from importlib.resources import files
 from pathlib import Path
 
 from specromancy_engine import Engine, EngineError, ExitCode, RunStore, load_pipeline, load_registry
+from specromancy_engine._adapters.adapter_sources import capture_release_inputs
 from specromancy_engine.cli import main
 from specromancy_engine.schema_validation import load_json_schema
 
@@ -370,6 +373,28 @@ class ConsumerRootTests(unittest.TestCase):
 
 
 class PackageResourceTests(unittest.TestCase):
+    def test_release_inputs_are_available_outside_a_producer_or_consumer_checkout(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary, chdir(temporary):
+            captured = capture_release_inputs()
+            identity, *templates = captured
+            self.assertEqual(identity.path, "@package/specromancy_engine/version")
+            self.assertEqual(identity.content.decode(), version("specromancy-engine"))
+            resources = files("specromancy_engine").joinpath("resources", "adapters")
+            self.assertEqual({source.path for source in templates}, {
+                "@package/specromancy_engine/resources/adapters/" + entry.name
+                for entry in resources.iterdir() if entry.is_file()
+            })
+            for source in templates:
+                self.assertEqual(source.content, resources.joinpath(source.path.rsplit("/", 1)[1]).read_bytes())
+
+            # Consumer files at lookalike paths cannot override any release input.
+            for name in ("AGENTS.md", ".agents/skills/pipeline/SKILL.md",
+                         "resources/adapters/launch.md", templates[0].path):
+                path = Path(name)
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("consumer override")
+            self.assertEqual(capture_release_inputs(), captured)
+
     def test_all_four_published_schemas_are_readable_json(self) -> None:
         resources = files("specromancy_engine").joinpath("schemas")
         self.assertEqual({item.name for item in resources.iterdir() if item.name.endswith(".json")}, SCHEMAS)

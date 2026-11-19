@@ -5,11 +5,14 @@ import json
 import tempfile
 import textwrap
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
 from specromancy_engine._adapters import adapter_ownership
 from specromancy_engine._adapters import adapter_sources
+from specromancy_engine._adapters.adapter_rendering import render_release_launch, render_release_template
+from specromancy_engine._adapters.adapter_sources import load_release_template
 from specromancy_engine.adapters import (
     MANIFEST_PATH,
     AdapterError,
@@ -21,6 +24,103 @@ from specromancy_engine.config import load_pipeline
 from specromancy_engine.registry import PipelineRegistry, load_registry
 from specromancy_engine.exit_codes import ExitCode
 from specromancy_engine.hashing import sha256_bytes
+
+
+class ReleaseTemplateTests(unittest.TestCase):
+    def test_release_inputs_omit_producer_phase_names_and_harness_source_paths(self) -> None:
+        for source in adapter_sources.capture_release_inputs():
+            with self.subTest(source=source.path):
+                self.assertNotRegex(source.content, rb"\b(research|plan|implement|review)\b")
+                self.assertNotIn(b".agents/skills/", source.content)
+
+    def test_only_allowlisted_resource_names_reach_package_lookup(self) -> None:
+        with patch.object(adapter_sources, "files") as lookup:
+            for name in ("AGENTS.md", ".agents/skills/pipeline/SKILL.md", "../launch.md",
+                         "/tmp/launch.md", "resources/adapters/launch.md", "extra.md"):
+                with self.subTest(name=name), self.assertRaisesRegex(AdapterError, "unknown"):
+                    load_release_template(name)
+            lookup.assert_not_called()
+
+    def test_missing_and_unreadable_resources_report_logical_id(self) -> None:
+        with patch.object(adapter_sources, "files") as lookup:
+            read = lookup.return_value.joinpath.return_value.read_bytes
+            for error in (FileNotFoundError(), PermissionError()):
+                read.side_effect = error
+                with self.subTest(error=error), self.assertRaises(AdapterError) as caught:
+                    load_release_template("launch.md")
+                self.assertEqual(caught.exception.details, {
+                    "path": "@package/specromancy_engine/resources/adapters/launch.md",
+                })
+
+    def test_hash_uses_raw_bytes_while_render_normalizes_and_substitutes_once(self) -> None:
+        packaged = load_release_template("instructions.md")
+        raw = packaged.content.replace(b"\n", b"\r\n") + b"\r\n"
+        with patch.object(adapter_sources, "files") as lookup:
+            lookup.return_value.joinpath.return_value.read_bytes.return_value = raw
+            source = load_release_template("instructions.md")
+        body = "Keep {phase}, %{instructions}, 50%, $0, $1, $2, and $ARGUMENTS.\r\n\r\n"
+        self.assertEqual(source.record()["sha256"], sha256_bytes(raw))
+        self.assertNotEqual(source.record(), packaged.record())
+        rendered = render_release_template(source, template_id=source.path, instructions=body)
+        self.assertEqual(rendered, render_release_template(
+            packaged, template_id=packaged.path, instructions=body,
+        ))
+        self.assertTrue(rendered.endswith("\n\n" + body.rstrip("\r\n") + "\n"))
+
+    def test_missing_unknown_and_malformed_template_fields_are_controlled(self) -> None:
+        source = load_release_template("instructions.md")
+        with self.assertRaises(AdapterError) as caught:
+            render_release_template(source, template_id=source.path, typo="unused")
+        self.assertEqual(caught.exception.details, {
+            "path": source.path, "missing": ["instructions"], "unknown": ["typo"],
+        })
+        for content in (b"%{unclosed", b"\xff"):
+            with self.subTest(content=content), self.assertRaises(AdapterError) as caught:
+                render_release_template(replace(source, content=content))
+            self.assertEqual(caught.exception.details["path"], source.path)
+
+    def test_phase_wrapper_exposes_only_metadata_and_canonical_reference(self) -> None:
+        phase = load_release_template("phase.md")
+        path = "workflow/skills/compose/SKILL.md"
+        metadata = "name: compose\ndescription: Compose the result."
+        wrapper = render_release_template(phase, template_id=phase.path,
+                                          skill_source=path, validated_metadata=metadata)
+        self.assertIn(metadata + "\n---\n", wrapper)
+        self.assertIn(f"Load `{path}` from the consumer repository root", wrapper)
+        self.assertIn("directory containing the canonical file", wrapper)
+        self.assertIn(phase.path, wrapper)
+        with self.assertRaises(AdapterError) as caught:
+            render_release_template(phase, template_id=phase.path, skill_source=path,
+                                    validated_metadata=metadata, body="private phase procedure")
+        self.assertEqual(caught.exception.details["unknown"], ["body"])
+
+    def test_launch_embeds_the_whole_orchestrator_and_bound_identity(self) -> None:
+        orchestrator = load_release_template("orchestrator.md")
+        launch = render_release_launch("example", load_release_template("launch.md"), orchestrator)
+        self.assertIn(render_release_template(orchestrator, pipeline_id="example"), launch)
+        self.assertIn("specromancy init DESCRIPTION --pipeline example --json", launch)
+        self.assertIn("specromancy status RUN_ID --json", launch)
+        self.assertIn("pause, approval, block, validation failure,", launch)
+        self.assertIn("specromancy resume RUN_ID --json", launch)
+        self.assertNotIn(".agents/", launch)
+
+    def test_command_variants_preserve_the_supplied_invocation(self) -> None:
+        for harness, invocation in (
+            ("claude", 'specromancy init "$1" --pipeline "$0" --json'),
+            ("copilot", "specromancy init DESCRIPTION --pipeline PIPELINE_ID --json"),
+            ("opencode", 'specromancy init "$2" --pipeline "$1" --json'),
+        ):
+            with self.subTest(harness=harness):
+                source = load_release_template(f"command-{harness}.md")
+                values = {"description": "Start a run.", "follow": "Retain $ARGUMENTS.",
+                          "invocation": invocation, "template_id": source.path}
+                if harness != "opencode":
+                    values["arguments"] = "PIPELINE_ID DESCRIPTION"
+                wrapper = render_release_template(source, **values)
+                self.assertIn(f"`{invocation}`", wrapper)
+                self.assertIn("Retain $ARGUMENTS.", wrapper)
+                self.assertEqual("argument-hint:" in wrapper, harness != "opencode")
+                self.assertEqual("agent: agent" in wrapper, harness == "copilot")
 
 
 class AdapterFixture:

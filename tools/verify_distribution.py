@@ -30,6 +30,10 @@ ROOT = Path(__file__).resolve().parents[1]
 build_metadata = runpy.run_path(str(ROOT / "build_readme.py"))["build_metadata"]
 SCHEMAS = {f"specromancy_engine/schemas/{name}.schema.json"
            for name in ("event", "run", "pipeline", "pipelines")}
+ADAPTER_TEMPLATES = {f"specromancy_engine/resources/adapters/{name}.md" for name in (
+    "command-claude", "command-copilot", "command-opencode", "instructions",
+    "launch", "orchestrator", "phase",
+)}
 TEST_MODULES = (
     "tests.packaging.test_consumer_roots",
     "tests.packaging.test_release_documentation",
@@ -55,9 +59,9 @@ def inventory(root: Path) -> dict[str, bytes]:
     result = {p.relative_to(root / "src").as_posix(): p.read_bytes()
               for p in package.rglob("*.py")}
     require("specromancy_engine/__init__.py" in result, "runtime source inventory is missing")
-    for name in SCHEMAS:
+    for name in sorted(SCHEMAS | ADAPTER_TEMPLATES):
         path = root / "src" / name
-        require(path.is_file(), f"required schema is missing: {name}")
+        require(path.is_file(), f"required package resource is missing: {name}")
         result[name] = path.read_bytes()
     return result
 
@@ -108,7 +112,9 @@ def inspect_wheel(wheel: Path, root: Path) -> dict:
         entry.read_string(archive.read(f"{info}/entry_points.txt").decode())
         require(entry.sections() == ["console_scripts"] and dict(entry["console_scripts"]) == {
             "specromancy": "specromancy_engine.cli:main"}, "wheel console entry points differ")
-    return {"version": version, "runtime": sorted(expected), "sha256": digest(wheel)}
+    return {"version": version, "runtime": sorted(expected), "sha256": digest(wheel),
+            "template_hashes": {n: hashlib.sha256(expected[n]).hexdigest()
+                                for n in sorted(ADAPTER_TEMPLATES)}}
 
 
 def sdist_sources(root: Path) -> set[str]:

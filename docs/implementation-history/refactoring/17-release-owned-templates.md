@@ -1,6 +1,6 @@
 # Stage 17 — Package generic harness templates
 
-Status: **planned; not implemented**. Depends on Stage 16.
+Status: **complete**. Executed 2026-11-19 from `f35d82c` after Stage 16.
 Category: resource packaging; existing generator remains active until Stage 20.
 
 ## Objective
@@ -77,12 +77,41 @@ through installed artifacts is the Stage 21 integration gate.
 
 ## Exit criteria and limits
 
-- [ ] Both distribution forms include exact template bytes and no producer policy.
-- [ ] Resource access works without producer `.agents` or `AGENTS.md`.
-- [ ] Generic templates contain no phase names or phase-specific approval rules.
-- [ ] Runtime dependencies remain empty and Python 3.11-compatible.
-- [ ] Existing generator output remains reproducible during this preparatory stage.
+- [x] Both distribution forms include exact template bytes and no producer policy.
+- [x] Resource access works without producer `.agents` or `AGENTS.md`.
+- [x] Generic templates contain no phase names or phase-specific approval rules.
+- [x] Runtime dependencies remain empty and Python 3.11-compatible.
+- [x] Existing generator output remains reproducible during this preparatory stage.
 
 This stage does not scaffold consumer files, change run records, or switch the
 public renderer. Keep temporary coexistence explicit; Stage 20 removes the old
 inline template/source path after the new pipeline is ready.
+
+## Execution record
+
+Private release capture now returns seven template inputs and the package
+version as `SourceInput` records. The loader reads only allowlisted package
+resources. Rendering uses `string.Template` with percent-delimited fields so
+harness dollar arguments survive substitution. A bound launch embeds the
+orchestrator and supplies its registered ID to the initialization command.
+The public generator continues to use its v2 source and rendering path.
+
+Verification ran on macOS arm64. The dedicated editable installation used
+`.venv/bin/python -m pip install --no-index --no-build-isolation -e .` and
+the pinned build tools. The commands in the Verification section ran with
+that environment first on `PATH`.
+
+| Check | Result |
+| --- | --- |
+| Focused packaging, consumer-root, and adapter tests | 44 passed on Python 3.14.4 |
+| Full suite, editable installation | 332 passed on Python 3.14.4 |
+| Full suite, final direct wheel in a fresh environment | 332 passed on Python 3.11.15 |
+| Pinned direct wheel, sdist, and offline wheel rebuild | All seven template files matched the checkout byte for byte |
+| Isolated consumer suite | 76 passed per wheel, including package access in an empty directory |
+| Existing adapter generation check and `git diff --check` | Passed |
+
+The first direct build included three obsolete files from an ignored
+`build/` cache. The verifier rejected that wheel. After moving the cache
+aside, `python -m build --sdist --wheel --no-isolation` produced the final
+artifacts, and `tools/verify_distribution.py` passed on those exact files.
+Stage 21 covers clean-consumer generation after the public renderer switches.

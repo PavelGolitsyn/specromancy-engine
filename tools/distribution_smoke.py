@@ -1,6 +1,7 @@
 """Copied into a runtime-free bundle and executed by a fresh wheel environment."""
 from __future__ import annotations
 
+import hashlib
 import importlib
 import importlib.metadata
 import importlib.util
@@ -30,7 +31,10 @@ def main() -> int:
             assert Path(module.__file__).resolve() == installed / relative, module.__file__
         else:
             resource = files(package).joinpath(relative.split("/", 1)[1])
-            assert json.loads(resource.read_text(encoding="utf-8"))["$schema"]
+            if relative in expected["template_hashes"]:
+                assert hashlib.sha256(resource.read_bytes()).hexdigest() == expected["template_hashes"][relative]
+            else:
+                assert json.loads(resource.read_text(encoding="utf-8"))["$schema"]
     console = Path(sys.executable).with_name("specromancy")
     help_text = []
     for command in ([sys.executable, "-I", "-m", "specromancy_engine"], [str(console)]):

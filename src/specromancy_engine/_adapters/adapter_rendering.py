@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from pathlib import Path
+from string import Template
 from typing import TYPE_CHECKING, Any
 
 from .adapter_contracts import (
@@ -13,7 +14,38 @@ from .adapter_contracts import (
 from ..hashing import sha256_bytes, sha256_json
 
 if TYPE_CHECKING:
-    from .adapter_sources import AdapterSources
+    from .adapter_sources import AdapterSources, SourceInput
+
+
+class _TemplateFields(Template):
+    # Dollar signs are literal harness syntax, including $0 and $ARGUMENTS.
+    delimiter = "%"
+
+
+def render_release_template(source: SourceInput, **values: str) -> str:
+    """Render a captured template once, preserving its original bytes for hashing."""
+    try:
+        template = _TemplateFields(source.content.decode("utf-8"))
+    except UnicodeDecodeError as exc:
+        raise AdapterError("invalid UTF-8 in adapter release template", {"path": source.path}) from exc
+    if not template.is_valid():
+        raise AdapterError("invalid adapter template placeholder", {"path": source.path})
+    required = set(template.get_identifiers())
+    if required != values.keys():
+        raise AdapterError("adapter template fields differ", {
+            "path": source.path, "missing": sorted(required - values.keys()),
+            "unknown": sorted(values.keys() - required),
+        })
+    rendered = template.substitute(values).replace("\r\n", "\n").replace("\r", "\n")
+    return rendered.rstrip("\n") + "\n"
+
+
+def render_release_launch(pipeline_id: str, launch: SourceInput, orchestrator: SourceInput) -> str:
+    return render_release_template(
+        launch, pipeline_id=pipeline_id, template_id=launch.path,
+        orchestrator_id=orchestrator.path,
+        orchestration=render_release_template(orchestrator, pipeline_id=pipeline_id),
+    )
 
 
 def render_sources(sources: AdapterSources) -> dict[str, bytes]:

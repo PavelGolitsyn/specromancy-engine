@@ -2,10 +2,10 @@
 
 ## Current plan: generated harness files from canonical workflow sources
 
-Status: **Stage 16 complete; Stages 17–22 planned**. Stage 16 recorded the source,
-ownership, reference, and existing-run inventory and added passing characterization
-without changing runtime, workflow, generated files, or runs. See its execution
-record for verification and the concrete unfinished-run migration constraint.
+**Stages 16–17 are complete. Stages 18–22 are planned.** Stage 16 recorded
+the source and ownership inventory and the unfinished-run migration constraint.
+Stage 17 packaged the generic harness templates and verified them in direct
+and sdist-rebuilt wheel installations. The public generator still uses v2.
 Prepared on 2026-11-11
 against `d0bd655120dfd6eb2bdbc7e61fc12ae45e46f82b`.
 

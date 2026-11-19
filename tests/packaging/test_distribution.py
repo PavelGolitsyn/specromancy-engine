@@ -62,10 +62,20 @@ class DistributionContractTests(unittest.TestCase):
         with self.assertRaisesRegex(verifier.VerificationError, "unexpected=.*specromancy/__init__.py"):
             verifier.inspect_wheel(self.wheel(extra={"specromancy/__init__.py": b""}), ROOT)
 
+    def test_release_templates_are_required_byte_for_byte_in_both_archives(self):
+        launch = "specromancy_engine/resources/adapters/launch.md"
+        with self.assertRaisesRegex(verifier.VerificationError, "missing=.*launch.md"):
+            verifier.inspect_wheel(self.wheel(omit={launch}), ROOT)
+        with self.assertRaisesRegex(verifier.VerificationError, "wheel runtime differs.*launch.md"):
+            verifier.inspect_wheel(self.wheel(extra={launch: b"changed"}), ROOT)
+        with self.assertRaisesRegex(verifier.VerificationError, "missing=.*launch.md"):
+            verifier.extract_sdist(self.sdist(omit={"src/" + launch}), self.root / "bad", ROOT)
+
     def test_runtime_dependency_and_consumer_files_are_rejected(self):
         with self.assertRaisesRegex(verifier.VerificationError, "runtime dependencies"):
             verifier.inspect_wheel(self.wheel(dependency=True), ROOT)
         for name in ("workflow/pipelines.toml", "tests/fixture.py", ".agents/skills/a/SKILL.md",
+                     "AGENTS.md", "specromancy_engine/resources/adapters/producer-policy.md",
                      "bin/specromancy", "specromancy_engine/__pycache__/cli.pyc",
                      "game-of-life/README.md", ".specromancy/runs/run.json"):
             with self.subTest(name=name), self.assertRaisesRegex(verifier.VerificationError, "unexpected="):

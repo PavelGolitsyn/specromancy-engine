@@ -4,11 +4,13 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from importlib.resources import files
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from .adapter_contracts import ADAPTER_COMMANDS, AdapterError
 from .._cli.cli_commands import adapter_command_metadata
+from .._version import get_version
 from ..hashing import canonical_json_bytes, relative_path, sha256_bytes
 
 if TYPE_CHECKING:
@@ -24,6 +26,29 @@ class SourceInput:
 
     def record(self) -> dict[str, str]:
         return {"kind": self.kind, "path": self.path, "sha256": sha256_bytes(self.content)}
+
+
+TEMPLATE_NAMES = (
+    "command-claude.md", "command-copilot.md", "command-opencode.md",
+    "instructions.md", "launch.md", "orchestrator.md", "phase.md",
+)
+
+
+def load_release_template(name: str) -> SourceInput:
+    if name not in TEMPLATE_NAMES:
+        raise AdapterError("unknown adapter release template", {"name": name})
+    source_id = f"@package/specromancy_engine/resources/adapters/{name}"
+    try:
+        content = files("specromancy_engine").joinpath("resources", "adapters", name).read_bytes()
+    except OSError as exc:
+        raise AdapterError("cannot read adapter release template", {"path": source_id}) from exc
+    return SourceInput("release-template", source_id, content)
+
+
+def capture_release_inputs() -> tuple[SourceInput, ...]:
+    version = SourceInput("package-version", "@package/specromancy_engine/version",
+                          get_version().encode("utf-8"))
+    return (version, *(load_release_template(name) for name in TEMPLATE_NAMES))
 
 
 @dataclass(frozen=True, slots=True)

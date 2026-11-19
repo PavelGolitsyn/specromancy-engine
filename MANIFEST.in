@@ -3,6 +3,7 @@ global-exclude *
 include pyproject.toml MANIFEST.in README.md LICENSE setup.py build_readme.py
 recursive-include src/specromancy_engine *.py
 include src/specromancy_engine/schemas/*.json
+include src/specromancy_engine/resources/adapters/*.md
 include src/specromancy_engine.egg-info/PKG-INFO
 include src/specromancy_engine.egg-info/SOURCES.txt
 include src/specromancy_engine.egg-info/dependency_links.txt

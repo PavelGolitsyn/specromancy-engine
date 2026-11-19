@@ -100,7 +100,7 @@ The converter does not check remote availability.
 ## Verifier contract
 
 `tools/verify_distribution.py --wheel PATH --sdist PATH [--log NEW_PATH]` is a
-standard-library orchestration script. Missing artifacts, schemas, Git, or build
+standard-library orchestration script. Missing artifacts, required package resources, Git, or build
 tooling are failures, never skips. It exits 0 only when both installed artifacts
 pass. The optional log path must not exist; otherwise a persistent temporary log
 is created. The printed log path survives both success and failure, including
@@ -110,13 +110,15 @@ finishes. Keep the original artifact set and the log for release review.
 
 The verifier inspects exact wheel paths, runtime bytes, and metadata, including
 version, Python requirement, license, generated README and project URLs, entry
-point, and empty runtime dependencies. It enumerates every runtime module and all four schemas. Wheel
-contents are limited to `specromancy_engine` source/schema data and normal
-`.dist-info` metadata. Tests, producer/consumer configurations, skills, wrappers,
-run data, caches, environments, and unrelated projects fail the archive boundary.
+point, and empty runtime dependencies. It enumerates every runtime module, all
+four schemas, and the seven generic Markdown templates in
+`specromancy_engine/resources/adapters/`. It compares each template's bytes
+with the checkout in the sdist, the direct wheel, and the rebuilt wheel.
+The wheel allowlist excludes producer and consumer workflow policy, generated
+harness files, tests, run data, caches, and unrelated projects.
 
 `MANIFEST.in` defines a deliberate sdist allowlist: build metadata and README
-helpers, runtime source and schemas, README, license, the complete release-documentation example
+helpers, runtime source, schemas, adapter templates, README, license, the complete release-documentation example
 (including hidden skills and ignore rules), and current guides and reference
 documentation. Setuptools adds normal sdist metadata. Tests, historical documents,
 producer workflows, generated adapters, and developer tools are not included.
@@ -133,7 +135,7 @@ Each wheel gets its own fresh venv and exact-path `pip install --no-index
 --no-deps`. The runner uses `python -I -B`, clears inherited Python/Git/Pip
 configuration, disables user sites, and runs outside the producer checkout. It
 checks every imported module's installed origin, version agreement, missing
-legacy namespace, schemas, and both CLI entry points before exposing only the
+legacy namespace, schemas, installed template hashes, and both CLI entry points before exposing only the
 copied test bundle to imports. The rebuilt wheel uses the **sdist's** example and
 installation guide in its consumer tests.
 

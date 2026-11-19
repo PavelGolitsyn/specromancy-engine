@@ -1,0 +1,33 @@
+Run commands from the consumer project root with the installed `specromancy`
+on the harness process's `PATH`. Launch a GUI harness with that environment
+or configure its command environment before continuing.
+
+Treat the CLI's persisted state and action packets as authoritative. Never edit
+`run.json` or `events.jsonl` or reconstruct state from conversation history.
+
+For a new request, require a registered pipeline ID from the invocation or
+the user. Check the registrations in `workflow/pipelines.toml`. Never select
+a default or the first registration. Run
+`specromancy init DESCRIPTION --pipeline %{pipeline_id} --json` with the supplied
+ID and retain the emitted `RUN_ID`.
+
+For an existing invocation, use its supplied `RUN_ID` or obtain it from the
+user. Never guess the ID or initialize a second run. Existing-run commands
+resolve the pipeline from persisted provenance.
+
+1. Run `specromancy status RUN_ID --json`.
+2. If the run is awaiting agent work, use its recorded phase and next command
+   to start or resume that visit. Load and follow the canonical skill named by
+   the emitted action packet.
+3. Read only the resolved inputs, honor the visit's mutation policy, write its
+   exact output, handle declared approval or stop conditions, and run the
+   packet's validation command.
+4. Query status again and repeat only while the recorded state requests
+   another agent action.
+5. Stop immediately for a configured pause, approval, block, validation failure,
+   or completion. Report the CLI's recorded state and required user action.
+   A paused run continues only through `specromancy resume RUN_ID --json`.
+
+Never assume phase names, their order, or their outcomes. Never bypass approval
+or validation, invent an output path, or continue from memory after a process
+restart.

@@ -65,7 +65,7 @@ requires writes to the package, the producer checkout, or home-directory
 configuration. Python bytecode caching can be disabled independently with
 `PYTHONDONTWRITEBYTECODE=1` when testing a read-only installation.
 
-The four published package resources are `pipeline.schema.json` (graph),
+The four published schemas are `pipeline.schema.json` (graph),
 `pipelines.schema.json` (registry), `run.schema.json` (manifest), and
 `event.schema.json` (event). Read them using Python 3.11-compatible resource APIs:
 
@@ -88,6 +88,26 @@ passed to its loader as an availability check. No schema subset is expanded by
 packaging. When an external tool needs a filesystem path to a package resource,
 use `importlib.resources.as_file(resource)` only for the duration of its context;
 never persist the temporary path in run records.
+
+The release also ships seven UTF-8 Markdown templates under
+`specromancy_engine/resources/adapters/`. These supply the repository
+instruction envelope, phase discovery wrapper, orchestration procedure,
+pipeline launch skill, and Claude, Copilot, and OpenCode command wrappers.
+The phase wrapper points to its canonical workflow file and resolves support
+references from that file's directory. The launch skill embeds the entire
+orchestration procedure together with the registered pipeline ID.
+
+Internal capture reads these templates from the installed package and identifies
+each by a logical ID such as `@package/specromancy_engine/resources/adapters/launch.md`.
+It preserves the exact bytes for SHA-256 hashing and captures the package
+version under `@package/specromancy_engine/version`. Both identifiers are
+independent of the install location. Rendering substitutes named fields once
+and emits LF text with one trailing newline. Braces and dollar signs in
+consumer Markdown and command arguments remain literal.
+
+The public v2 generator still uses the consumer's root instructions and
+`.agents/skills` as described in the adapter contract below. The packaged
+templates prepare the generator switch scheduled for Stage 20.
 
 For Python embedding, use the existing public facades and explicit consumer
 roots; see the [executable examples](../guides/authoring-pipelines.md#embed-the-installed-engine).

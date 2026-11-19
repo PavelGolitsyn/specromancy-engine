@@ -28,4 +28,4 @@ include = ["specromancy_engine", "specromancy_engine.*"]
 namespaces = false
 
 [tool.setuptools.package-data]
-specromancy_engine = ["schemas/*.json"]
+specromancy_engine = ["schemas/*.json", "resources/adapters/*.md"]
