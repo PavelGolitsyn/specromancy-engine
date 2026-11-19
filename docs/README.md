@@ -29,8 +29,8 @@ use the references and guides above for current behavior.
 | `src/specromancy_engine/_cli/` | Private command metadata and pipeline selection |
 | `src/specromancy_engine/schemas/` | Published JSON schemas |
 | `bin/` | Executable launcher |
-| `workflow/` | This repository's configured development registry, graphs, and templates |
-| `.agents/skills/` | This repository's canonical procedures and manifest-owned launch skills |
+| `workflow/` | This repository's instructions, registered development graphs, phase procedures, and templates |
+| `AGENTS.md`, `.agents/skills/` | Manifest-owned repository instructions, phase wrappers and launch skills |
 | `adapters/` | Generation entry point and generated-file ownership manifest |
 | `.claude/`, `.github/`, `.opencode/` | Harness discovery files owned by the adapter manifest |
 | `tests/engine/` | Engine unit/contract tests, evaluations, and test-owned fixtures |

@@ -1,6 +1,6 @@
 # Stage 20 — Migrate canonical sources and switch generation
 
-Status: **planned; not implemented**. Depends on Stages 16–19.
+Status: **complete**. Executed 2026-11-19 from `b42de3b` after Stages 16–19.
 Category: coordinated behavior change and repository migration.
 
 ## Objective
@@ -137,16 +137,37 @@ Repeat runtime validation/init/resume of valid pipeline A while registered B has
 invalid graph content, missing skill content, or a conflicting binding; generation
 must reject the invalid registry-wide inputs while A remains independently usable.
 
-- [ ] No active canonical skills/prompts/instructions remain in harness locations.
-- [ ] No public adapter path reads root `AGENTS.md` or `.agents` as sources.
-- [ ] Source aliases/dependencies cannot bypass that separation, old manifests
+- [x] No active canonical skills/prompts/instructions remain in harness locations.
+- [x] No public adapter path reads root `AGENTS.md` or `.agents` as sources.
+- [x] Source aliases/dependencies cannot bypass that separation, old manifests
   retain their original ownership limits, and phase wrappers preserve identity.
-- [ ] Generated files contain no unique workflow policy and are reproducible.
-- [ ] Example setup needs only release resources and authored workflow sources.
-- [ ] Full tests pass, including old-run compatibility and new generator cases.
-- [ ] Only intended source migration, generated changes, tests, and docs changed.
+- [x] Generated files contain no unique workflow policy and are reproducible.
+- [x] Example setup needs only release resources and authored workflow sources.
+- [x] Full tests pass, including old-run compatibility and new generator cases.
+- [x] Only intended source migration, generated changes, tests, and docs changed.
 
 Rollback is a reviewed source/release change using preserved originals. Do not
 rewrite run history, blindly downgrade a generated manifest, or delete foreign
 files. Keep the code switch and source migration in one reviewable integration
 stage so intermediate released revisions never require both source layouts.
+
+## Execution record
+
+The checkout began clean. All 21 outputs in the previous manifest matched their
+recorded hashes. The local run directory was empty at cutover. The four relocated
+phase procedures match their original tracked bytes, and the prior checkout
+revision retains the original graph, instructions and orchestrator.
+
+The public CLI and Python facades now use the workflow reader and packaged
+templates. The schema-2 manifest records 20 canonical inputs and 27 distinct
+generated files across five harnesses. Both native discovery targets list the
+same six shared skills. The example ships its instructions, graph, two procedures
+and two artifact templates under `workflow/`.
+
+On Python 3.14.4, the 95 focused tests, 18 shipped-configuration tests, 56
+packaging tests and full discovery of 364 tests passed. Both installed and
+checkout launchers reported clean adapter checks, and `git diff --check` passed.
+The wheel and source archive built locally passed the archive inventory checks.
+CLI regression tests verified registry symlink rejection before TOML parsing
+in generate and check modes, and completed a valid run in each of the three
+invalid-sibling scenarios. Live harness sessions were outside this verification.

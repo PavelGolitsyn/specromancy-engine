@@ -9,9 +9,10 @@ allow_non_git = true
 [[phases]]
 id = "research"
 skill = "research"
+skill_source = "workflow/skills/research/SKILL.md"
 inputs = ["request"]
 output_name = "{visit:03}-research.md"
-output_template = "../../templates/research.md"
+output_template = "../templates/research.md"
 mutation = "read-only"
 completion_criteria = ["Record repository evidence and unresolved questions."]
 validator = "markdown"
@@ -30,9 +31,10 @@ outcome = "blocked"
 [[phases]]
 id = "plan"
 skill = "plan"
+skill_source = "workflow/skills/plan/SKILL.md"
 inputs = ["request", "latest:research"]
 output_name = "{visit:03}-plan.md"
-output_template = "../../templates/plan.md"
+output_template = "../templates/plan.md"
 mutation = "read-only"
 completion_criteria = ["Map requirements to files, tests, verification, and risks."]
 validator = "markdown"
@@ -52,9 +54,10 @@ outcome = "blocked"
 [[phases]]
 id = "implement"
 skill = "implement"
+skill_source = "workflow/skills/implement/SKILL.md"
 inputs = ["request", "latest:plan"]
 output_name = "{visit:03}-implementation.md"
-output_template = "../../templates/implementation.md"
+output_template = "../templates/implementation.md"
 mutation = "repository-write"
 completion_criteria = ["Implement the plan and record changes, deviations, and verification."]
 validator = "markdown"
@@ -72,9 +75,10 @@ outcome = "blocked"
 [[phases]]
 id = "review"
 skill = "review"
+skill_source = "workflow/skills/review/SKILL.md"
 inputs = ["request", "latest:plan", "latest:implement"]
 output_name = "{visit:03}-review.md"
-output_template = "../../templates/review.md"
+output_template = "../templates/review.md"
 mutation = "read-only"
 completion_criteria = ["Record a verdict and actionable findings."]
 validator = "markdown"

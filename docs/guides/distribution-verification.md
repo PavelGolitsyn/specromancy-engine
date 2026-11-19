@@ -119,7 +119,7 @@ harness files, tests, run data, caches, and unrelated projects.
 
 `MANIFEST.in` defines a deliberate sdist allowlist: build metadata and README
 helpers, runtime source, schemas, adapter templates, README, license, the complete release-documentation example
-(including hidden skills and ignore rules), and current guides and reference
+(including workflow instructions, declared skills, templates, and ignore rules), and current guides and reference
 documentation. Setuptools adds normal sdist metadata. Tests, historical documents,
 producer workflows, generated adapters, and developer tools are not included.
 The sdist is a consumer/build artifact, not a full developer checkout. Some

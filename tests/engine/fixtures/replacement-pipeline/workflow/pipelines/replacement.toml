@@ -9,9 +9,10 @@ allow_non_git = true
 [[phases]]
 id = "inspect"
 skill = "inspect"
+skill_source = "workflow/skills/inspect/SKILL.md"
 inputs = ["request"]
 output_name = "{visit:03}-observations.md"
-output_template = "../../templates/observations.md"
+output_template = "../templates/observations.md"
 mutation = "read-only"
 completion_criteria = ["Identify the source value and selected operation."]
 validator = "markdown"
@@ -30,9 +31,10 @@ outcome = "blocked"
 [[phases]]
 id = "transform"
 skill = "transform"
+skill_source = "workflow/skills/transform/SKILL.md"
 inputs = ["request", "latest:inspect"]
 output_name = "{visit:03}-result.md"
-output_template = "../../templates/result.md"
+output_template = "../templates/result.md"
 mutation = "allowlist"
 allowlist = ["workspace/**"]
 completion_criteria = ["Apply the selected operation and record its result."]
@@ -52,9 +54,10 @@ outcome = "blocked"
 [[phases]]
 id = "verify"
 skill = "verify"
+skill_source = "workflow/skills/verify/SKILL.md"
 inputs = ["request", "latest:inspect", "latest:transform"]
 output_name = "{visit:03}-decision.md"
-output_template = "../../templates/decision.md"
+output_template = "../templates/decision.md"
 mutation = "read-only"
 completion_criteria = ["Check the transformation and record a decision."]
 validator = "markdown"

@@ -27,6 +27,7 @@ PHASE = """
 [[phases]]
 id = "compose"
 skill = "compose"
+skill_source = "workflow/skills/compose/SKILL.md"
 inputs = ["request"]
 output_name = "{visit:03}-result.md"
 mutation = "read-only"
@@ -69,13 +70,13 @@ class PipelineFixture:
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name)
         (self.root / ".git").mkdir()
-        skill = self.root / ".agents" / "skills" / "compose" / "SKILL.md"
+        skill = self.root / "workflow" / "skills" / "compose" / "SKILL.md"
         skill.parent.mkdir(parents=True)
         skill.write_text("---\nname: compose\ndescription: Test.\n---\n", encoding="utf-8")
-        templates = self.root / "config" / "templates"
+        templates = self.root / "workflow/config" / "templates"
         templates.mkdir(parents=True)
         (templates / "result.md").write_text("# Result\n", encoding="utf-8")
-        self.path = self.root / "config" / "pipeline.toml"
+        self.path = self.root / "workflow/config" / "pipeline.toml"
 
     def close(self) -> None:
         self.temporary.cleanup()
@@ -88,7 +89,7 @@ class PipelineFixture:
 
 class WorkflowSourceTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.fixture = MultiPipelineFixture(workflow_only=True)
+        self.fixture = MultiPipelineFixture()
         self.addCleanup(self.fixture.close)
         self.root = self.fixture.root
         self.graph = self.root / "workflow/pipelines/alpha.toml"
@@ -245,7 +246,7 @@ class ConfigTests(unittest.TestCase):
         ):
             with self.subTest(name=name):
                 fixture = FIXTURES / name
-                loaded = load_pipeline(fixture / "pipeline.toml", fixture)
+                loaded = load_pipeline(fixture / "workflow/pipeline.toml", fixture)
                 self.assertEqual(loaded.phase_ids, expected)
 
     def test_duplicate_phase_is_rejected(self) -> None:
@@ -356,7 +357,7 @@ class ConfigTests(unittest.TestCase):
 
     def test_missing_skill_and_template_are_rejected(self) -> None:
         self.assert_error(
-            document(PHASE.replace('skill = "compose"', 'skill = "missing"')),
+            document(PHASE.replace("workflow/skills/compose/", "workflow/skills/missing/")),
             "missing-file",
         )
         phase = PHASE.replace(
@@ -366,7 +367,10 @@ class ConfigTests(unittest.TestCase):
         self.assert_error(document(phase), "missing-file")
 
     def test_legacy_skill_resolution_and_hash_do_not_depend_on_procedure_bytes(self) -> None:
-        path = self.fixture.write(document())
+        legacy = self.fixture.root / ".agents/skills/compose/SKILL.md"
+        legacy.parent.mkdir(parents=True)
+        legacy.write_bytes((self.fixture.root / "workflow/skills/compose/SKILL.md").read_bytes())
+        path = self.fixture.write(document().replace('skill_source = "workflow/skills/compose/SKILL.md"\n', ""))
         first = load_pipeline(path)
         skill = self.fixture.root / ".agents/skills/compose/SKILL.md"
         self.assertEqual(first.phase("compose").skill_path, skill.resolve())
@@ -397,7 +401,7 @@ class ConfigTests(unittest.TestCase):
         )
 
     def test_template_parent_segments_may_stay_inside_repository(self) -> None:
-        template = self.fixture.root / "shared.md"
+        template = self.fixture.root / "workflow/shared.md"
         template.write_text("# Shared\n", encoding="utf-8")
         phase = PHASE.replace(
             'output_name = "{visit:03}-result.md"',
@@ -410,7 +414,7 @@ class ConfigTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as outside:
             target = Path(outside) / "target.md"
             target.write_text("# Outside\n", encoding="utf-8")
-            link = self.fixture.root / "config" / "templates" / "link.md"
+            link = self.fixture.root / "workflow/config" / "templates" / "link.md"
             link.symlink_to(target)
             phase = PHASE.replace(
                 'output_name = "{visit:03}-result.md"',
@@ -429,6 +433,7 @@ class ConfigTests(unittest.TestCase):
             [[phases]]
             id = "compose"
             skill = "compose"
+            skill_source = "workflow/skills/compose/SKILL.md"
             inputs = ["request"]
             output_name = "compose.md"
             mutation = "read-only"
@@ -447,6 +452,7 @@ class ConfigTests(unittest.TestCase):
             [[phases]]
             id = "produce"
             skill = "compose"
+            skill_source = "workflow/skills/compose/SKILL.md"
             inputs = ["request"]
             output_name = "produce.md"
             mutation = "read-only"
@@ -462,6 +468,7 @@ class ConfigTests(unittest.TestCase):
             [[phases]]
             id = "consume"
             skill = "compose"
+            skill_source = "workflow/skills/compose/SKILL.md"
             inputs = ["latest:produce"]
             output_name = "consume.md"
             mutation = "read-only"
@@ -536,11 +543,11 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(configured.output_template, "templates/result.md")
         self.assertEqual(
             configured.output_template_path,
-            (self.fixture.root / "config" / "templates" / "result.md").resolve(),
+            (self.fixture.root / "workflow/config" / "templates" / "result.md").resolve(),
         )
 
     def test_unsupported_json_schema_keyword_is_rejected_at_load(self) -> None:
-        schema = self.fixture.root / "config" / "result.schema.json"
+        schema = self.fixture.root / "workflow/config" / "result.schema.json"
         schema.write_text('{"type":"string","minLength":1}', encoding="utf-8")
         phase = PHASE.replace(
             'validator = "file"',
@@ -565,7 +572,7 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(raised.exception.diagnostic_code, "invalid-repository-root")
         self.assertEqual(raised.exception.details["value"], str(missing.resolve()))
         with self.assertRaises(PipelineConfigError) as raised:
-            load_pipeline(path, root / ".agents")
+            load_pipeline(path, root / "workflow/skills")
         self.assertEqual(raised.exception.diagnostic_code, "pipeline-outside-repository")
         (root / ".git").rmdir()
         with self.assertRaises(PipelineConfigError) as raised:
@@ -594,10 +601,10 @@ class ConfigTests(unittest.TestCase):
             (document(PHASE.replace('id = "compose"', 'id = "Bad"')),
              document(PHASE.replace('id = "compose"', 'id = "Bad"\nextra = true')),
              "invalid-identifier", "id"),
-            (document(PHASE.replace('skill = "compose"', 'skill = "missing"')),
-             document(PHASE.replace('skill = "compose"', 'skill = "missing"')
+            (document(PHASE.replace("workflow/skills/compose/", "workflow/skills/missing/")),
+             document(PHASE.replace("workflow/skills/compose/", "workflow/skills/missing/")
                       .replace('inputs = ["request"]', 'inputs = false')),
-             "missing-file", "skill"),
+             "missing-file", "skill_source"),
             (document(PHASE.replace('validator = "file"', 'validator = "unknown"')),
              document(PHASE.replace('validator = "file"', 'validator = "unknown"\ncommands = false')),
              "invalid-validator", "validator"),
@@ -614,7 +621,7 @@ class ConfigTests(unittest.TestCase):
                 self.assertEqual(actual.as_dict(), expected.as_dict())
 
     def test_schema_paths_and_dependencies_are_resolved_on_every_load(self) -> None:
-        schema = self.fixture.root / "shared.schema.json"
+        schema = self.fixture.root / "workflow/shared.schema.json"
         schema.write_text('{"type":"string"}', encoding="utf-8")
         phase = PHASE.replace(
             'validator = "file"',

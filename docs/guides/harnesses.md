@@ -17,13 +17,11 @@ and the [consumer example](../../examples/release-documentation/README.md) for
 a complete run. The engine does not launch an LLM, provision credentials,
 generate prose, or publish artifacts; the host agent performs the requested work.
 
-The consumer must supply `AGENTS.md`, its registry, graphs, and canonical skills.
-In particular, installation does not create `.agents/skills/pipeline/SKILL.md`;
-adapter generation requires that project-owned procedure. Explicitly copy the
-generic [pipeline procedure](../../.agents/skills/pipeline/SKILL.md) to that same
-path in the consumer, reviewing any existing file before replacing it. It has
-no built-in phase names or order. Add the consumer's own phase skills and
-resources as described in [Authoring pipelines](authoring-pipelines.md).
+Supply `workflow/instructions.md`, the registry, and graphs declaring each
+phase's `skill_source` and dependencies under `workflow/`. Installation supplies
+the templates and orchestration procedure and creates no repository files.
+Phase wrappers load the canonical procedure identified by the graph.
+See [Authoring pipelines](authoring-pipelines.md).
 
 Generate or verify adapters with:
 
@@ -42,7 +40,7 @@ including locally edited ones, and removes only unchanged owned stale outputs.
 It refuses unowned destinations, unsafe paths, and modified stale outputs.
 
 On a conflict, inspect the reported paths and preserve their content first.
-Merge intentional instructions into `AGENTS.md` or canonical skills before
+Merge intentional instructions into `workflow/instructions.md` or canonical skills before
 regeneration. For an unowned destination, explicitly relocate the user file
 outside the managed adapter locations after preserving its purpose; generation
 does not silently adopt it. For a modified stale output, preserve the edits and
@@ -58,7 +56,7 @@ overwrite option. See the [adapter contract](../reference/contracts.md#filesyste
 - Invocation: ask Codex to use `specromancy-<id>` with a request, or `pipeline` with
   an explicit registered pipeline ID, or provide
   `RUN_ID` to the phase skill named by `status`.
-- Generated files: shared `.agents/skills/specromancy-<id>/SKILL.md` launch skills.
+- Generated files: root instructions, shared phase wrappers, and generic and per-pipeline launch skills.
 - Prerequisites: open the repository as a trusted writable workspace and allow
   only the commands needed by the configured validation.
 - Limitation: availability and presentation of skill invocation depend on the
@@ -71,8 +69,7 @@ overwrite option. See the [adapter contract](../reference/contracts.md#filesyste
 - Invocation: `/specromancy:init PIPELINE_ID DESCRIPTION`,
   `/specromancy:status RUN_ID`, `/specromancy:resume RUN_ID`, or
   `/specromancy:phase RUN_ID PHASE`.
-- Generated files: the Claude instruction mirror, canonical and per-pipeline
-  skill mirrors, and four thin commands listed in `adapters/manifest.json`.
+- Generated files: the Claude instructions, phase wrappers and launch skills, and four thin commands listed in `adapters/manifest.json`.
 - Prerequisites: trust the repository and approve shell/filesystem access
   required by the phase and validation commands.
 - Limitation: command wrappers only invoke the CLI and hand off to canonical
@@ -85,7 +82,7 @@ overwrite option. See the [adapter contract](../reference/contracts.md#filesyste
 - Invocation: select a `specromancy-init`, `-status`, `-resume`, or `-phase`
   prompt and supply its argument hint (`PIPELINE_ID DESCRIPTION` for init).
   Generated `specromancy-<id>` skills in `.agents/skills/` also bind the pipeline ID.
-- Generated files: one instruction mirror and four prompt files.
+- Generated files: Copilot instructions, shared skills, and four prompt files.
 - Prerequisites: use an agent-capable surface with repository and terminal
   permissions.
 - Limitation: Copilot prompt availability varies by editor. The prompts are the
@@ -99,7 +96,7 @@ overwrite option. See the [adapter contract](../reference/contracts.md#filesyste
 - Invocation: use the matching `specromancy-init`, `-status`, `-resume`, or
   `-phase` custom command with its positional arguments (`PIPELINE_ID DESCRIPTION` for
   init), or a generated `specromancy-<id>` skill discovered in `.agents/skills/`.
-- Generated files: four thin command files.
+- Generated files: root instructions, shared skills, and four thin command files.
 - Prerequisites: trust the project and grant terminal/filesystem access needed
   by the current action packet.
 - Limitation: the generated command convention is OpenCode-specific and does
@@ -108,10 +105,10 @@ overwrite option. See the [adapter contract](../reference/contracts.md#filesyste
 ## Hermes
 
 - Discovery: `AGENTS.md` and `.agents/skills/*/SKILL.md` directly.
-- Invocation: invoke `specromancy-<id>` for a new run, or the canonical `pipeline` skill
+- Invocation: invoke `specromancy-<id>` for a new run, or the generated `pipeline` skill
   with an explicit registered ID, or the
   current phase skill with `RUN_ID` after `status`.
-- Generated files: shared `.agents/skills/specromancy-<id>/SKILL.md` launch skills.
+- Generated files: root instructions, shared phase wrappers, and generic and per-pipeline launch skills.
 - Prerequisites: run `hermes skills trust` in the repository and review the
   project skills before accepting them.
 - Limitation: project-skill trust is user-managed. Specromancy does not modify

@@ -152,14 +152,16 @@ class RegistryTests(unittest.TestCase):
 
     def test_adapter_graph_precheck_reports_legacy_source_before_legacy_lookup(self) -> None:
         registry = load_adapter_registry(self.root)
-        (self.root / ".agents/skills/compose/SKILL.md").unlink()
+        for registration in registry.pipelines:
+            path = registration.path
+            path.write_text(path.read_text().replace('skill_source = "workflow/skills/compose/SKILL.md"\n', ""))
         with self.assertRaises(PipelineConfigError) as caught:
             registry.load_adapter_pipelines(self.root)
         self.assertEqual(caught.exception.diagnostic_code, "missing-skill-source")
         self.assertIn("skill_source", caught.exception.details["remediation"])
 
     def test_adapter_bindings_span_graphs_and_reuse_registry_snapshot(self) -> None:
-        fixture = MultiPipelineFixture(workflow_only=True)
+        fixture = MultiPipelineFixture()
         self.addCleanup(fixture.close)
         registry = load_adapter_registry(fixture.root)
         registry.path.write_text("[invalid")  # adapter capture uses the already parsed registry

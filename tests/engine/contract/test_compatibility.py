@@ -267,11 +267,12 @@ class CompatibilityContractTests(unittest.TestCase):
     def test_exact_error_envelopes_locations_and_cli_streams(self) -> None:
         self.assertEqual(capture_diagnostics(), read_record("diagnostics.json"))
 
+    @patch("specromancy_engine._adapters.adapter_sources.get_version", lambda: "0.1.3")
     def test_generated_adapter_bytes_and_hashes_match_baseline(self) -> None:
         fixture = AdapterFixture()
         try:
             fixture.generate()
-            expected = read_record("adapters-generator-v2.json")
+            expected = read_record("adapters-generator-v3.json")
             actual = fixture.snapshot()
             self.assertEqual(set(actual), set(expected))
             for path, content in actual.items():
@@ -298,9 +299,10 @@ class CompatibilityContractTests(unittest.TestCase):
             entry["sha256"] = expected[entry["path"]]["sha256"]
         self.assertEqual(json.loads(expected[manifest_path]["text"]), old_manifest)
 
+    @patch("specromancy_engine._adapters.adapter_sources.get_version", lambda: "0.1.3")
     def test_original_owned_adapters_upgrade_with_existing_ownership_rules(self) -> None:
         original = read_record("adapters.json")
-        expected = read_record("adapters-generator-v2.json")
+        expected = read_record("adapters-generator-v3.json")
         for edited in (False, True):
             with self.subTest(edited=edited):
                 fixture = AdapterFixture()

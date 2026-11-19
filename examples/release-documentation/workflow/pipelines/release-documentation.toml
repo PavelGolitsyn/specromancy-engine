@@ -9,6 +9,7 @@ allow_non_git = false
 [[phases]]
 id = "draft-release-notes"
 skill = "draft-release-notes"
+skill_source = "workflow/skills/draft-release-notes/SKILL.md"
 inputs = ["request"]
 output_name = "{visit:03}-release-notes.md"
 output_template = "../templates/release-notes.md"
@@ -30,6 +31,7 @@ outcome = "blocked"
 [[phases]]
 id = "review-release-notes"
 skill = "review-release-notes"
+skill_source = "workflow/skills/review-release-notes/SKILL.md"
 inputs = ["request", "latest:draft-release-notes"]
 output_name = "{visit:03}-review.md"
 output_template = "../templates/review.md"

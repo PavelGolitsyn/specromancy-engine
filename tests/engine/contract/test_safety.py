@@ -24,6 +24,7 @@ def phase(name: str, *, target: str | None = None, extra: str = "") -> str:
         [[phases]]
         id = "{name}"
         skill = "{name}"
+        skill_source = "workflow/skills/{name}/SKILL.md"
         inputs = ["request"]
         output_name = "{{visit:03}}-{name}.md"
         mutation = "read-only"
@@ -48,10 +49,10 @@ class SafetyFixture:
             if line.strip().startswith("id ="):
                 names.append(line.split('"')[1])
         for name in names:
-            skill = self.root / ".agents" / "skills" / name / "SKILL.md"
+            skill = self.root / "workflow" / "skills" / name / "SKILL.md"
             skill.parent.mkdir(parents=True, exist_ok=True)
             skill.write_text(f"---\nname: {name}\ndescription: Test.\n---\n")
-        self.pipeline_path = self.root / "pipeline.toml"
+        self.pipeline_path = self.root / "workflow/pipeline.toml"
         self.pipeline_path.write_text(
             textwrap.dedent(
                 f"""

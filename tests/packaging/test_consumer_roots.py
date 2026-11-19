@@ -46,10 +46,11 @@ def snapshot(root: Path, *, exclude_runs: bool = False) -> dict:
     return result
 
 
-def write_consumer(root: Path, phase: str, *, allow_non_git: bool = False, workflow_owned: bool = False) -> None:
-    skill = ("workflow/skills/compose/SKILL.md" if workflow_owned else ".agents/skills/compose/SKILL.md")
-    source_field = f'skill_source = "{skill}"\n' if workflow_owned else ""
+def write_consumer(root: Path, phase: str, *, allow_non_git: bool = False) -> None:
+    skill = "workflow/skills/compose/SKILL.md"
+    source_field = f'skill_source = "{skill}"\n'
     resources = {
+        "workflow/instructions.md": "# Consumer instructions\n",
         "workflow/pipelines.toml": 'schema_version = 1\n[[pipelines]]\nid = "shared"\npath = "pipelines/flow.toml"\n',
         "workflow/pipelines/flow.toml": (
             f'schema_version = 1\nid = "shared"\nversion = 1\nstart = "{phase}"\n'
@@ -124,7 +125,7 @@ class ConsumerRootTests(unittest.TestCase):
 
     def assert_action(self, action: dict, root: Path, phase: str) -> None:
         self.assertEqual(action["phase"], phase)
-        self.assertEqual(Path(action["skill"]["absolute_path"]), root / ".agents/skills/compose/SKILL.md")
+        self.assertEqual(Path(action["skill"]["absolute_path"]), root / "workflow/skills/compose/SKILL.md")
         self.assertIn(f"Use {phase} resources.", Path(action["skill"]["absolute_path"]).read_text())
         self.assertEqual(Path(action["template"]["absolute_path"]), root / "workflow/templates/result.json")
         self.assertEqual(json.loads(Path(action["template"]["absolute_path"]).read_text()), {"consumer": phase})
@@ -135,7 +136,7 @@ class ConsumerRootTests(unittest.TestCase):
 
     def test_installed_cli_uses_explicit_workflow_resources_from_an_unrelated_directory(self) -> None:
         root = self.base / "workflow-only"
-        write_consumer(root, "publish", allow_non_git=True, workflow_owned=True)
+        write_consumer(root, "publish", allow_non_git=True)
         (root / "workflow/templates/result.json").write_text('{"consumer": "pending"}\n')
         prefix = ("--root", str(root))
         action = self.command(self.outside, *prefix, "init", "Publish", "--pipeline", "shared", expected=8)["action"]
@@ -270,13 +271,6 @@ class ConsumerRootTests(unittest.TestCase):
 
     def prepare_adapters(self) -> dict:
         root = self.first
-        (root / "AGENTS.md").write_text("# Consumer instructions\nKeep procedures canonical.\n")
-        orchestrator = root / ".agents/skills/pipeline/SKILL.md"
-        orchestrator.parent.mkdir(parents=True)
-        orchestrator.write_text(
-            "---\nname: pipeline\ndescription: Follow configured phases.\n---\n"
-            "Run `specromancy status RUN_ID --json` and follow persisted action packets.\n"
-        )
         self.assertFalse((root / "bin/specromancy").exists())
         self.assertFalse((root / "src").exists())
         self.command(root, "adapters", "generate")
@@ -286,15 +280,14 @@ class ConsumerRootTests(unittest.TestCase):
         self.assertEqual(snapshot(root), before)
         manifest = json.loads((root / "adapters/manifest.json").read_text())
         self.assertEqual(manifest["generator"], {
-            "name": "specromancy", "version": 2, "command": "specromancy adapters generate",
+            "name": "specromancy", "version": 3, "command": "specromancy adapters generate",
         })
-        self.assertEqual(manifest["schema_version"], 1)
+        self.assertEqual(manifest["schema_version"], 2)
         for entry in manifest["generated"]:
             content = (root / entry["path"]).read_bytes()
             self.assertEqual(hashlib.sha256(content).hexdigest(), entry["sha256"])
         mirror = (root / ".claude/skills/pipeline/SKILL.md").read_text()
-        self.assertEqual("\n".join(line for line in mirror.splitlines()
-                                  if not line.startswith("# ")) + "\n", orchestrator.read_text())
+        self.assertIn("specromancy resume RUN_ID --json", mirror)
         return manifest
 
     def run_rendered(self, argv: list[str], *, cwd: Path, expected: int = 8) -> dict:
@@ -332,7 +325,7 @@ class ConsumerRootTests(unittest.TestCase):
                 with self.subTest(harness=harness, command=name):
                     text = (root / pattern.format(name=name)).read_text()
                     self.assertNotIn("bin/specromancy", text)
-                    invocations = re.findall(r"`(specromancy [^`]+)`", text)
+                    invocations = re.findall(r"`(specromancy (?:init|phase|status|resume) [^`]+)`", text)
                     self.assertEqual(invocations, [f"specromancy {name} {commands[name]} --json"])
                     values = (["shared", description] if name == "init" else
                               [run_id, "amber"] if name == "phase" else [run_id])
@@ -365,7 +358,7 @@ class ConsumerRootTests(unittest.TestCase):
         for relative in launches:
             with self.subTest(launch=relative):
                 text = (root / relative).read_text()
-                invocations = re.findall(r"`(specromancy [^`]+)`", text)
+                invocations = re.findall(r"`(specromancy init [^`]+)`", text)
                 self.assertEqual(invocations, ["specromancy init DESCRIPTION --pipeline shared --json"])
                 argv = [description if token == "DESCRIPTION" else token for token in shlex.split(invocations[0])]
                 action = self.run_rendered(argv, cwd=root)["action"]
@@ -380,12 +373,12 @@ class ConsumerRootTests(unittest.TestCase):
                                         env=self.env, capture_output=True, text=True)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
-    def test_adapter_generation_requires_project_owned_orchestrator(self) -> None:
+    def test_adapter_generation_protects_existing_project_owned_instructions(self) -> None:
         root = self.first
         (root / "AGENTS.md").write_text("# Consumer instructions\n")
         before = snapshot(root)
         result = self.command(root, "adapters", "generate", expected=ExitCode.ADAPTER_DRIFT)
-        self.assertEqual(result["message"], "canonical pipeline orchestrator skill is missing")
+        self.assertEqual(result["details"]["unowned"], ["AGENTS.md"])
         self.assertEqual(snapshot(root), before)
 
 

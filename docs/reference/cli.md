@@ -94,10 +94,16 @@ specromancy adapters generate
 specromancy adapters generate --check
 ```
 
-Generation processes all registered pipelines; `--pipeline` is rejected here.
-It produces a `specromancy-<id>` skill per registration and updates only
-manifest-owned adapter paths. `--check` writes nothing
-and reports missing, modified, extra, or source-stale generated files.
+Generation reads `workflow/instructions.md`, the registry and every registered
+graph, including declared phase procedures, templates and validators. Both
+commands guard the registry location before parsing it. Use explicit `skill_source`
+declarations and consistent skill bindings across registrations. Runtime commands
+validate the selected graph independently. Generation rejects `--pipeline`.
+
+Outputs include root `AGENTS.md`, phase wrappers and generic and per-pipeline
+launch skills. The schema-2 manifest records each output once with its consuming
+targets. `--check` reports missing, modified, unexpected or source-stale files
+without writing. See [Adapter generation](contracts.md#adapter-generation).
 
 ## JSON and exit codes
 

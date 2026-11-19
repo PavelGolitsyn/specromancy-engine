@@ -7,8 +7,7 @@ import sys
 import unittest
 from pathlib import Path
 
-from specromancy_engine.adapters import _generate_workflow_adapters
-from specromancy_engine.config import PipelineConfigError
+from specromancy_engine.adapters import generate_adapters
 from specromancy_engine.exit_codes import ExitCode
 from specromancy_engine.registry import load_adapter_registry, load_registry
 from tests.engine.support import MultiPipelineFixture, write_workflow_skill
@@ -18,10 +17,8 @@ ROOT = Path(__file__).resolve().parents[3]
 
 
 class PipelineCLICase(unittest.TestCase):
-    workflow_only = False
-
     def setUp(self) -> None:
-        self.fixture = MultiPipelineFixture(workflow_only=self.workflow_only)
+        self.fixture = MultiPipelineFixture()
         self.root = self.fixture.root
 
     def tearDown(self) -> None:
@@ -39,14 +36,13 @@ class PipelineCLICase(unittest.TestCase):
         self.assertEqual(code, ExitCode.AGENT_ACTION_REQUIRED, payload)
         return payload["action"]
 
-class WorkflowOnlyContractTests(PipelineCLICase):
-    workflow_only = True
 
+class WorkflowOnlyContractTests(PipelineCLICase):
     def test_discovery_and_action_identify_the_same_canonical_procedure(self) -> None:
         source = self.root / "workflow/skills/compose/SKILL.md"
         source.write_text(source.read_text().replace("Follow the action packet.", "Read [notes](notes.md)."))
         source.with_name("notes.md").write_text("Canonical support file.")
-        _generate_workflow_adapters(self.root, load_adapter_registry(self.root))
+        generate_adapters(self.root, load_adapter_registry(self.root))
         action = self.initialize("alpha")
         self.assertEqual(Path(action["skill"]["absolute_path"]), source)
         for harness in (".agents", ".claude"):
@@ -69,6 +65,30 @@ class WorkflowOnlyContractTests(PipelineCLICase):
         self.assertIn("[notes](notes.md)", canonical.read_text())
         self.assertEqual(canonical.with_name("notes.md").read_text(), "Canonical support file.")
 
+    def test_cli_guards_registry_before_reading_valid_or_malformed_generated_toml(self) -> None:
+        registry = self.root / "workflow/pipelines.toml"
+        valid = registry.read_bytes()
+        target = self.root / "AGENTS.md"
+        generate_adapters(self.root, load_adapter_registry(self.root))
+        registry.unlink()
+        registry.symlink_to(target)
+
+        def snapshot():
+            return {p: (p.lstat().st_mtime_ns, p.read_bytes() if p.is_file() else None)
+                    for p in self.root.rglob("*")}
+
+        for content in (valid, b"[invalid"):
+            target.write_bytes(content)
+            before = snapshot()
+            for args in ((), ("--check",)):
+                with self.subTest(content=content, args=args):
+                    code, payload = self.command("adapters", "generate", *args)
+                    self.assertEqual(code, ExitCode.INVALID_PIPELINE, payload)
+                    self.assertEqual(payload["details"]["error_code"], "unsafe-path")
+                    self.assertEqual(payload["details"]["field"], "registry")
+                    self.assertTrue(registry.is_symlink())
+                    self.assertEqual(snapshot(), before)
+
     def test_selected_workflow_completes_independently_of_other_registrations(self) -> None:
         beta = self.root / "workflow/pipelines/beta.toml"
         graph = beta.read_text()
@@ -80,9 +100,9 @@ class WorkflowOnlyContractTests(PipelineCLICase):
             with self.subTest(error=error):
                 beta.write_text(document)
                 self.assertEqual(load_registry(self.root).load("alpha").phases[0].skill_source, source)
-                with self.assertRaises(PipelineConfigError) as caught:
-                    load_adapter_registry(self.root).load_adapter_pipelines(self.root)
-                self.assertEqual(caught.exception.diagnostic_code, error)
+                code, failure = self.command("adapters", "generate")
+                self.assertEqual(code, ExitCode.INVALID_PIPELINE, failure)
+                self.assertEqual(failure["details"]["error_code"], error)
                 action = self.initialize("alpha")
                 run = action["run_id"]
                 self.assertEqual(action["skill"]["absolute_path"], str(self.root / source))
@@ -97,7 +117,7 @@ class WorkflowOnlyContractTests(PipelineCLICase):
         self.assertEqual({p.name for p in self.root.iterdir()}, {".git", "workflow", ".specromancy"})
 
     def test_missing_or_escaped_canonical_procedure_blocks_init_despite_wrapper(self) -> None:
-        self.fixture.write_legacy_skills()
+        generate_adapters(self.root, load_adapter_registry(self.root))
         skill = self.root / "workflow/skills/compose/SKILL.md"
         skill.unlink()
         for target, diagnostic in ((None, "missing-file"), (self.root / "AGENTS.md", "unsafe-path"),
@@ -119,7 +139,7 @@ class WorkflowOnlyContractTests(PipelineCLICase):
         skill.symlink_to(original)
         action = self.initialize("alpha")
         self.assertEqual(Path(action["skill"]["absolute_path"]), original)
-        self.fixture.write_legacy_skills()
+        generate_adapters(self.root, load_adapter_registry(self.root))
         other = skill.with_name("other.md")
         other.write_bytes(original.read_bytes())
         skill.unlink()
@@ -142,7 +162,7 @@ class WorkflowOnlyContractTests(PipelineCLICase):
         run = action["run_id"]
         directory = self.root / ".specromancy/runs" / run
         before = {p: p.read_bytes() for p in directory.rglob("*") if p.is_file()}
-        self.fixture.write_legacy_skills()
+        generate_adapters(self.root, load_adapter_registry(self.root))
         code, payload = self.command("resume", run)
         self.assertEqual(code, ExitCode.AGENT_ACTION_REQUIRED, payload)
         self.assertEqual(payload["action"]["skill"], action["skill"])

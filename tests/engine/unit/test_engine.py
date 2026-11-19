@@ -23,6 +23,7 @@ allow_non_git = true
 [[phases]]
 id = "survey"
 skill = "survey"
+skill_source = "workflow/skills/survey/SKILL.md"
 inputs = ["request"]
 output_name = "{visit:03}-survey.md"
 mutation = "read-only"
@@ -40,6 +41,7 @@ outcome = "blocked"
 [[phases]]
 id = "publish"
 skill = "publish"
+skill_source = "workflow/skills/publish/SKILL.md"
 inputs = ["request", "latest:survey"]
 output_name = "{visit:03}-publish.md"
 mutation = "repository-write"
@@ -59,12 +61,12 @@ class EngineFixture:
         self.root = Path(self.temporary.name)
         (self.root / ".git").mkdir()
         for name in ("survey", "publish"):
-            path = self.root / ".agents" / "skills" / name / "SKILL.md"
+            path = self.root / "workflow" / "skills" / name / "SKILL.md"
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(
                 f"---\nname: {name}\ndescription: Fixture.\n---\n", encoding="utf-8"
             )
-        self.pipeline_path = self.root / "pipeline.toml"
+        self.pipeline_path = self.root / "workflow/pipeline.toml"
         self.pipeline_path.write_text(textwrap.dedent(PIPELINE), encoding="utf-8")
         self.pipeline = load_pipeline(self.pipeline_path, self.root)
         self.store = RunStore(self.root)

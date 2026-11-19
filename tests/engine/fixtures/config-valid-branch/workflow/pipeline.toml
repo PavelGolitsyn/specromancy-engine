@@ -8,6 +8,7 @@ artifact_pattern = "artifacts/{visit:03}-{phase}.md"
 [[phases]]
 id = "inspect"
 skill = "research"
+skill_source = "workflow/skills/research/SKILL.md"
 inputs = ["request"]
 output_name = "{visit:03}-inspection.md"
 mutation = "read-only"
@@ -28,6 +29,7 @@ target = "verify"
 [[phases]]
 id = "transform"
 skill = "implement"
+skill_source = "workflow/skills/implement/SKILL.md"
 inputs = ["latest:inspect"]
 output_name = "{visit:03}-transformation.md"
 mutation = "repository-write"
@@ -43,6 +45,7 @@ outcome = "accepted"
 [[phases]]
 id = "verify"
 skill = "review"
+skill_source = "workflow/skills/review/SKILL.md"
 inputs = ["latest:inspect"]
 output_name = "{visit:03}-verification.md"
 mutation = "read-only"

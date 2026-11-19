@@ -21,12 +21,12 @@ class RecoveryContractTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             (root / ".git").mkdir()
-            skill = root / ".agents" / "skills" / "compose" / "SKILL.md"
+            skill = root / "workflow" / "skills" / "compose" / "SKILL.md"
             skill.parent.mkdir(parents=True)
             skill.write_text(
                 "---\nname: compose\ndescription: Fixture.\n---\n", encoding="utf-8"
             )
-            pipeline_path = root / "pipeline.toml"
+            pipeline_path = root / "workflow/pipeline.toml"
             pipeline_path.write_text(
                 textwrap.dedent(
                     """
@@ -40,6 +40,7 @@ class RecoveryContractTests(unittest.TestCase):
                     [[phases]]
                     id = "compose"
                     skill = "compose"
+                    skill_source = "workflow/skills/compose/SKILL.md"
                     inputs = ["request"]
                     output_name = "{visit:03}-result.md"
                     mutation = "read-only"

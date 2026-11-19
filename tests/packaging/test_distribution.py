@@ -119,8 +119,8 @@ class DistributionContractTests(unittest.TestCase):
                 archive.addfile(special)
         return path
 
-    def test_sdist_preserves_hidden_example_skills_and_rejects_missing_files(self):
-        skill = "examples/release-documentation/.agents/skills/pipeline/SKILL.md"
+    def test_sdist_preserves_canonical_example_skills_and_rejects_missing_files(self):
+        skill = "examples/release-documentation/workflow/skills/draft-release-notes/SKILL.md"
         source = verifier.extract_sdist(self.sdist(), self.root / "extract", ROOT)
         self.assertEqual((source / skill).read_bytes(), (ROOT / skill).read_bytes())
         with self.assertRaisesRegex(verifier.VerificationError, "missing=.*SKILL.md"):

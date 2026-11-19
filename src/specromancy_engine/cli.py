@@ -18,7 +18,7 @@ from .engine import Engine
 from .errors import SpecromancyError, UsageError
 from .exit_codes import EXIT_CODE_DESCRIPTIONS, ExitCode
 from ._cli.pipeline_selection import selected_pipeline as _selected_pipeline
-from .registry import load_registry
+from .registry import load_adapter_registry, load_registry
 from .status import render_status
 
 ACTIONABLE_CODES = frozenset(
@@ -297,7 +297,7 @@ def main(
         root = discover_repository_root(
             explicit_root=getattr(arguments, "root", None)
         )
-        registry = load_registry(root)
+        registry = load_adapter_registry(root) if arguments.command == "adapters" else load_registry(root)
         selector = getattr(arguments, "pipeline", None)
         if arguments.command == "adapters" and not getattr(
             arguments, "adapter_command", None

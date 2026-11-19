@@ -9,6 +9,7 @@ allow_non_git = false
 [[phases]]
 id = "research"
 skill = "research"
+skill_source = "workflow/skills/research/SKILL.md"
 inputs = ["request"]
 output_name = "{visit:03}-research.md"
 output_template = "../templates/research.md"
@@ -30,6 +31,7 @@ outcome = "blocked"
 [[phases]]
 id = "plan"
 skill = "plan"
+skill_source = "workflow/skills/plan/SKILL.md"
 inputs = ["request", "latest:research"]
 output_name = "{visit:03}-plan.md"
 output_template = "../templates/plan.md"
@@ -52,6 +54,7 @@ outcome = "blocked"
 [[phases]]
 id = "implement"
 skill = "implement"
+skill_source = "workflow/skills/implement/SKILL.md"
 inputs = ["request", "latest:plan"]
 output_name = "{visit:03}-implementation.md"
 output_template = "../templates/implementation.md"
@@ -77,6 +80,7 @@ outcome = "blocked"
 [[phases]]
 id = "review"
 skill = "review"
+skill_source = "workflow/skills/review/SKILL.md"
 inputs = ["request", "latest:plan", "latest:implement"]
 output_name = "{visit:03}-review.md"
 output_template = "../templates/review.md"

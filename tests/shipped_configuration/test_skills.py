@@ -9,7 +9,7 @@ from specromancy_engine.contracts import RESERVED_COMMANDS
 
 
 ROOT = Path(__file__).resolve().parents[2]
-SKILLS = ROOT / ".agents" / "skills"
+SKILLS = ROOT / "workflow" / "skills"
 ALLOWED_FRONTMATTER = {"name", "description", "license", "compatibility", "metadata"}
 
 

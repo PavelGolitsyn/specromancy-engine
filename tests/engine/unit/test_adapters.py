@@ -20,7 +20,7 @@ from specromancy_engine.adapters import (
     render_adapters,
 )
 from specromancy_engine.cli import adapter_command_metadata, main
-from specromancy_engine.config import load_pipeline
+from specromancy_engine.config import PipelineConfigError, load_pipeline
 from specromancy_engine.registry import PipelineRegistry, load_registry
 from specromancy_engine.exit_codes import ExitCode
 from specromancy_engine.hashing import sha256_bytes
@@ -128,12 +128,12 @@ class AdapterFixture:
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name)
         (self.root / ".git").mkdir()
-        (self.root / "AGENTS.md").write_text(
+        (self.root / "workflow").mkdir()
+        (self.root / "workflow/instructions.md").write_text(
             "# Repository instructions\n\n- Keep workflow logic canonical.\n",
             encoding="utf-8",
         )
         self.write_skill("compose")
-        self.write_skill("pipeline")
         self.pipeline_path = self.root / "workflow/pipelines/adapter-fixture.toml"
         self.pipeline_path.parent.mkdir(parents=True)
         (self.root / "workflow/pipelines.toml").write_text(
@@ -152,6 +152,7 @@ class AdapterFixture:
                 [[phases]]
                 id = "compose"
                 skill = "compose"
+                skill_source = "workflow/skills/compose/SKILL.md"
                 inputs = ["request"]
                 output_name = "{visit:03}-result.md"
                 mutation = "read-only"
@@ -167,11 +168,21 @@ class AdapterFixture:
             encoding="utf-8",
         )
 
+    def generate_with_extra_skill(self) -> None:
+        self.write_skill("extra")
+        original = self.pipeline_path.read_text()
+        self.pipeline_path.write_text(original.replace('skill = "compose"', 'skill = "extra"')
+                                     .replace("skills/compose/", "skills/extra/"))
+        try:
+            self.generate()
+        finally:
+            self.pipeline_path.write_text(original)
+
     def close(self) -> None:
         self.temporary.cleanup()
 
     def write_skill(self, name: str) -> Path:
-        path = self.root / ".agents" / "skills" / name / "SKILL.md"
+        path = self.root / "workflow" / "skills" / name / "SKILL.md"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(
             textwrap.dedent(
@@ -231,9 +242,8 @@ class AdapterGenerationTests(unittest.TestCase):
     def test_adapter_text_normalization_preserves_outputs_and_source_hashes(self) -> None:
         self.fixture.generate()
         expected = self.fixture.snapshot()
-        paths = [self.fixture.root / "AGENTS.md",
-                 self.fixture.root / ".agents/skills/compose/SKILL.md",
-                 self.fixture.root / ".agents/skills/pipeline/SKILL.md"]
+        paths = [self.fixture.root / "workflow/instructions.md",
+                 self.fixture.root / "workflow/skills/compose/SKILL.md"]
         originals = {path: path.read_bytes().rstrip(b"\n") for path in paths}
         for newline, trailing in ((b"\r\n", 3), (b"\r", 2), (b"\n", 0)):
             with self.subTest(newline=newline, trailing=trailing):
@@ -243,22 +253,21 @@ class AdapterGenerationTests(unittest.TestCase):
                 self.fixture.generate()
                 self.assertEqual(self.fixture.snapshot(), expected)
 
-    def test_missing_root_instructions_are_a_controlled_source_error(self) -> None:
-        # Legacy source requirement; Stage 20 replaces it with workflow/instructions.md.
-        (self.fixture.root / "AGENTS.md").unlink()
-        with self.assertRaises(AdapterError) as caught:
+    def test_missing_workflow_instructions_are_a_controlled_source_error(self) -> None:
+        (self.fixture.root / "workflow/instructions.md").unlink()
+        with self.assertRaises(PipelineConfigError) as caught:
             self.fixture.generate()
-        self.assertEqual(caught.exception.message, "cannot read canonical adapter source")
-        self.assertEqual(caught.exception.details["path"], "AGENTS.md")
+        self.assertEqual(caught.exception.diagnostic_code, "missing-file")
+        self.assertEqual(caught.exception.details["value"], "workflow/instructions.md")
         self.assertFalse((self.fixture.root / MANIFEST_PATH).exists())
 
     def test_cli_captures_graphs_and_canonical_text_once_per_invocation(self) -> None:
-        original_load = PipelineRegistry.load_all
-        original_text = adapter_sources._normalized_text
+        original_load = PipelineRegistry.load_adapter_pipelines
+        original_text = adapter_sources._workflow_text
         for _ in range(2):
             with (
-                patch.object(PipelineRegistry, "load_all", autospec=True, side_effect=original_load) as graphs,
-                patch.object(adapter_sources, "_normalized_text", wraps=original_text) as texts,
+                patch.object(PipelineRegistry, "load_adapter_pipelines", autospec=True, side_effect=original_load) as graphs,
+                patch.object(adapter_sources, "_workflow_text", wraps=original_text) as texts,
             ):
                 output, errors = io.StringIO(), io.StringIO()
                 code = main(
@@ -269,7 +278,7 @@ class AdapterGenerationTests(unittest.TestCase):
                 self.assertEqual(graphs.call_count, 1)
                 self.assertEqual(
                     [call.args[1] for call in texts.call_args_list],
-                    ["AGENTS.md", ".agents/skills/compose/SKILL.md", ".agents/skills/pipeline/SKILL.md"],
+                    ["workflow/instructions.md", "workflow/skills/compose/SKILL.md"],
                 )
 
     def test_check_creates_no_temporary_files_and_preserves_tree_metadata(self) -> None:
@@ -288,12 +297,10 @@ class AdapterGenerationTests(unittest.TestCase):
         self.assertEqual(snapshot(), before)
 
     def test_stale_file_changed_after_preflight_is_not_deleted(self) -> None:
-        extra = self.fixture.write_skill("extra")
-        self.fixture.generate()
-        extra.unlink()
+        self.fixture.generate_with_extra_skill()
         stale = self.fixture.root / ".claude/skills/extra/SKILL.md"
         manifest = (self.fixture.root / MANIFEST_PATH).read_bytes()
-        (self.fixture.root / "AGENTS.md").write_text("New instructions\n")
+        (self.fixture.root / "workflow/instructions.md").write_text("New instructions\n")
         original_write = adapter_ownership._atomic_write
 
         def overlapping_write(root, relative, content):
@@ -310,12 +317,10 @@ class AdapterGenerationTests(unittest.TestCase):
     def test_public_render_facade_preserves_source_diagnostics(self) -> None:
         registry = load_registry(self.fixture.root)
         metadata = adapter_command_metadata(["compose"])
-        path = self.fixture.root / ".agents/skills/pipeline/SKILL.md"
-        path.unlink()
-        with self.assertRaises(AdapterError) as caught:
+        (self.fixture.root / "workflow/skills/compose/SKILL.md").unlink()
+        with self.assertRaises(PipelineConfigError) as caught:
             render_adapters(self.fixture.root, registry, metadata)
-        self.assertEqual(caught.exception.message, "canonical pipeline orchestrator skill is missing")
-        self.assertEqual(caught.exception.details, {"path": ".agents/skills/pipeline/SKILL.md"})
+        self.assertEqual(caught.exception.diagnostic_code, "missing-file")
 
     def test_check_detects_changes_without_writing_generated_output(self) -> None:
         cases = ("modified", "missing", "unexpected", "canonical", "no-manifest")
@@ -336,7 +341,7 @@ class AdapterGenerationTests(unittest.TestCase):
                     elif case == "no-manifest":
                         (fixture.root / MANIFEST_PATH).unlink()
                     else:
-                        with (fixture.root / "AGENTS.md").open("a", encoding="utf-8") as stream:
+                        with (fixture.root / "workflow/instructions.md").open("a", encoding="utf-8") as stream:
                             stream.write("- A new canonical rule.\n")
                     changed_before_check = {
                         path: (fixture.root / path).read_bytes()
@@ -402,45 +407,18 @@ class AdapterGenerationTests(unittest.TestCase):
         self.assertEqual(path.read_bytes(), expected)
         self.assertFalse((self.fixture.root / MANIFEST_PATH).exists())
 
-    def test_v2_manifest_cannot_claim_root_instructions_or_canonical_skills(self) -> None:
-        self.fixture.generate()
-        manifest_path = self.fixture.root / MANIFEST_PATH
-        original = manifest_path.read_bytes()
-        for relative in ("AGENTS.md", ".agents/skills/pipeline/SKILL.md",
-                         ".agents/skills/compose/SKILL.md"):
-            with self.subTest(path=relative):
-                source = self.fixture.root / relative
-                content = source.read_bytes()
-                manifest = json.loads(original)
-                manifest["generated"].append({
-                    "path": relative, "sha256": sha256_bytes(content), "target": "codex",
-                })
-                manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
-                before = self.fixture.snapshot()
-                for check in (False, True):
-                    with patch.object(adapter_ownership, "_atomic_write", side_effect=AssertionError("write")):
-                        with self.assertRaises(AdapterError) as caught:
-                            self.fixture.generate(check=check)
-                    self.assertIn("outside generated adapter locations", caught.exception.message)
-                    self.assertEqual(self.fixture.snapshot(), before)
-                    self.assertEqual(source.read_bytes(), content)
-
     def test_stale_unchanged_file_is_removed(self) -> None:
-        extra = self.fixture.write_skill("extra")
-        self.fixture.generate()
+        self.fixture.generate_with_extra_skill()
         generated = self.fixture.root / ".claude" / "skills" / "extra" / "SKILL.md"
         self.assertTrue(generated.is_file())
-        extra.unlink()
         result = self.fixture.generate()
         self.assertFalse(generated.exists())
-        self.assertEqual(result["adapters"]["removed"], [".claude/skills/extra/SKILL.md"])
+        self.assertEqual(result["adapters"]["removed"], [".agents/skills/extra/SKILL.md", ".claude/skills/extra/SKILL.md"])
 
     def test_stale_modified_file_is_preserved_with_an_error(self) -> None:
-        extra = self.fixture.write_skill("extra")
-        self.fixture.generate()
+        self.fixture.generate_with_extra_skill()
         generated = self.fixture.root / ".claude" / "skills" / "extra" / "SKILL.md"
         generated.write_text("user change\n", encoding="utf-8")
-        extra.unlink()
         with self.assertRaises(AdapterError) as caught:
             self.fixture.generate()
         self.assertEqual(
@@ -454,9 +432,9 @@ class AdapterGenerationTests(unittest.TestCase):
         manifest = json.loads(
             (self.fixture.root / MANIFEST_PATH).read_text(encoding="utf-8")
         )
-        self.assertEqual(manifest["schema_version"], 1)
+        self.assertEqual(manifest["schema_version"], 2)
         self.assertEqual(manifest["generator"], {
-            "name": "specromancy", "version": 2,
+            "name": "specromancy", "version": 3,
             "command": "specromancy adapters generate",
         })
         modes = {entry["name"]: entry["mode"] for entry in manifest["targets"]}
@@ -472,7 +450,7 @@ class AdapterGenerationTests(unittest.TestCase):
         )
         for target in manifest["targets"]:
             if target["mode"] == "native":
-                self.assertEqual(target["discovery_paths"], [".agents/skills/specromancy-adapter-fixture/SKILL.md"])
+                self.assertEqual(target["discovery_paths"], [f".agents/skills/{name}/SKILL.md" for name in ("compose", "pipeline", "specromancy-adapter-fixture")])
         for entry in manifest["generated"]:
             path = entry["path"]
             self.assertFalse(Path(path).is_absolute())

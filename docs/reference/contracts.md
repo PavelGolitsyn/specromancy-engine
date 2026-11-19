@@ -39,12 +39,10 @@ validation commands execute the argv declared in their pipeline.
 
 ## Installed resources and consumer roots
 
-Installation does not create or overwrite consumer `AGENTS.md`, a registry,
-skills, templates, or harness files. Consumers explicitly author or copy those
-resources, preserving existing instructions, and separately invoke adapter
-generation under its manifest ownership rules. Examples remain outside the
-wheel. See [installation](../guides/installation.md) for CLI and dependency
-routes.
+Installation supplies the engine and release templates and creates no consumer
+repository files. Author repository instructions, graphs, phase skills and
+their referenced resources under `workflow/`, then generate harness outputs.
+The source distribution includes the [consumer example](../../examples/release-documentation/README.md).
 
 The installed engine has no implicit pipeline or producer-checkout fallback.
 CLI discovery starts at the working directory and walks upward to a `.git`
@@ -106,10 +104,6 @@ independent of the install location. Rendering substitutes named fields once
 and emits LF text with one trailing newline. Braces and dollar signs in
 consumer Markdown and command arguments remain literal.
 
-The public v2 generator still uses the consumer's root instructions and
-`.agents/skills` as described in the adapter contract below. The packaged
-templates prepare the generator switch scheduled for Stage 20.
-
 For Python embedding, use the existing public facades and explicit consumer
 roots; see the [executable examples](../guides/authoring-pipelines.md#embed-the-installed-engine).
 
@@ -159,27 +153,12 @@ root for fixtures and non-Git directories. Status `next_command` argv relies on
 the consumer cwd (or an added `--root`); action `final_validation_command` argv
 already carries the absolute consumer root.
 
-`adapters generate` deterministically renders harness-native adapters from
-`AGENTS.md`, the mandatory registry, every validated registered graph and its
-referenced templates/schemas, canonical `.agents/skills`,
-and CLI command/help metadata. Generation is registry-wide and rejects
-`--pipeline`. It generates `.agents/skills/specromancy-<id>/SKILL.md` and Claude
-launch-skill mirrors. These delegate to the canonical pipeline procedure and
-contain no graph policy. Generated launch skills are excluded from canonical
-source hashing. Their prefix is reserved; canonical skills outside that namespace
-are never owned or removed by the generator. `--check` performs no writes and exits with
-`ADAPTER_DRIFT` when the manifest or managed tree differs from the expected
-rendering.
+### Adapter generation
 
-The canonical `.agents/skills/pipeline/SKILL.md` is required, project-owned,
-and never created by package installation or adapter generation. Onboarding
-explicitly copies the [generic procedure](../../.agents/skills/pipeline/SKILL.md)
-into the consumer; it assumes no phase names or order. The adapter generator
-uses version 2, manifest schema version 1, and generator name `specromancy`. These identifiers are independent of the package version.
-Unchanged owned version-1 output is accepted by normal generation. Generation
-restores current manifest-owned output even if edited; check mode reports those edits without writing. Unowned paths
-and edited stale paths remain conflicts. Save any intentional edits before
-regenerating and move their intended changes into canonical sources.
+`adapters generate` validates every registration and rejects `--pipeline`.
+Generator version 3 writes schema 2 and carries the generator name `specromancy`.
+`--check` compares expected output and ownership without writing. It reports
+drift when the generated tree or manifest differs.
 
 The Python `cli.adapter_command_metadata` facade shares explicit descriptions
 with parser construction and returns the same sorted command metadata without
@@ -190,23 +169,23 @@ validated graphs. Generation reuses captured source text and bytes for rendering
 and source hashes, without a cross-invocation cache. Adapter constants and
 `AdapterError` remain available from `specromancy_engine.adapters`.
 
-### Prepared workflow-only generator (Stage 19)
-
-The private v3 generation path takes a registry snapshot and captures
+Generation and rendering use a registry snapshot and capture
 `workflow/instructions.md`, every registered graph, and its explicitly declared
-workflow procedures and dependencies. It rechecks the registry root, registry
-path, and registration locations before consuming the snapshot. A caller that
+workflow procedures and dependencies. Both facades check the registry root,
+registry path, and registration locations before consuming the snapshot. A caller that
 needs this guarantee from the first registry read uses
 `load_adapter_registry(root)`. Earlier reads made by the caller are outside
-the capture guarantee. Render-only validates the same locations and graph
-definitions, including validator schemas. Reading artifact-template contents
+the capture guarantee. Adapter CLI commands use that loader before parsing TOML.
+Render-only validates the same locations and graph definitions, including
+validator schemas. Reading artifact-template contents
 for hashing and inspecting ownership or drift are generation/check operations.
 
 Instructions and complete canonical procedures use UTF-8, LF, and one trailing
 newline for adapter provenance. The manifest also hashes validated configuration,
 dependency bytes, CLI metadata, package version, and exact release template bytes.
-A procedure-body edit can change only the manifest. Phase wrappers retain the
-validated frontmatter and load the declared procedure from the consumer root.
+A procedure-body edit can change only the manifest. Metadata and path edits can
+also change phase wrapper bytes. Regenerate and check after either kind of edit.
+Phase wrappers retain the validated frontmatter and load the declared procedure from the consumer root.
 An action packet identifies the authoritative file. A missing file or a mismatch
 stops the visit. Relative references inside the procedure use its own directory.
 
@@ -283,7 +262,6 @@ path checks bindings across the registry and requires explicit sources in every 
 `registry.load_adapter_registry(root)` validates source locations before parsing
 the registry. Its `load_adapter_pipelines(root)` method rechecks the supplied
 registry and registration paths before loading graphs and reuses the parsed registry.
-The v2 generator continues to use its existing entry point.
 
 Omitting the field retains legacy skill lookup at `.agents/skills/<skill>/SKILL.md`,
 repository containment for templates and validators, and the original canonical
@@ -311,8 +289,8 @@ The CLI never deletes, resets, stages, or commits repository work. Cleanup is li
 the generator version and regeneration command, canonical source records and
 aggregate hash, every generated adapter path and content hash, and generated or
 native mode for every supported harness. Native Codex and Hermes targets
-record shared launch-skill `discovery_paths`; native `.agents` outputs have a
-single ownership record under the Codex target. The manifest omits its own hash to
+record shared skill `discovery_paths`. Each generated file has a single
+ownership record listing all consuming targets. The manifest omits its own hash to
 avoid self-reference and contains no timestamps or absolute paths.
 
 Generation preflights ownership conflicts before writing, rechecks stale owned

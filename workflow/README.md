@@ -17,8 +17,8 @@ Every new run explicitly chooses a registered pipeline; there is no default.
 | Pipeline registrations | `workflow/pipelines.toml` (mandatory, at least one entry) |
 | Graph, gates, policies, and validation | `workflow/pipelines/<id>.toml` |
 | Shared artifact templates | `workflow/templates/` |
-| Shared phase procedures and orchestration | `.agents/skills/<skill>/SKILL.md` |
-| Repository-wide agent constraints | `AGENTS.md` |
+| Shared phase procedures | `workflow/skills/<skill>/SKILL.md` |
+| Repository-wide agent constraints | `workflow/instructions.md` |
 
 The registry uses this structure:
 
@@ -46,9 +46,11 @@ files never create pipeline launch skills and cannot initialize new runs.
 
 To add a pipeline, copy an existing graph into `workflow/pipelines/<id>.toml`,
 set its `id`, customize its phases and transitions, and add its registration.
-Reuse canonical skills by naming them in `skill`. Use `../templates/<name>.md`
+Set `skill` to the portable frontmatter name and `skill_source` to its
+repository-relative workflow file. Use `../templates/<name>.md`
 for a shared output template, or a path relative to the graph for a private one.
-References must resolve inside the repository. Different pipelines may use the
+Both declared and resolved sources must stay under a non-symlinked `workflow/`.
+Different pipelines may use the
 same phase names, skills and templates.
 
 Edit a registered graph or its referenced canonical files directly. To remove
@@ -79,14 +81,11 @@ specromancy init "describe the requested change" --pipeline implementation
 ```
 
 Alternatively, invoke the generated `specromancy-implementation` skill. The
-generator creates `specromancy-<id>` for every registration, delegating to the
-canonical pipeline orchestrator. Existing-run commands need only `RUN_ID`.
+generator embeds the packaged orchestrator in each launch skill. Existing-run commands need only `RUN_ID`.
 
-Do not edit generated `.agents/skills/specromancy-*/`, `.claude/`,
-`.github/copilot-instructions.md`, `.github/prompts/`, or `.opencode/commands/`.
-Their ownership and hashes are recorded in `adapters/manifest.json`.
-The `specromancy-` skill prefix is reserved for generated launch skills; all
-other `.agents/skills/` procedures remain editable canonical sources.
+Root `AGENTS.md`, shared `.agents/skills/` wrappers and launch skills, and
+the other harness outputs are generated. Each has one ownership record in
+`adapters/manifest.json`. Edit the corresponding workflow source and regenerate.
 
 See [Pipeline authoring](../docs/guides/authoring-pipelines.md) for graph rules
 and active-run safety.

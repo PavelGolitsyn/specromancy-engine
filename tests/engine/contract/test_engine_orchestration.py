@@ -351,7 +351,7 @@ class EngineOrchestrationContractTests(unittest.TestCase):
     def test_template_drift_warns_and_rejects_activation_without_rewriting_state(self) -> None:
         fixture = SafetyFixture(phase("inspect"))
         self.addCleanup(fixture.close)
-        template = fixture.root / "template.md"
+        template = fixture.pipeline_path.with_name("template.md")
         template.write_text("Original template.\n")
         fixture.pipeline_path.write_text(fixture.pipeline_path.read_text().replace(
             'validator = "file"', 'validator = "file"\noutput_template = "template.md"'

@@ -17,12 +17,12 @@ from ..hashing import SHA256_PATTERN, normalize_relative_path, sha256_bytes
 
 
 def write_adapters(
-    root: Path, rendered: Mapping[str, bytes], manifest_bytes: bytes, *, workflow: bool = False,
+    root: Path, rendered: Mapping[str, bytes], manifest_bytes: bytes,
 ) -> tuple[str, ...]:
     """Preflight ownership, replace outputs, recheck stale hashes, then write manifest."""
 
-    owned = _read_ownership(root, workflow=workflow)
-    conflicts, stale = _preflight_generation(root, rendered, owned, workflow=workflow)
+    owned = _read_ownership(root)
+    conflicts, stale = _preflight_generation(root, rendered, owned)
     if conflicts:
         raise AdapterError(
             "adapter generation stopped to protect unowned or modified files",
@@ -63,7 +63,7 @@ def write_adapters(
     return tuple(path for path, _ in stale)
 
 
-def _read_ownership(root: Path, *, workflow: bool) -> dict[str, str]:
+def _read_ownership(root: Path) -> dict[str, str]:
     path = _target(root, MANIFEST_PATH)
     problem = _unsafe_existing_path(root, path)
     if problem:
@@ -77,19 +77,16 @@ def _read_ownership(root: Path, *, workflow: bool) -> dict[str, str]:
             "adapter manifest is unreadable or invalid",
             {"path": MANIFEST_PATH, "error": str(exc)},
         ) from exc
-    return _owned_paths(value, workflow=workflow)
+    return _owned_paths(value)
 
 
-def _owned_paths(manifest: Any, *, workflow: bool) -> dict[str, str]:
+def _owned_paths(manifest: Any) -> dict[str, str]:
     generator = manifest.get("generator") if isinstance(manifest, dict) else None
     if not isinstance(generator, dict):
         raise AdapterError("invalid adapter manifest generator", {"path": MANIFEST_PATH})
     schema, version = manifest.get("schema_version"), generator.get("version")
-    identities = [(1, 1), (1, 2)]
-    if workflow:
-        identities.append((2, 3))
     command = "bin/specromancy adapters generate" if version == 1 else REGENERATION_COMMAND
-    if (type(schema) is not int or type(version) is not int or (schema, version) not in identities
+    if (type(schema) is not int or type(version) is not int or (schema, version) not in ((1, 1), (1, 2), (2, 3))
             or generator.get("name") != "specromancy" or generator.get("command") != command):
         raise AdapterError("unsupported adapter manifest generator identity",
                            {"schema_version": schema, "generator": generator})
@@ -159,7 +156,7 @@ def _legacy_target_records(owned: Mapping[str, str]) -> list[dict[str, Any]]:
 def _preflight_generation(
     root: Path,
     rendered: Mapping[str, bytes],
-    owned: Mapping[str, str], *, workflow: bool,
+    owned: Mapping[str, str],
 ) -> tuple[dict[str, Any], list[tuple[str, str]]]:
     expected = set(rendered)
     conflicts: dict[str, Any] = {}
@@ -173,7 +170,7 @@ def _preflight_generation(
         elif (target.exists() or target.is_symlink()) and path not in owned:
             unowned.append(path)
 
-    unexpected = sorted(_managed_paths(root, workflow=workflow) - expected - set(owned))
+    unexpected = sorted(_managed_paths(root) - expected - set(owned))
     if unexpected:
         unowned.extend(path for path in unexpected if path not in unowned)
 
@@ -207,9 +204,9 @@ def _preflight_generation(
 
 
 def _compare(
-    root: Path, rendered: Mapping[str, bytes], manifest_bytes: bytes, *, workflow: bool = False,
+    root: Path, rendered: Mapping[str, bytes], manifest_bytes: bytes,
 ) -> dict[str, Any]:
-    owned = _read_ownership(root, workflow=workflow)
+    owned = _read_ownership(root)
     missing = []
     modified = []
     for path, expected in (*rendered.items(), (MANIFEST_PATH, manifest_bytes)):
@@ -227,7 +224,7 @@ def _compare(
             continue
         if actual != expected:
             modified.append(path)
-    unexpected = _managed_paths(root, workflow=workflow) - set(rendered)
+    unexpected = _managed_paths(root) - set(rendered)
     for path in owned.keys() - rendered.keys():
         target = _target(root, path)
         if _unsafe_existing_path(root, target) or target.exists():
@@ -243,11 +240,9 @@ def _has_drift(drift: Mapping[str, Any]) -> bool:
     return any(bool(value) for value in drift.values())
 
 
-def _managed_paths(root: Path, *, workflow: bool) -> set[str]:
+def _managed_paths(root: Path) -> set[str]:
     paths: set[str] = set()
-    singles = (".claude/CLAUDE.md", ".github/copilot-instructions.md")
-    if workflow:
-        singles += ("AGENTS.md",)
+    singles = ("AGENTS.md", ".claude/CLAUDE.md", ".github/copilot-instructions.md")
     for path in singles:
         target = root / path
         if target.exists() or target.is_symlink():
@@ -257,11 +252,6 @@ def _managed_paths(root: Path, *, workflow: bool) -> set[str]:
         (root / ".github" / "prompts", "specromancy-*.prompt.md"),
         (root / ".opencode" / "commands", "specromancy-*.md"),
     )
-    if not workflow:
-        scans += (
-            (root / ".agents" / "skills", "specromancy-*/SKILL.md"),
-            (root / ".claude" / "skills", "*/SKILL.md"),
-        )
     for directory, pattern in scans:
         if _unsafe_directory(root, directory) or not directory.is_dir():
             continue

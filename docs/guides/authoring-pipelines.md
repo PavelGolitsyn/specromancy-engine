@@ -21,13 +21,9 @@ Installation supplies the engine and its four published schemas; author the
 registry, graph, skills, templates, and validator schemas in the consumer project.
 Nothing is implicitly loaded from the engine's source checkout or home directory.
 
-Adapter generation also requires the project-owned generic
-`.agents/skills/pipeline/SKILL.md`. Explicitly copy the
-[reusable procedure](../../.agents/skills/pipeline/SKILL.md) to that path in the
-consumer; review existing content before replacing it. Installation does not
-create it. The procedure resolves phases from persisted CLI packets and needs
-no example phase names. See [Harness usage](harnesses.md) for command environment
-setup, including GUI harnesses.
+Write repository-wide instructions in `workflow/instructions.md`. The generator
+combines them with packaged harness templates, including the generic orchestrator.
+See [Harness usage](harnesses.md) for the generator command and harness environment.
 
 Pipeline files use TOML so Python 3.11 can load them without a dependency. A
 pipeline declares schema version, identity, start phase, terminal outcomes,
@@ -110,7 +106,9 @@ description: Inspect the changes listed in the request.
 ```
 
 `name` must equal `skill`. Several phases may reuse the same identifier and
-source. Reserve `pipeline` and `specromancy-*` for orchestration and launch skills.
+source. Across registered graphs each identifier has one declared source and each resolved
+file has one identifier. Resolve supporting references relative to the canonical
+procedure file. Reserve `pipeline` and `specromancy-*` for orchestration and launch skills.
 The reader accepts single-line string values for `name`, `description`, and
 optional `license` and `compatibility`. Optional `metadata` holds a flat mapping
 of string values indented two spaces. Quote values containing YAML punctuation
@@ -123,8 +121,7 @@ forward slashes and omit parent segments in `skill_source`. The CLI returns
 the canonical procedure in `action.skill` and checks its bytes on continuation.
 
 For an existing graph without `skill_source`, the runtime still loads
-`.agents/skills/<skill>/SKILL.md`. The current v2 adapter generator and shipped
-examples use that layout. Adding the field changes the graph hash. Finish an
+`.agents/skills/<skill>/SKILL.md`. Adapter generation requires explicit declarations in every registered graph. Adding the field changes the graph hash. Finish an
 existing run with its original graph and procedure bytes, or retain its checkout
 and start new runs in a separate checkout.
 
@@ -231,9 +228,10 @@ redirections are not interpreted.
 
 ## Regeneration and active runs
 
-After changing `AGENTS.md`, a canonical skill, the registry, a pipeline or its
+After changing `workflow/instructions.md`, a canonical skill, the registry, a pipeline or its
 referenced templates/schemas, or CLI help
-metadata, run:
+metadata, regenerate and check. A body edit can change only manifest provenance.
+A frontmatter or source-path edit can also change the wrapper bytes. Run:
 
 ```bash
 specromancy adapters generate

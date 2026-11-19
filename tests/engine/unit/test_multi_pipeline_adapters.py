@@ -8,14 +8,13 @@ import unittest
 from unittest.mock import patch
 
 from specromancy_engine.adapters import (
-    MANIFEST_PATH, AdapterError, generate_adapters, render_adapters, _generate_workflow_adapters,
-    _render_workflow_adapters,
+    MANIFEST_PATH, AdapterError, generate_adapters, render_adapters,
 )
 from specromancy_engine._adapters import adapter_sources
 from specromancy_engine.config import PipelineConfigError
 from specromancy_engine.hashing import sha256_bytes
-from specromancy_engine._adapters.adapter_rendering import expected_manifest, render_sources, render_workflow_sources, workflow_manifest
-from specromancy_engine._adapters.adapter_sources import capture_sources, capture_workflow_sources
+from specromancy_engine._adapters.adapter_rendering import render_workflow_sources, workflow_manifest
+from specromancy_engine._adapters.adapter_sources import capture_workflow_sources
 from specromancy_engine.cli import adapter_command_metadata
 from specromancy_engine.registry import load_adapter_registry, load_registry
 from tests.engine.support import MultiPipelineFixture, write_workflow_skill
@@ -53,11 +52,13 @@ class MultiPipelineAdapterTests(unittest.TestCase):
             text = first[relative].decode()
             self.assertIn(f"`specromancy init DESCRIPTION --pipeline {pipeline_id} --json`", text)
             self.assertNotIn("bin/specromancy", text)
-            self.assertIn(".agents/skills/pipeline/SKILL.md", text)
+            self.assertIn("specromancy resume RUN_ID --json", text)
             self.assertEqual(first[f".claude/skills/specromancy-{pipeline_id}/SKILL.md"], first[relative])
         native = {item["name"]: item for item in manifest["targets"] if item["mode"] == "native"}
         self.assertEqual(native["codex"]["discovery_paths"], native["hermes"]["discovery_paths"])
-        self.assertEqual(len(native["codex"]["discovery_paths"]), 2)
+        self.assertEqual(native["codex"]["discovery_paths"], [
+            f".agents/skills/{name}/SKILL.md" for name in ("compose", "pipeline", "specromancy-alpha", "specromancy-beta")
+        ])
         self.fixture.register("beta", "alpha")
         self.generate()
         self.assertEqual(self.snapshot(), first)
@@ -65,26 +66,19 @@ class MultiPipelineAdapterTests(unittest.TestCase):
 
     def test_render_and_hash_share_captured_bytes_after_sources_change(self) -> None:
         registry = load_registry(self.root)
-        sources = capture_sources(self.root, registry, None)
-        rendered = render_sources(sources)
-        manifest = expected_manifest(sources, rendered)
+        sources = capture_workflow_sources(self.root, registry, None)
+        rendered = render_workflow_sources(sources)
+        manifest = workflow_manifest(sources, rendered)
         for relative in (
-            "AGENTS.md", ".agents/skills/compose/SKILL.md",
+            "workflow/instructions.md", "workflow/skills/compose/SKILL.md",
             "workflow/templates/shared.md", "workflow/pipelines/beta.toml",
         ):
             path = self.root / relative
             path.write_bytes(path.read_bytes() + b"\n# A later source edit\n")
-        self.assertEqual(render_sources(sources), rendered)
-        self.assertEqual(expected_manifest(sources, rendered), manifest)
-        fresh = capture_sources(self.root, registry, None)
-        self.assertNotEqual(expected_manifest(fresh, render_sources(fresh)), manifest)
-
-    def test_public_render_does_not_read_manifest_dependency_bytes(self) -> None:
-        registry = load_registry(self.root)
-        metadata = adapter_command_metadata(["compose", "inspect"])
-        expected = render_adapters(self.root, registry, metadata)
-        with patch("pathlib.Path.read_bytes", side_effect=AssertionError("manifest input read")):
-            self.assertEqual(render_adapters(self.root, registry, metadata), expected)
+        self.assertEqual(render_workflow_sources(sources), rendered)
+        self.assertEqual(workflow_manifest(sources, rendered), manifest)
+        fresh = capture_workflow_sources(self.root, registry, None)
+        self.assertNotEqual(workflow_manifest(fresh, render_workflow_sources(fresh)), manifest)
 
     def test_renamed_registration_replaces_only_its_owned_launch_skills(self) -> None:
         self.generate()
@@ -105,7 +99,7 @@ class MultiPipelineAdapterTests(unittest.TestCase):
         self.fixture.register("alpha", "beta", "gamma")
         self.generate()
         self.assertTrue((self.root / ".agents/skills/specromancy-gamma/SKILL.md").is_file())
-        canonical = self.root / ".agents/skills/compose/SKILL.md"
+        canonical = self.root / "workflow/skills/compose/SKILL.md"
         before = canonical.read_bytes()
         self.fixture.register("alpha")
         result = self.generate()
@@ -155,31 +149,32 @@ class MultiPipelineAdapterTests(unittest.TestCase):
         self.generate()
         path = self.root / "adapters/manifest.json"
         manifest = json.loads(path.read_text())
-        manifest["generated"][0]["path"] = ".agents/skills/compose/SKILL.md"
+        manifest["generated"][0]["path"] = "workflow/skills/compose/SKILL.md"
         path.write_text(json.dumps(manifest))
         with self.assertRaises(AdapterError):
             self.generate()
-        self.assertTrue((self.root / ".agents/skills/compose/SKILL.md").is_file())
+        self.assertTrue((self.root / "workflow/skills/compose/SKILL.md").is_file())
 
     def test_native_launch_skill_parent_symlink_is_rejected(self) -> None:
         skill = self.root / ".agents/skills/specromancy-alpha"
-        skill.symlink_to(self.root / ".agents/skills/compose", target_is_directory=True)
-        before = (self.root / ".agents/skills/compose/SKILL.md").read_bytes()
+        skill.parent.mkdir(parents=True)
+        skill.symlink_to(self.root / "workflow/skills/compose", target_is_directory=True)
+        before = (self.root / "workflow/skills/compose/SKILL.md").read_bytes()
         with self.assertRaises(AdapterError):
             self.generate()
-        self.assertEqual((self.root / ".agents/skills/compose/SKILL.md").read_bytes(), before)
+        self.assertEqual((self.root / "workflow/skills/compose/SKILL.md").read_bytes(), before)
 
 
 class WorkflowAdapterTests(unittest.TestCase):
     def setUp(self) -> None:
-        self.fixture = MultiPipelineFixture(workflow_only=True)
+        self.fixture = MultiPipelineFixture()
         self.addCleanup(self.fixture.close)
         self.root = self.fixture.root
         self.skill = self.root / "workflow/skills/compose/SKILL.md"
         self.graph = self.root / "workflow/pipelines/beta.toml"
 
     def generate(self, *, check=False, metadata=None):
-        return _generate_workflow_adapters(self.root, load_adapter_registry(self.root), metadata, check=check)
+        return generate_adapters(self.root, load_adapter_registry(self.root), metadata, check=check)
 
     def manifest(self):
         return json.loads((self.root / MANIFEST_PATH).read_bytes())
@@ -251,7 +246,7 @@ class WorkflowAdapterTests(unittest.TestCase):
             return read(candidate)
 
         with patch.object(Path, "read_bytes", read_without_template):
-            files = _render_workflow_adapters(self.root, registry, adapter_command_metadata())
+            files = render_adapters(self.root, registry, adapter_command_metadata())
         self.assertIn("AGENTS.md", files)
         self.assertFalse((self.root / MANIFEST_PATH).exists())
 
@@ -320,9 +315,9 @@ class WorkflowAdapterTests(unittest.TestCase):
     def test_guarded_source_paths_across_render_generate_and_check(self) -> None:
         registry = load_adapter_registry(self.root)
         options = [
-            lambda: _render_workflow_adapters(self.root, registry, adapter_command_metadata()),
-            lambda: _generate_workflow_adapters(self.root, registry),
-            lambda: _generate_workflow_adapters(self.root, registry, check=True),
+            lambda: render_adapters(self.root, registry, adapter_command_metadata()),
+            lambda: generate_adapters(self.root, registry),
+            lambda: generate_adapters(self.root, registry, check=True),
         ]
         foreign = self.root / ".opencode/commands/specromancy-phase.md"
         foreign.parent.mkdir(parents=True)

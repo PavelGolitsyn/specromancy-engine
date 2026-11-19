@@ -38,6 +38,7 @@ artifact_pattern = "artifacts/{visit:03}-{phase}.md"
 [[phases]]
 id = "compose"
 skill = "compose"
+skill_source = "workflow/skills/compose/SKILL.md"
 inputs = ["request"]
 output_name = "{visit:03}-result.md"
 mutation = "read-only"
@@ -57,13 +58,13 @@ class StoreFixture:
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name)
         (self.root / ".git").mkdir()
-        skill = self.root / ".agents" / "skills" / "compose" / "SKILL.md"
+        skill = self.root / "workflow" / "skills" / "compose" / "SKILL.md"
         skill.parent.mkdir(parents=True)
         skill.write_text(
             "---\nname: compose\ndescription: Test skill.\n---\n",
             encoding="utf-8",
         )
-        self.pipeline_path = self.root / "pipeline.toml"
+        self.pipeline_path = self.root / "workflow/pipeline.toml"
         self.pipeline_path.write_text(textwrap.dedent(PIPELINE), encoding="utf-8")
         self.pipeline = load_pipeline(self.pipeline_path, self.root)
 
@@ -175,9 +176,6 @@ class RunStoreTests(unittest.TestCase):
         raw = skill.read_bytes().replace(b"\n", b"\r\n")
         skill.write_bytes(raw)
         source = skill.relative_to(self.fixture.root).as_posix()
-        self.fixture.pipeline_path.write_text(PIPELINE.replace(
-            'skill = "compose"', f'skill = "compose"\nskill_source = "{source}"'))
-        self.fixture.pipeline = load_pipeline(self.fixture.pipeline_path, self.fixture.root)
         self.create()
         expected = {"path": source, "sha256": hashlib.sha256(raw).hexdigest()}
         visit = self.store.prepare_visit(RUN_ID, self.fixture.pipeline, "compose")
@@ -186,12 +184,10 @@ class RunStoreTests(unittest.TestCase):
 
     def test_retained_graph_rechecks_source_boundary_before_store_writes(self) -> None:
         skill = write_workflow_skill(self.fixture.root)
-        source = skill.relative_to(self.fixture.root).as_posix()
-        self.fixture.pipeline_path.write_text(PIPELINE.replace(
-            'skill = "compose"', f'skill = "compose"\nskill_source = "{source}"'))
-        self.fixture.pipeline = load_pipeline(self.fixture.pipeline_path, self.fixture.root)
         original = skill.read_bytes()
         wrapper = self.fixture.root / ".agents/skills/compose/SKILL.md"
+        wrapper.parent.mkdir(parents=True)
+        wrapper.write_bytes(original)
         skill.unlink()
         skill.symlink_to(wrapper)
         with self.assertRaises(PipelineConfigError) as caught:

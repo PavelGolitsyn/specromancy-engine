@@ -137,7 +137,16 @@ print(specromancy_engine.__version__)
                 text=True,
             )
             self.assertEqual(initialized.returncode, 8, initialized.stderr)
-            self.assertEqual(json.loads(initialized.stdout)["action"]["phase"], "research")
+            action = json.loads(initialized.stdout)["action"]
+            self.assertEqual(action["phase"], "research")
+            self.assertEqual(action["skill"]["path"], "workflow/skills/research/SKILL.md")
+            for options in ([], ["--check"]):
+                generated = subprocess.run(
+                    [sys.executable, "-S", str(checkout / "bin/specromancy"),
+                     "--root", str(checkout / WORKFLOW_FIXTURE), "adapters", "generate", *options],
+                    cwd=checkout, capture_output=True, text=True,
+                )
+                self.assertEqual(generated.returncode, 0, generated.stderr)
 
     def test_runtime_package_imports_only_standard_library_modules(self) -> None:
         imported: set[str] = set()
@@ -162,7 +171,7 @@ print(specromancy_engine.__version__)
         self.assertEqual(ignored.returncode, 0)
         self.assertTrue((ROOT / "LICENSE").read_text(encoding="utf-8").startswith("MIT License"))
         for path in sorted(
-            (ROOT / WORKFLOW_FIXTURE / ".agents" / "skills").glob("*/SKILL.md")
+            (ROOT / WORKFLOW_FIXTURE / "workflow" / "skills").glob("*/SKILL.md")
         ):
             with self.subTest(path=path.relative_to(ROOT)):
                 self.assertIn("\nlicense: MIT\n", path.read_text(encoding="utf-8"))

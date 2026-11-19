@@ -181,11 +181,11 @@ class ReleaseDocumentationTests(unittest.TestCase):
         self.assertFalse((self.root / ".specromancy").exists())
         self.assertEqual(snapshot(self.root), before)
 
-    def test_missing_orchestrator_fails_without_writes(self) -> None:
-        (self.root / ".agents/skills/pipeline/SKILL.md").unlink()
+    def test_missing_instructions_fails_without_writes(self) -> None:
+        (self.root / "workflow/instructions.md").unlink()
         before = snapshot(self.root)
-        response = self.command("adapters", "generate", expected=11)
-        self.assertEqual(response["message"], "canonical pipeline orchestrator skill is missing")
+        response = self.command("adapters", "generate", expected=3)
+        self.assertEqual(response["details"]["error_code"], "missing-file")
         self.assertEqual(snapshot(self.root), before)
 
     def test_invalid_or_missing_pipeline_selection_fails_without_writes(self) -> None:

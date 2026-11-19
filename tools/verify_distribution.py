@@ -123,10 +123,9 @@ def sdist_sources(root: Path) -> set[str]:
     names.update("src/" + n for n in inventory(root))
     example = "examples/release-documentation"
     names.update(f"{example}/{name}" for name in (
-        "README.md", "AGENTS.md", ".gitignore", "sample-changes.md",
-        ".agents/skills/pipeline/SKILL.md",
-        ".agents/skills/draft-release-notes/SKILL.md",
-        ".agents/skills/review-release-notes/SKILL.md",
+        "README.md", "workflow/instructions.md", ".gitignore", "sample-changes.md",
+        "workflow/skills/draft-release-notes/SKILL.md",
+        "workflow/skills/review-release-notes/SKILL.md",
     ))
     for directory, extensions in ((f"{example}/workflow", {".toml", ".md"}),
                                   ("docs/guides", {".md"}), ("docs/reference", {".md"})):

@@ -11,8 +11,8 @@ from ..errors import SpecromancyError
 from ..exit_codes import ExitCode
 
 
-ADAPTER_SCHEMA_VERSION = 1
-GENERATOR_VERSION = 2
+ADAPTER_SCHEMA_VERSION = 2
+GENERATOR_VERSION = 3
 MANIFEST_PATH = "adapters/manifest.json"
 REGENERATION_COMMAND = "specromancy adapters generate"
 
@@ -70,22 +70,6 @@ class AdapterError(SpecromancyError):
         super().__init__(ExitCode.ADAPTER_DRIFT, message, details)
 
 
-def _target_for_path(path: str) -> str:
-    if path.startswith(".agents/"):
-        return "codex"
-    if path.startswith(".claude/"):
-        return "claude"
-    if path.startswith(".github/"):
-        return "copilot"
-    if path.startswith(".opencode/"):
-        return "opencode"
-    raise AdapterError("generated path has no target harness", {"path": path})
-
-
-# Generator v3 requirements. A path's consumers are independent of which other
-# outputs happen to exist in a checkout.
-WORKFLOW_SCHEMA_VERSION = 2
-WORKFLOW_GENERATOR_VERSION = 3
 INSTRUCTION_CONSUMERS = {
     "AGENTS.md": ("codex", "hermes", "opencode"),
     ".claude/CLAUDE.md": ("claude",),

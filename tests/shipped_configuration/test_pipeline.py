@@ -32,10 +32,10 @@ class ShippedPipelineTests(unittest.TestCase):
             for phase in pipeline.phases:
                 with self.subTest(phase=phase.id):
                     self.assertTrue(phase.skill_path.is_file())
-                    self.assertTrue(phase.skill_path.is_relative_to(ROOT))
+                    self.assertTrue(phase.skill_path.is_relative_to(ROOT / "workflow"))
                     if phase.output_template_path is not None:
                         self.assertTrue(phase.output_template_path.is_file())
-                        self.assertTrue(phase.output_template_path.is_relative_to(ROOT))
+                        self.assertTrue(phase.output_template_path.is_relative_to(ROOT / "workflow"))
                     self.assertTrue(phase.transitions)
                     for transition in phase.transitions:
                         if transition.target is None:
