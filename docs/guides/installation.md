@@ -132,6 +132,7 @@ the following resources in your existing project:
 
 | Resource | Your responsibility |
 | --- | --- |
+| `workflow/adapters.toml` | Save the harnesses this project uses before generating or checking adapters |
 | `workflow/instructions.md` | Preserve and merge the repository instructions here |
 | `workflow/pipelines.toml` | Merge an explicit unique registration; there is no default |
 | `workflow/pipelines/<id>.toml` | Own phases, policies, outcomes, and input selectors |
@@ -155,9 +156,10 @@ with its generated files. Resolve conflicts using the
 existing instructions before regeneration. Do not manufacture ownership by
 editing the manifest.
 
-The package supplies the harness templates and generic orchestrator. Generation
-creates root `AGENTS.md` and the discovery files. The producer and example
-each configure their own pipelines under their respective `workflow/` directories.
+The package supplies the harness templates and generic orchestrator. The example
+selects Claude and OpenCode. Edit its `workflow/adapters.toml` for your project,
+or set `harnesses = []` for CLI-only use. Runs and pipeline configuration
+validation work without this file. Adapter generation and check require it.
 
 ## Upgrade an existing consumer
 
@@ -165,6 +167,10 @@ Finish unfinished runs with their original graph and recorded resource bytes,
 or keep the original checkout for those runs and migrate a separate checkout.
 Adding `skill_source` changes the graph hash. Replacing the old procedure with a
 wrapper changes the prepared visit's recorded skill hash.
+
+When upgrading from an all-target manifest, first save the desired harness list.
+Selecting all five preserves the previous output set. A smaller selection retires
+unchanged owned files that the project no longer needs.
 
 Before generation, move hand-written root instructions to
 `workflow/instructions.md` and phase procedures into `workflow/skills/`.

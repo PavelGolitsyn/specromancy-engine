@@ -18,7 +18,7 @@ from .engine import Engine
 from .errors import SpecromancyError, UsageError
 from .exit_codes import EXIT_CODE_DESCRIPTIONS, ExitCode
 from ._cli.pipeline_selection import selected_pipeline as _selected_pipeline
-from .registry import load_adapter_registry, load_registry
+from .registry import load_registry
 from .status import render_status
 
 ACTIONABLE_CODES = frozenset(
@@ -297,7 +297,6 @@ def main(
         root = discover_repository_root(
             explicit_root=getattr(arguments, "root", None)
         )
-        registry = load_adapter_registry(root) if arguments.command == "adapters" else load_registry(root)
         selector = getattr(arguments, "pipeline", None)
         if arguments.command == "adapters" and not getattr(
             arguments, "adapter_command", None
@@ -306,15 +305,11 @@ def main(
         if arguments.command == "adapters":
             if selector is not None:
                 raise UsageError("adapters generate processes all registered pipelines; omit --pipeline")
-            from .adapters import generate_adapters
+            from .adapters import _generate_adapters
 
-            payload = generate_adapters(
-                root,
-                registry,
-                check=arguments.check,
-            )
+            payload = _generate_adapters(root, check=arguments.check)
         else:
-            pipeline = _selected_pipeline(arguments, root, registry)
+            pipeline = _selected_pipeline(arguments, root, load_registry(root))
             arguments = build_parser(pipeline.phase_ids).parse_args(raw_args)
             payload = _dispatch(arguments, root, pipeline)
         if wants_json or not wants_quiet:

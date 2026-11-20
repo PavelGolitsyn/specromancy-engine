@@ -2,7 +2,7 @@
 
 ## Current plan: generated harness files from canonical workflow sources
 
-**Stages 16–21 are complete. Stage 22 is planned.** Stage 16 recorded
+**Stages 16–22 are complete.** Stage 16 recorded
 the source and ownership inventory and the unfinished-run migration constraint.
 Stage 17 packaged the generic harness templates and verified them in direct
 and sdist-rebuilt wheel installations. Stage 18 added explicit workflow
@@ -11,7 +11,9 @@ loading. Stage 19 verified workflow-only generation, schema 2 shared ownership,
 and historical manifest migration in isolated consumers. Stage 20 switched the public generator to v3 and migrated the producer,
 consumer example and ordinary fixtures to workflow-owned sources. Stage 21
 verified identical generation from direct and sdist-rebuilt wheels on Python
-3.11.15 and 3.14.4. The example produced 23 files across all five targets.
+3.11.15 and 3.14.4. The Stage 21 example produced 23 files across all five targets.
+Stage 22 verified generator v4 on both interpreters. The example now selects
+Claude and OpenCode and produces 18 files. The checkout retains all 27 files.
 Prepared on 2026-11-11
 against `d0bd655120dfd6eb2bdbc7e61fc12ae45e46f82b`.
 

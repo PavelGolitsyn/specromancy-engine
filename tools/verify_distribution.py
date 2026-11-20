@@ -37,7 +37,7 @@ ADAPTER_TEMPLATES = {f"specromancy_engine/resources/adapters/{name}.md" for name
 EXAMPLE = Path("examples/release-documentation")
 EXAMPLE_FILES = (
     ".gitignore", "README.md", "sample-changes.md", "workflow/instructions.md",
-    "workflow/pipelines.toml", "workflow/pipelines/release-documentation.toml",
+    "workflow/adapters.toml", "workflow/pipelines.toml", "workflow/pipelines/release-documentation.toml",
     "workflow/skills/draft-release-notes/SKILL.md", "workflow/skills/review-release-notes/SKILL.md",
     "workflow/templates/release-notes.md", "workflow/templates/review.md",
 )

@@ -155,8 +155,14 @@ already carries the absolute consumer root.
 
 ### Adapter generation
 
-`adapters generate` validates every registration and rejects `--pipeline`.
-Generator version 3 writes schema 2 and carries the generator name `specromancy`.
+Generation and check require the user-owned `workflow/adapters.toml`, guarded
+before parsing by the same declared/resolved workflow boundary as graph inputs.
+Its only keys are integer `schema_version = 1` and `harnesses`, an array of
+unique supported identifiers. Missing configuration reports the supported names
+and an example. Both commands are non-interactive and reject `--pipeline`.
+For nonempty selection generation validates every registration. With an empty
+selection it checks prior ownership and reconciles to zero generated files.
+Generator version 4 writes schema 2 and carries the generator name `specromancy`.
 `--check` compares expected output and ownership without writing. It reports
 drift when the generated tree or manifest differs.
 
@@ -169,7 +175,7 @@ validated graphs. Generation reuses captured source text and bytes for rendering
 and source hashes, without a cross-invocation cache. Adapter constants and
 `AdapterError` remain available from `specromancy_engine.adapters`.
 
-Generation and rendering use a registry snapshot and capture
+For selected outputs, generation and rendering use a registry snapshot and capture
 `workflow/instructions.md`, every registered graph, and its explicitly declared
 workflow procedures and dependencies. Both facades check the registry root,
 registry path, and registration locations before consuming the snapshot. A caller that
@@ -182,15 +188,19 @@ for hashing and inspecting ownership or drift are generation/check operations.
 
 Instructions and complete canonical procedures use UTF-8, LF, and one trailing
 newline for adapter provenance. The manifest also hashes validated configuration,
-dependency bytes, CLI metadata, package version, and exact release template bytes.
+dependency bytes, CLI metadata for command wrappers, package version, and exact
+bytes of required release templates. The canonical selection input identifies
+`workflow/adapters.toml` and hashes canonical JSON containing `schema_version`
+and the sorted `harnesses` array. TOML comments and list order do not affect it.
+For an empty selection this is the only manifest input.
 A procedure-body edit can change only the manifest. Metadata and path edits can
 also change phase wrapper bytes. Regenerate and check after either kind of edit.
 Phase wrappers retain the validated frontmatter and load the declared procedure from the consumer root.
 An action packet identifies the authoritative file. A missing file or a mismatch
 stops the visit. Relative references inside the procedure use its own directory.
 
-V3 writes schema 2. Each output has one `path`, one `sha256`, and a sorted
-`targets` list. Each target lists all its required paths. Root `AGENTS.md`
+In generator v4 each output has one `path`, one `sha256`, and a sorted
+`targets` list of its selected consumers. Each selected target lists all its required paths. Root `AGENTS.md`
 serves Codex, Hermes, and OpenCode. Shared `.agents/skills` serve those three
 and Copilot. Claude has its own instructions, skills, and commands. Copilot
 also requires its instructions and prompts, and OpenCode its commands. Codex
@@ -201,7 +211,9 @@ Generation and check validate the previous manifest's generator identity and
 ownership records. Schema 1 generators 1 and 2 use their original single-target
 mapping. Under `.agents` they own only recorded `skills/specromancy-*/SKILL.md`
 outputs. Their Claude mirrors retain the original `.claude/skills/*/SKILL.md`
-grammar. Schema 2 checks the consuming targets in both directions. Unrelated
+grammar. Generator 3 requires the original all-target mapping. Generator 4
+validates attribution against its recorded selection. Both schema-2 versions
+check the consuming targets in both directions. Unrelated
 skills beside expected outputs are ignored. An existing expected file requires
 valid prior ownership even when its bytes match. Regeneration restores edited
 current outputs and removes stale owned outputs only while their recorded hashes
@@ -288,9 +300,9 @@ The CLI never deletes, resets, stages, or commits repository work. Cleanup is li
 `adapters/manifest.json` is the schema-versioned ownership boundary. It records
 the generator version and regeneration command, canonical source records and
 aggregate hash, every generated adapter path and content hash, and generated or
-native mode for every supported harness. Native Codex and Hermes targets
+native mode for every selected harness. Native Codex and Hermes targets
 record shared skill `discovery_paths`. Each generated file has a single
-ownership record listing all consuming targets. The manifest omits its own hash to
+ownership record listing all selected consuming targets. The manifest omits its own hash to
 avoid self-reference and contains no timestamps or absolute paths.
 
 Generation preflights ownership conflicts before writing, rechecks stale owned
@@ -298,7 +310,13 @@ file hashes before removal, replaces each output atomically, and writes the
 manifest last. An interruption between replacements can leave some new outputs
 alongside the previous manifest. Preserve any user edits and resolve unowned
 collisions before retrying. Check mode validates previous ownership, compares
-expected bytes, and creates no temporary output files.
+expected bytes, and creates no temporary output files. Both modes ignore foreign
+files exclusive to unselected harnesses, including names in reserved command
+directories. Previously owned files that lose their last consumer remain subject
+to stale-file checks. Resolve modified stale files before retrying.
+Selection and generation preserve pipeline and skill identities and do not write
+run records, approvals, or visit artifacts. Repository mutation checks still see
+edits to configuration and generated paths under the active visit's baseline.
 
 ## Configuration and state handling
 

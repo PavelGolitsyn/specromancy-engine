@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -15,7 +15,7 @@ from ._adapters.adapter_rendering import render_workflow_sources, workflow_manif
 from ._adapters.adapter_sources import capture_workflow_sources
 from .exit_codes import ExitCode
 from .hashing import canonical_json_bytes
-from .registry import PipelineRegistry
+from .registry import PipelineRegistry, load_adapter_registry
 
 
 def generate_adapters(
@@ -28,17 +28,23 @@ def generate_adapters(
     """Generate adapters or compare the worktree to deterministic output.
 
     Omitted metadata is derived from the graphs captured for this invocation.
-    Explicit caller-supplied metadata retains its existing hash contract.
+    Command wrappers include explicit caller-supplied metadata in their source hash.
     """
 
-    root = repository_root.resolve(strict=True)
+    return _generate_adapters(repository_root.resolve(strict=True), registry, command_metadata, check=check)
+
+
+def _generate_adapters(
+    root: Path, registry: PipelineRegistry | Callable[[Path], PipelineRegistry] = load_adapter_registry,
+    command_metadata: Mapping[str, Any] | None = None, *, check: bool,
+) -> dict[str, Any]:
     sources = capture_workflow_sources(root, registry, command_metadata)
     rendered = render_workflow_sources(sources)
     manifest = workflow_manifest(sources, rendered)
     manifest_bytes = canonical_json_bytes(manifest) + b"\n"
 
     if check:
-        drift = _compare(root, rendered, manifest_bytes)
+        drift = _compare(root, rendered, manifest_bytes, sources.harnesses)
         if _has_drift(drift):
             raise AdapterError("generated adapter drift detected", drift)
         return _result(
@@ -48,7 +54,7 @@ def generate_adapters(
             canonical_source_sha256=manifest["canonical_source"]["sha256"],
         )
 
-    removed = write_adapters(root, rendered, manifest_bytes)
+    removed = write_adapters(root, rendered, manifest_bytes, sources.harnesses)
     return _result(
         f"generated {len(rendered)} harness adapter files",
         checked=False,
@@ -63,7 +69,7 @@ def render_adapters(
     registry: PipelineRegistry,
     command_metadata: Mapping[str, Any],
 ) -> dict[str, bytes]:
-    """Render all generated adapter files in stable path order."""
+    """Render the selected adapter files in stable path order."""
 
     root = repository_root.resolve(strict=True)
     sources = capture_workflow_sources(

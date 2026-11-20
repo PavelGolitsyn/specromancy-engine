@@ -24,6 +24,7 @@ from specromancy_engine.config import PipelineConfigError, load_pipeline
 from specromancy_engine.registry import PipelineRegistry, load_registry
 from specromancy_engine.exit_codes import ExitCode
 from specromancy_engine.hashing import sha256_bytes
+from tests.engine.support import select_harnesses
 
 
 class ReleaseTemplateTests(unittest.TestCase):
@@ -133,6 +134,7 @@ class AdapterFixture:
             "# Repository instructions\n\n- Keep workflow logic canonical.\n",
             encoding="utf-8",
         )
+        select_harnesses(self.root, "claude", "codex", "copilot", "hermes", "opencode")
         self.write_skill("compose")
         self.pipeline_path = self.root / "workflow/pipelines/adapter-fixture.toml"
         self.pipeline_path.parent.mkdir(parents=True)
@@ -434,7 +436,7 @@ class AdapterGenerationTests(unittest.TestCase):
         )
         self.assertEqual(manifest["schema_version"], 2)
         self.assertEqual(manifest["generator"], {
-            "name": "specromancy", "version": 3,
+            "name": "specromancy", "version": 4,
             "command": "specromancy adapters generate",
         })
         modes = {entry["name"]: entry["mode"] for entry in manifest["targets"]}

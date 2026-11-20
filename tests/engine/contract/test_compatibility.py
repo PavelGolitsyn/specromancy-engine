@@ -275,6 +275,9 @@ class CompatibilityContractTests(unittest.TestCase):
             expected = read_record("adapters-generator-v3.json")
             actual = fixture.snapshot()
             self.assertEqual(set(actual), set(expected))
+            manifest = actual.pop("adapters/manifest.json")
+            self.assertEqual(hashlib.sha256(manifest).hexdigest(),
+                             "976c77fec903d4e115457f345255c04120d1f09466f7c07bdbaec2bd62a7e1ff")
             for path, content in actual.items():
                 with self.subTest(path=path):
                     self.assertEqual(content, expected[path]["text"].encode("utf-8"))
@@ -323,7 +326,10 @@ class CompatibilityContractTests(unittest.TestCase):
                 # edited stale paths and unowned paths remain protected separately.
                 fixture.generate()
                 upgraded = fixture.snapshot()
-                self.assertEqual(upgraded, {p: r["text"].encode() for p, r in expected.items()})
+                self.assertEqual(set(upgraded), set(expected))
+                for path in expected.keys() - {"adapters/manifest.json"}:
+                    self.assertEqual(upgraded[path], expected[path]["text"].encode())
+                self.assertEqual(json.loads(upgraded["adapters/manifest.json"])["generator"]["version"], 4)
                 fixture.generate()
                 fixture.generate(check=True)
                 self.assertEqual(fixture.snapshot(), upgraded)

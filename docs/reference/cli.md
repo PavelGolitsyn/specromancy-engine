@@ -94,15 +94,18 @@ specromancy adapters generate
 specromancy adapters generate --check
 ```
 
-Generation reads `workflow/instructions.md`, the registry and every registered
+Both commands require `workflow/adapters.toml` with `schema_version = 1` and
+a `harnesses` array. A missing or invalid choice returns configuration error 3.
+An empty array reconciles to zero harness files. For a nonempty selection,
+generation reads `workflow/instructions.md`, the registry and every registered
 graph, including declared phase procedures, templates and validators. Both
 commands guard the registry location before parsing it. Use explicit `skill_source`
 declarations and consistent skill bindings across registrations. Runtime commands
 validate the selected graph independently. Generation rejects `--pipeline`.
 
-Outputs include root `AGENTS.md`, phase wrappers and generic and per-pipeline
-launch skills. The schema-2 manifest records each output once with its consuming
-targets. `--check` reports missing, modified, unexpected or source-stale files
+The selected harnesses determine which instruction files, wrappers, and launch
+skills are required. The generator-v4, schema-2 manifest records each output
+once with its selected consumers. `--check` reports missing, modified, unexpected or source-stale files
 without writing. See [Adapter generation](contracts.md#adapter-generation).
 
 ## JSON and exit codes

@@ -1,6 +1,6 @@
 # Stage 22 — Generate only selected harnesses
 
-Status: **planned; not implemented**. Depends on completed Stages 16–21.
+Status: **complete, verified 2026-11-20**. Depends on completed Stages 16–21.
 Category: explicit project configuration, output selection, and safe migration.
 
 ## Objective
@@ -231,21 +231,111 @@ Repeat Stage 21's direct-wheel and sdist-rebuilt-wheel verification with explici
 selections after final package-included documentation changes. Record actual
 versions, commands, counts/skips, artifact hashes, and migration evidence.
 
-- [ ] Selection is explicit, persisted under `workflow/`, validated, and reused.
-- [ ] Only the union required by selected harnesses is generated; shared ownership
+- [x] Selection is explicit, persisted under `workflow/`, validated, and reused.
+- [x] Only the union required by selected harnesses is generated; shared ownership
   is unambiguous and unselected foreign content does not trigger drift.
-- [ ] Missing configuration does not trigger defaults, prompts, writes, or cleanup.
-- [ ] Deselecting targets protects edits and preserves still-needed shared files.
-- [ ] Generation works without pre-existing `.agents` or root `AGENTS.md`.
-- [ ] Selection does not weaken source-path exclusion or historical ownership
+- [x] Missing configuration does not trigger defaults, prompts, writes, or cleanup.
+- [x] Deselecting targets protects edits and preserves still-needed shared files.
+- [x] Generation works without pre-existing `.agents` or root `AGENTS.md`.
+- [x] Selection does not weaken source-path exclusion or historical ownership
   limits; metadata identity and thin-wrapper completeness remain enforced.
-- [ ] Selection preserves pipeline identity and canonical skill hashes; generation
+- [x] Selection preserves pipeline identity and canonical skill hashes; generation
   does not directly mutate run/event records, approvals, or artifacts.
-- [ ] Configuration and generated-file changes remain visible to ordinary
+- [x] Configuration and generated-file changes remain visible to ordinary
   mutation-policy and approval checks during active runs.
-- [ ] Public contracts, migration guidance, full tests, and installed-distribution
+- [x] Public contracts, migration guidance, full tests, and installed-distribution
   checks pass without new runtime dependencies or unrelated changes.
 
 Rollback requires reviewing the configuration/manifest and release together.
 Do not blindly run an older all-target generator against a selective manifest or
 discard user edits to restore the previous output set.
+
+## Execution record
+
+Verified from base revision `7c990e6` on macOS 26.6.2 arm64 with dedicated
+editable installations of `specromancy-engine 0.1.3`. The initial checkout
+manifest used schema 2, generator 3, five targets and 27 owned files. Generation
+with the explicit five-target selection retained all 27 content hashes and all
+target records. The manifest now uses generator 4 and adds the canonical
+`workflow/adapters.toml` input. Both CLI launchers passed check mode on each
+interpreter. The final whitespace check passed.
+
+| CPython | Focused tests | Full discovery | Installed direct wheel | Installed rebuilt wheel |
+| --- | ---: | ---: | ---: | ---: |
+| 3.11.15 | 70 | 375 | 94 | 94 |
+| 3.14.4 | 70 | 375 | 94 | 94 |
+
+All listed suites passed with zero skips. The isolated verifier checked 66
+installed runtime files and both entry points. Each of the four installations
+produced the same 18 files and manifest from the example's 16 canonical inputs.
+The example selects Claude and OpenCode. Removing the installed Copilot template
+permitted generation and restoring it produced a clean check. Removing the
+required phase template failed before any consumer writes.
+
+| Artifact or identity | SHA-256 |
+| --- | --- |
+| Direct wheel | `923f0315446781c9659fceec99ece97ff79a6d9aa1586ca73c0de379c8bfbfbc` |
+| Sdist | `d5da4031abf46f755c5c5b7869a610a88b0d37b4177f845307e6385173e77b38` |
+| Wheel rebuilt from sdist, both interpreters | `442fcf1a048d6ab8b518dfaa32676efc430969eb782455025be173424543d12c` |
+| Example manifest including trailing newline | `a1bbb0c8c601b58d9465585b7d93f55fca056d35435a68fd0b52c289491ce015` |
+| Example canonical source | `68422739c772a23b7f544455b82faf8c336f491c95d130ab979b180a2cf2d095` |
+| Checkout manifest including trailing newline | `866f96aba679e8a0edf52c1a4fb73646ff54e61e91c9a3b1b0338c091f67e4ef` |
+
+### Migration and run evidence
+
+- Each harness passed alone against the Stage 21 requirements. Claude started
+  without root instructions or shared skills. Deselecting Codex kept all files
+  needed by Hermes. Reordering the choice and adding a comment passed check
+  without writes and reproduced the manifest bytes on regeneration.
+- A frozen v3 manifest migrated to Hermes alone. Substituting Hermes-only
+  attribution into the v3 input failed before mutation. Frozen v1 and v2
+  manifests migrated under their own rules. Forged v2 claims to root
+  instructions or ordinary shared skills failed even with an empty selection.
+- Opt-out reconciled unchanged owned files while preserving directories and
+  foreign files. Modified stale files and unowned collisions blocked the entire
+  preflight. Source redirects into unselected outputs failed in render,
+  generation and check. The selection file and its parent passed the workflow
+  source guard before TOML parsing.
+- In disposable Git worktrees, changing selection and generating during an
+  active visit preserved the pipeline canonical bytes, skill hash, and every
+  file in the run directory, including pending approval evidence. Subsequent
+  approval of a read-only visit failed the mutation check. In an allowlist
+  visit, permitting edits to the selection file still left generated changes
+  outside the allowlist. Runtime code and stored schemas required no changes.
+
+### Commands and retained logs
+
+The build used the local pinned wheels for build 1.6.1, setuptools 84.0.0,
+packaging 26.3 and pyproject-hooks 1.3.3. The following commands identify the
+environments, artifacts and logs from this verification.
+
+```sh
+work=/private/tmp/specromancy-stage22.pCtquC
+cache=/private/tmp/specromancy-stage21.56Kjbp/build-tools
+/Users/sg/.local/share/uv/python/cpython-3.11.15-macos-aarch64-none/bin/python3.11 -m venv "$work/v311"
+python3.14 -m venv "$work/v314"
+for v in 311 314; do
+  "$work/v$v/bin/python" -m pip install --no-index --find-links "$cache" -r tools/requirements-build.txt
+  "$work/v$v/bin/python" -m pip install --no-index --no-build-isolation -e .
+done > "$work/install.log"
+
+"$work/v314/bin/specromancy" adapters generate
+"$work/v314/bin/python" -m build --wheel --sdist --no-isolation --outdir "$work/artifacts" > "$work/build.log" 2>&1
+for v in 311 314; do
+  (
+    . "$work/v$v/bin/activate"
+    python -m unittest tests.engine.unit.test_adapters tests.engine.unit.test_multi_pipeline_adapters tests.engine.contract.test_adapter_drift tests.packaging.test_consumer_roots > "$work/focused$v.log" 2>&1
+    python -m unittest discover > "$work/full$v.log" 2>&1
+    specromancy adapters generate --check
+    python bin/specromancy adapters generate --check
+    python tools/verify_distribution.py \
+      --wheel "$work/artifacts/specromancy_engine-0.1.3-py3-none-any.whl" \
+      --sdist "$work/artifacts/specromancy_engine-0.1.3.tar.gz" \
+      --log "$work/distribution$v.log"
+  )
+done
+git diff --check
+```
+
+Verification covered generated entry points and CLI invocation on macOS.
+Live harness UIs and other operating systems were outside this run.

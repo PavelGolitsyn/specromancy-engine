@@ -165,9 +165,13 @@ and the executable is `specromancy`. The
 [public API example](../../docs/guides/installation.md#python-project-dependency)
 uses this registry with `Engine`, `RunStore`, and `load_registry`.
 
+The example selects Claude and OpenCode in `workflow/adapters.toml`. Edit that
+list to select your own harnesses. OpenCode uses the shared root instructions
+and `.agents` skills. Claude's entry points live under `.claude`. An empty list
+keeps the CLI workflow and retires unchanged manifest-owned adapters.
+
 Edit `workflow/instructions.md`, the registered graph, or its declared
 `workflow/skills/` procedures and artifact templates. Run
 `specromancy adapters generate` and `specromancy adapters generate --check`
-before invoking your harness. Generation creates root `AGENTS.md` and embeds
-the installed orchestrator in the launch skills. The example ships only its
+before invoking your harness. Generation embeds the installed orchestrator in each selected launch skill. The example ships only its
 authored sources and sample request in the source distribution.

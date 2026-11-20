@@ -94,13 +94,17 @@ def _command_follow(command: AdapterCommand) -> str:
 
 
 def render_workflow_sources(sources: AdapterSources) -> dict[str, bytes]:
-    """Render the union of the five harnesses' requirements from a single capture."""
+    """Render the union of the selected harnesses' requirements from a single capture."""
+    if not sources.harnesses:
+        return {}
+    assert sources.instructions is not None
+    selected = set(sources.harnesses)
     templates = sources.templates
     envelope = templates["instructions.md"]
     files = {
         path: render_release_template(envelope, template_id=envelope.path,
                                       instructions=sources.instructions.content.decode("utf-8"))
-        for path in INSTRUCTION_CONSUMERS
+        for path, consumers in INSTRUCTION_CONSUMERS.items() if selected.intersection(consumers)
     }
 
     launch, orchestrator = templates["launch.md"], templates["orchestrator.md"]
@@ -112,11 +116,15 @@ def render_workflow_sources(sources: AdapterSources) -> dict[str, bytes]:
         skills[skill.name] = render_release_template(
             wrapper, template_id=wrapper.path, validated_metadata=skill.frontmatter, skill_source=skill.source.path,
         )
-    for directory in SKILL_CONSUMERS:
+    for directory, consumers in SKILL_CONSUMERS.items():
+        if selected.isdisjoint(consumers):
+            continue
         for name, content in skills.items():
             files[f"{directory}/{name}/SKILL.md"] = content
 
     for harness, pattern in COMMAND_PATHS.items():
+        if harness not in selected:
+            continue
         source = templates[f"command-{harness}.md"]
         for command in ADAPTER_COMMANDS:
             description = sources.command_help.get(command.cli_command, command.description)
@@ -133,7 +141,9 @@ def render_workflow_sources(sources: AdapterSources) -> dict[str, bytes]:
 
 
 def workflow_manifest(bundle: AdapterSources, rendered: Mapping[str, bytes]) -> dict[str, Any]:
-    generated = [{"path": path, "sha256": sha256_bytes(content), "targets": list(consumers_for_path(path))}
+    selected = set(bundle.harnesses)
+    generated = [{"path": path, "sha256": sha256_bytes(content),
+                  "targets": sorted(selected.intersection(consumers_for_path(path)))}
                  for path, content in sorted(rendered.items())]
     sources = [source.record() for source in bundle.inputs]
     return {
@@ -151,6 +161,6 @@ def workflow_manifest(bundle: AdapterSources, rendered: Mapping[str, bytes]) -> 
             "path": MANIFEST_PATH,
             "self_hash_omitted": True,
         },
-        "targets": target_records(rendered),
+        "targets": target_records(rendered, bundle.harnesses),
         "generated": generated,
     }

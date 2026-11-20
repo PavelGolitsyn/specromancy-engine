@@ -2,9 +2,16 @@
 
 from __future__ import annotations
 
+import json
 import subprocess
 import tempfile
 from pathlib import Path
+
+
+def select_harnesses(root: Path, *names: str) -> None:
+    (root / "workflow/adapters.toml").write_text(
+        f"schema_version = 1\nharnesses = {json.dumps(names)}\n", encoding="utf-8",
+    )
 
 
 def write_workflow_skill(root: Path, name: str = "compose", source: str | None = None) -> Path:
@@ -21,6 +28,7 @@ class MultiPipelineFixture:
         self.root = Path(self.temporary.name).resolve()
         subprocess.run(["git", "-C", str(self.root), "init", "--quiet"], check=True, capture_output=True)
         write_workflow_skill(self.root)
+        select_harnesses(self.root, "claude", "codex", "copilot", "hermes", "opencode")
         (self.root / "workflow/instructions.md").write_text("# Repository instructions\n", encoding="utf-8")
         template = self.root / "workflow/templates/shared.md"
         template.parent.mkdir(parents=True)

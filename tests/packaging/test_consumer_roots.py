@@ -50,6 +50,7 @@ def write_consumer(root: Path, phase: str, *, allow_non_git: bool = False) -> No
     skill = "workflow/skills/compose/SKILL.md"
     source_field = f'skill_source = "{skill}"\n'
     resources = {
+        "workflow/adapters.toml": 'schema_version = 1\nharnesses = ["claude", "codex", "copilot", "hermes", "opencode"]\n',
         "workflow/instructions.md": "# Consumer instructions\n",
         "workflow/pipelines.toml": 'schema_version = 1\n[[pipelines]]\nid = "shared"\npath = "pipelines/flow.toml"\n',
         "workflow/pipelines/flow.toml": (
@@ -137,6 +138,14 @@ class ConsumerRootTests(unittest.TestCase):
     def test_installed_cli_uses_explicit_workflow_resources_from_an_unrelated_directory(self) -> None:
         root = self.base / "workflow-only"
         write_consumer(root, "publish", allow_non_git=True)
+        (root / "workflow/adapters.toml").unlink()
+        self.assertEqual(load_registry(root).load("shared").start, "publish")
+        before = snapshot(root)
+        for args in ((), ("--check",)):
+            error = self.command(self.outside, "--root", str(root), "adapters", "generate", *args, expected=3)
+            self.assertIn("workflow/adapters.toml", error["message"])
+            self.assertIn('harnesses = ["claude"]', error["message"])
+            self.assertEqual(snapshot(root), before)
         (root / "workflow/templates/result.json").write_text('{"consumer": "pending"}\n')
         prefix = ("--root", str(root))
         action = self.command(self.outside, *prefix, "init", "Publish", "--pipeline", "shared", expected=8)["action"]
@@ -269,6 +278,40 @@ class ConsumerRootTests(unittest.TestCase):
         self.assertEqual(snapshot(self.base), before)
 
 
+    def test_selection_preserves_run_bytes_and_respects_active_mutation_policy(self) -> None:
+        for root, phase, policy in ((self.first, "amber", "read-only"), (self.second, "blue", "allowlist")):
+            with self.subTest(policy=policy):
+                graph = root / "workflow/pipelines/flow.toml"
+                config = root / "workflow/adapters.toml"
+                source = graph.read_text().replace('approval_conditions = []', 'approval_conditions = ["accept"]')
+                if policy == "allowlist":
+                    source = source.replace('mutation = "read-only"', 'mutation = "allowlist"\nallowlist = ["workflow/adapters.toml"]')
+                graph.write_text(source)
+                self.command(root, "adapters", "generate")
+                self.git("-C", str(root), "add", "workflow", "AGENTS.md", "adapters", ".agents", ".claude", ".opencode", ".github")
+                pipeline = load_registry(root).load("shared")
+                skill = pipeline.phase(phase).skill_path
+                skill_hash = hashlib.sha256(skill.read_bytes()).digest()
+                run = self.command(root, "init", "Check policy", "--pipeline", "shared", expected=8)["action"]["run_id"]
+                action = self.command(root, "phase", run, phase, expected=8)["action"]
+                Path(action["output"]["absolute_path"]).write_text(json.dumps({"consumer": phase}))
+                if policy == "read-only":
+                    self.command(root, "request-approval", run, "--reason", "accept", expected=7)
+
+                run_root = root / ".specromancy/runs" / run
+                before = snapshot(run_root)
+                config.write_text('schema_version = 1\nharnesses = ["claude"]\n')
+                self.command(root, "adapters", "generate")
+                self.assertEqual(snapshot(run_root), before)
+                self.assertEqual(load_registry(root).load("shared").canonical_json, pipeline.canonical_json)
+                self.assertEqual(hashlib.sha256(skill.read_bytes()).digest(), skill_hash)
+                command = "approve" if policy == "read-only" else "validate"
+                refused = self.command(root, command, run, phase, expected=6)
+                self.assertEqual(refused["details"]["error_code"], "mutation-policy-violation")
+                violations = RunStore(root).load(run)["visits"][0]["mutation_result"]["violations"]
+                self.assertIn("AGENTS.md", violations)
+                self.assertEqual("workflow/adapters.toml" in violations, policy == "read-only")
+
     def prepare_adapters(self) -> dict:
         root = self.first
         self.assertFalse((root / "bin/specromancy").exists())
@@ -280,7 +323,7 @@ class ConsumerRootTests(unittest.TestCase):
         self.assertEqual(snapshot(root), before)
         manifest = json.loads((root / "adapters/manifest.json").read_text())
         self.assertEqual(manifest["generator"], {
-            "name": "specromancy", "version": 3, "command": "specromancy adapters generate",
+            "name": "specromancy", "version": 4, "command": "specromancy adapters generate",
         })
         self.assertEqual(manifest["schema_version"], 2)
         for entry in manifest["generated"]:

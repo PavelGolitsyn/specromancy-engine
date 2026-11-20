@@ -9,20 +9,21 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
+from .adapter_config import SELECTION_PATH, selection_bytes
 from .adapter_contracts import (
-    HARNESS_MODES, MANIFEST_PATH, REGENERATION_COMMAND, AdapterError, consumers_for_path,
-    target_records,
+    COMMAND_PATHS, HARNESS_MODES, MANIFEST_PATH, REGENERATION_COMMAND, AdapterError,
+    consumers_for_path, target_records,
 )
 from ..hashing import SHA256_PATTERN, normalize_relative_path, sha256_bytes
 
 
 def write_adapters(
-    root: Path, rendered: Mapping[str, bytes], manifest_bytes: bytes,
+    root: Path, rendered: Mapping[str, bytes], manifest_bytes: bytes, harnesses: tuple[str, ...],
 ) -> tuple[str, ...]:
     """Preflight ownership, replace outputs, recheck stale hashes, then write manifest."""
 
     owned = _read_ownership(root)
-    conflicts, stale = _preflight_generation(root, rendered, owned)
+    conflicts, stale = _preflight_generation(root, rendered, owned, harnesses)
     if conflicts:
         raise AdapterError(
             "adapter generation stopped to protect unowned or modified files",
@@ -86,10 +87,11 @@ def _owned_paths(manifest: Any) -> dict[str, str]:
         raise AdapterError("invalid adapter manifest generator", {"path": MANIFEST_PATH})
     schema, version = manifest.get("schema_version"), generator.get("version")
     command = "bin/specromancy adapters generate" if version == 1 else REGENERATION_COMMAND
-    if (type(schema) is not int or type(version) is not int or (schema, version) not in ((1, 1), (1, 2), (2, 3))
+    if (type(schema) is not int or type(version) is not int or (schema, version) not in ((1, 1), (1, 2), (2, 3), (2, 4))
             or generator.get("name") != "specromancy" or generator.get("command") != command):
         raise AdapterError("unsupported adapter manifest generator identity",
                            {"schema_version": schema, "generator": generator})
+    harnesses = _recorded_selection(manifest) if version == 4 else tuple(HARNESS_MODES)
     generated = manifest.get("generated")
     if not isinstance(generated, list):
         raise AdapterError("adapter manifest has no generated path list", {"path": MANIFEST_PATH})
@@ -121,9 +123,9 @@ def _owned_paths(manifest: Any) -> dict[str, str]:
             allowed = target is not None
             attribution = set(item) == {"path", "sha256", "target"} and item.get("target") == target
         else:
-            consumers = consumers_for_path(normalized)
+            consumers = sorted(set(harnesses).intersection(consumers_for_path(normalized)))
             allowed = bool(consumers)
-            attribution = set(item) == {"path", "sha256", "targets"} and item.get("targets") == list(consumers)
+            attribution = set(item) == {"path", "sha256", "targets"} and item.get("targets") == consumers
         if not allowed:
             raise AdapterError("adapter manifest contains a path outside generated adapter locations",
                                {"path": normalized})
@@ -135,10 +137,32 @@ def _owned_paths(manifest: Any) -> dict[str, str]:
                 {"path": normalized, "sha256": digest},
             )
         owned[normalized] = digest
-    expected = target_records(owned) if schema == 2 else _legacy_target_records(owned)
+    expected = target_records(owned, harnesses) if schema == 2 else _legacy_target_records(owned)
     if manifest.get("targets") != expected:
         raise AdapterError("adapter manifest target paths or discovery paths disagree", {"path": MANIFEST_PATH})
     return owned
+
+
+def _recorded_selection(manifest: Mapping[str, Any]) -> tuple[str, ...]:
+    records = manifest.get("targets")
+    if not isinstance(records, list):
+        raise AdapterError("invalid adapter manifest targets", {"path": MANIFEST_PATH})
+    names = []
+    for record in records:
+        name = record.get("name") if isinstance(record, dict) else None
+        if not isinstance(name, str) or name not in HARNESS_MODES or name in names:
+            raise AdapterError("invalid adapter manifest target", {"name": name})
+        names.append(name)
+    harnesses = tuple(sorted(names))
+    source = manifest.get("canonical_source")
+    inputs = source.get("inputs") if isinstance(source, dict) else None
+    selection = {"kind": "adapter-selection", "path": SELECTION_PATH,
+                 "sha256": sha256_bytes(selection_bytes(harnesses))}
+    if not isinstance(inputs, list) or [
+        item for item in inputs if isinstance(item, dict) and item.get("path") == SELECTION_PATH
+    ] != [selection]:
+        raise AdapterError("adapter manifest targets disagree with selection input", {"path": SELECTION_PATH})
+    return harnesses
 
 
 def _legacy_target_records(owned: Mapping[str, str]) -> list[dict[str, Any]]:
@@ -157,6 +181,7 @@ def _preflight_generation(
     root: Path,
     rendered: Mapping[str, bytes],
     owned: Mapping[str, str],
+    harnesses: tuple[str, ...],
 ) -> tuple[dict[str, Any], list[tuple[str, str]]]:
     expected = set(rendered)
     conflicts: dict[str, Any] = {}
@@ -170,7 +195,7 @@ def _preflight_generation(
         elif (target.exists() or target.is_symlink()) and path not in owned:
             unowned.append(path)
 
-    unexpected = sorted(_managed_paths(root) - expected - set(owned))
+    unexpected = sorted(_managed_paths(root, harnesses) - expected - set(owned))
     if unexpected:
         unowned.extend(path for path in unexpected if path not in unowned)
 
@@ -204,7 +229,7 @@ def _preflight_generation(
 
 
 def _compare(
-    root: Path, rendered: Mapping[str, bytes], manifest_bytes: bytes,
+    root: Path, rendered: Mapping[str, bytes], manifest_bytes: bytes, harnesses: tuple[str, ...],
 ) -> dict[str, Any]:
     owned = _read_ownership(root)
     missing = []
@@ -224,7 +249,7 @@ def _compare(
             continue
         if actual != expected:
             modified.append(path)
-    unexpected = _managed_paths(root) - set(rendered)
+    unexpected = _managed_paths(root, harnesses) - set(rendered)
     for path in owned.keys() - rendered.keys():
         target = _target(root, path)
         if _unsafe_existing_path(root, target) or target.exists():
@@ -240,19 +265,15 @@ def _has_drift(drift: Mapping[str, Any]) -> bool:
     return any(bool(value) for value in drift.values())
 
 
-def _managed_paths(root: Path) -> set[str]:
+def _managed_paths(root: Path, harnesses: tuple[str, ...]) -> set[str]:
+    # All selected instruction files are already checked as exact destinations.
+    # Only the selected command namespaces reserve additional wildcard paths.
     paths: set[str] = set()
-    singles = ("AGENTS.md", ".claude/CLAUDE.md", ".github/copilot-instructions.md")
-    for path in singles:
-        target = root / path
-        if target.exists() or target.is_symlink():
-            paths.add(path)
-    scans = (
-        (root / ".claude" / "commands" / "specromancy", "*.md"),
-        (root / ".github" / "prompts", "specromancy-*.prompt.md"),
-        (root / ".opencode" / "commands", "specromancy-*.md"),
-    )
-    for directory, pattern in scans:
+    for harness in harnesses:
+        if harness not in COMMAND_PATHS:
+            continue
+        glob = root / COMMAND_PATHS[harness].format(name="*")
+        directory, pattern = glob.parent, glob.name
         if _unsafe_directory(root, directory) or not directory.is_dir():
             continue
         for candidate in directory.glob(pattern):

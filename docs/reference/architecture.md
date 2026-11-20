@@ -302,9 +302,9 @@ bounded, secret-redacted summaries are recorded in the manifest.
 
 ## Canonical and generated content
 
-The consumer owns `workflow/instructions.md`, the registry, registered graphs,
+The consumer owns `workflow/adapters.toml`, `workflow/instructions.md`, the registry, registered graphs,
 and declared procedures and dependencies under `workflow/`. The generator owns
-root `AGENTS.md` and harness files listed in its manifest. Codex and Hermes
+the selected harness files listed in its manifest, including root `AGENTS.md` when required. Codex and Hermes
 discover the same generated phase wrappers and launch skills. Each phase wrapper
 loads its declared workflow file. Each launch embeds generic release orchestration.
 

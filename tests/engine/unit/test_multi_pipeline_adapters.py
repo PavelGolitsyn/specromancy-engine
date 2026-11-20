@@ -17,7 +17,7 @@ from specromancy_engine._adapters.adapter_rendering import render_workflow_sourc
 from specromancy_engine._adapters.adapter_sources import capture_workflow_sources
 from specromancy_engine.cli import adapter_command_metadata
 from specromancy_engine.registry import load_adapter_registry, load_registry
-from tests.engine.support import MultiPipelineFixture, write_workflow_skill
+from tests.engine.support import MultiPipelineFixture, select_harnesses, write_workflow_skill
 
 
 class MultiPipelineAdapterTests(unittest.TestCase):
@@ -203,7 +203,7 @@ class WorkflowAdapterTests(unittest.TestCase):
         rendered = render_workflow_sources(captured)
         manifest = workflow_manifest(captured, rendered)
         self.assertEqual(list(rendered), sorted(rendered))
-        self.assertEqual((manifest["schema_version"], manifest["generator"]["version"]), (2, 3))
+        self.assertEqual((manifest["schema_version"], manifest["generator"]["version"]), (2, 4))
         inputs = [entry["path"] for entry in manifest["canonical_source"]["inputs"]]
         self.assertEqual(inputs, sorted(set(inputs)))
         self.assertTrue(set(inputs).isdisjoint(rendered))
@@ -314,6 +314,7 @@ class WorkflowAdapterTests(unittest.TestCase):
 
     def test_guarded_source_paths_across_render_generate_and_check(self) -> None:
         registry = load_adapter_registry(self.root)
+        select_harnesses(self.root, "claude")
         options = [
             lambda: render_adapters(self.root, registry, adapter_command_metadata()),
             lambda: generate_adapters(self.root, registry),
@@ -344,6 +345,32 @@ class WorkflowAdapterTests(unittest.TestCase):
                 run()
             self.assertEqual(caught.exception.diagnostic_code, "unsafe-path")
         self.assertFalse((self.root / MANIFEST_PATH).exists())
+
+    def test_selection_guard_precedes_parsing_and_opt_out(self):
+        registry = load_adapter_registry(self.root)
+        selection = self.root / "workflow/adapters.toml"
+        select_harnesses(self.root)
+        empty = selection.read_bytes()
+        selection.unlink()
+        for relative in ("AGENTS.md", ".claude/CLAUDE.md", MANIFEST_PATH):
+            target = self.root / relative
+            target.parent.mkdir(exist_ok=True)
+            target.write_bytes(empty)
+            selection.symlink_to(target)
+            for check in (False, True):
+                with self.subTest(path=relative), self.assertRaises(PipelineConfigError) as caught:
+                    generate_adapters(self.root, registry, check=check)
+                self.assertEqual(caught.exception.diagnostic_code, "unsafe-path")
+                self.assertEqual(target.read_bytes(), empty)
+            selection.unlink()
+        workflow = self.root / "workflow"
+        destination = self.root / ".claude/workflow"
+        workflow.rename(destination)
+        (destination / "adapters.toml").write_bytes(empty)
+        workflow.symlink_to(destination, target_is_directory=True)
+        with self.assertRaises(PipelineConfigError) as caught:
+            generate_adapters(self.root, registry)
+        self.assertEqual(caught.exception.diagnostic_code, "unsafe-path")
 
     def test_identity_conflicts_and_legacy_migrations_precede_publication(self) -> None:
         original = self.graph.read_text()

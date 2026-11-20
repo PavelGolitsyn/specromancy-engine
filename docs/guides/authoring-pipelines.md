@@ -23,7 +23,9 @@ Nothing is implicitly loaded from the engine's source checkout or home directory
 
 Write repository-wide instructions in `workflow/instructions.md`. The generator
 combines them with packaged harness templates, including the generic orchestrator.
-See [Harness usage](harnesses.md) for the generator command and harness environment.
+Keep the project's harness choice in `workflow/adapters.toml`. The registry and
+graphs retain their own identities when the selected harnesses change.
+See [Harness usage](harnesses.md#choose-the-projects-harnesses) for setup and commands.
 
 Pipeline files use TOML so Python 3.11 can load them without a dependency. A
 pipeline declares schema version, identity, start phase, terminal outcomes,
@@ -228,7 +230,7 @@ redirections are not interpreted.
 
 ## Regeneration and active runs
 
-After changing `workflow/instructions.md`, a canonical skill, the registry, a pipeline or its
+After changing `workflow/adapters.toml`, `workflow/instructions.md`, a canonical skill, the registry, a pipeline or its
 referenced templates/schemas, or CLI help
 metadata, regenerate and check. A body edit can change only manifest provenance.
 A frontmatter or source-path edit can also change the wrapper bytes. Run:
@@ -238,6 +240,10 @@ specromancy adapters generate
 specromancy adapters generate --check
 python -m unittest discover
 ```
+
+Selection and regeneration write ordinary repository files. Make these edits
+before starting a read-only visit. An active visit's original mutation policy
+and allowlist still apply during validation and approval.
 
 A run stores its pipeline hash. Any pipeline change causes `resume`, `phase`,
 and transition commands to reject that run with `pipeline-hash-mismatch`.

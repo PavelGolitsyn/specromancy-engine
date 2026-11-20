@@ -14,6 +14,7 @@ Every new run explicitly chooses a registered pipeline; there is no default.
 
 | What to customize | Canonical path |
 | --- | --- |
+| Harness selection | `workflow/adapters.toml` (required for generation and check) |
 | Pipeline registrations | `workflow/pipelines.toml` (mandatory, at least one entry) |
 | Graph, gates, policies, and validation | `workflow/pipelines/<id>.toml` |
 | Shared artifact templates | `workflow/templates/` |
@@ -61,6 +62,12 @@ Keep the original graph and consumed skills/templates until its active runs
 finish: existing runs resolve their original provenance even after a registration
 is removed. Moving or changing that graph does not migrate an existing run.
 
+This checkout selects all five supported harnesses in `workflow/adapters.toml`.
+During setup, reuse the project's saved choice. If the user has not specified a
+choice, ask which harnesses they use and save the answer there. Repeat generation
+and CI checks read that file without prompting. An empty list opts out and
+reconciles existing ownership. Shared paths stay while a selected harness needs them.
+
 After customization, run:
 
 ```sh
@@ -70,7 +77,7 @@ python -m pip install -e .  # in an activated development environment
 python -m unittest discover
 ```
 
-Generation validates every registered graph. CLI execution loads the selected
+With any harness selected, generation validates every registered graph. CLI execution loads the selected
 graph, so unrelated graph edits do not change another pipeline's run semantics.
 The mandatory registry itself must remain valid for workflow commands.
 

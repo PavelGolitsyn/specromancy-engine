@@ -141,9 +141,10 @@ installation guide in its consumer tests.
 
 Both consumers start with the example's authored files. The gate verifies that
 a missing installed template leaves the consumer untouched, then restores the
-template and runs generation and check. It hashes the files on disk, checks
-their ownership across all five targets, and compares the complete manifest
-between installations. The retained log includes the common manifest with its
+template and runs generation with the unselected Copilot command template absent.
+Each installation then restores the Copilot template and runs check. The gate
+verifies file hashes and ownership for the example's Claude and OpenCode
+selection and compares the complete manifests from the two installations. The retained log includes the common manifest with its
 canonical input and generated output hashes.
 
 The copied suite covers explicit/discovered consumer roots, two-project

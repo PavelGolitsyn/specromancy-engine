@@ -44,7 +44,7 @@ assert not unexpected, unexpected
             "_runs.run_persistence", "_runs.visit_transitions", "_runs.visit_preparation",
             "_engine.engine_errors", "_engine.provenance", "_engine.validation_service", "_engine.responses",
             "_engine.approvals", "_engine.command_decisions", "_engine.approval_service",
-            "_cli.cli_commands", "_adapters.adapter_contracts", "_adapters.adapter_sources",
+            "_cli.cli_commands", "_adapters.adapter_config", "_adapters.adapter_contracts", "_adapters.adapter_sources",
             "_adapters.adapter_rendering", "_adapters.adapter_ownership",
         )
         qualified = {path.rsplit(".", 1)[-1]: path for path in module_paths}
@@ -186,7 +186,7 @@ assert not unexpected, unexpected
             (ROOT / "tests" / "engine" / "fixtures").glob("**/*.toml")
         )
         for path in paths:
-            if path.name == "pipelines.toml":
+            if path.name in {"pipelines.toml", "adapters.toml"}:
                 continue
             with self.subTest(path=path.relative_to(ROOT)):
                 workflow = next(parent for parent in path.parents if parent.name == "workflow")

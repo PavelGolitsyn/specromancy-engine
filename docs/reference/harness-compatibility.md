@@ -1,7 +1,8 @@
 # Harness compatibility
 
 Consumers author repository instructions, registered pipelines and phase procedures
-under `workflow/`. Generation supplies each harness's discovery and invocation files.
+under `workflow/`. List the selected harnesses in `workflow/adapters.toml`.
+Generation supplies the union of their discovery and invocation files.
 
 Generate adapters after changing any canonical source:
 
@@ -16,7 +17,7 @@ specromancy adapters generate --check
 ```
 
 The ownership record is `adapters/manifest.json`, schema version 2. Generator
-version 3 records every consumer of a shared path in one ownership entry. Generation
+version 4 records every selected consumer of a shared path in one ownership entry. Generation
 uses normalized UTF-8 input, stable ordering and newlines, no timestamps or
 absolute paths, and atomic per-file replacement with the manifest written last.
 It is not a transaction across all generated files. A file may be removed as
@@ -61,7 +62,7 @@ Review and accept the repository skills when prompted. Specromancy does not modi
 ## Generated-file policy
 
 Edit the registered workflow sources and regenerate. Codex and Hermes discover the
-same generated `.agents/skills/` files. The manifest lists these paths for both
+same generated `.agents/skills/` files. When both are selected, the manifest lists these paths for both
 targets and records each file's hash once. Phase wrappers load the declared
 canonical procedure, while generic and per-pipeline launch skills embed release
 orchestration. See the [adapter contract](contracts.md#adapter-generation).

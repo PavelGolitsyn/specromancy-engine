@@ -36,14 +36,22 @@ def verify_generation(bundle: Path, console: Path, installed: Path, expected: di
     finally:
         hidden.rename(path)
 
-    subprocess.run(argv, check=True, capture_output=True)
+    # The example selects Claude and OpenCode. A missing Copilot template
+    # cannot prevent generation or enter either installation's source hash.
+    unused = installed / "specromancy_engine/resources/adapters/command-copilot.md"
+    unused.rename(unused.with_suffix(".unavailable"))
+    try:
+        subprocess.run(argv, check=True, capture_output=True)
+    finally:
+        unused.with_suffix(".unavailable").rename(unused)
     subprocess.run([sys.executable, "-I", "-m", "specromancy_engine", *argv[1:], "--check"],
                    check=True, capture_output=True)
     manifest = json.loads((root / "adapters/manifest.json").read_bytes())
     inputs = manifest["canonical_source"]["inputs"]
     identities = {entry["path"] for entry in inputs}
     assert len(identities) == len(inputs)
-    template_hashes = {"@package/" + name: digest for name, digest in expected["template_hashes"].items()}
+    template_hashes = {"@package/" + name: digest for name, digest in expected["template_hashes"].items()
+                       if name != unused.relative_to(installed).as_posix()}
     assert {e["path"]: e["sha256"] for e in inputs if e["kind"] == "release-template"} == template_hashes
     workflow = {p for p in before if p.startswith("workflow/") and (root / p).is_file()}
     assert identities == workflow | template_hashes.keys() | {
@@ -56,7 +64,11 @@ def verify_generation(bundle: Path, console: Path, installed: Path, expected: di
     assert {p for p in after.keys() - before if (root / p).is_file()} == outputs.keys() | {"adapters/manifest.json"}
     assert all(after[p] == original for p, original in before.items())
     targets = {t["name"]: t["paths"] for t in manifest["targets"]}
-    assert targets.keys() == {"claude", "codex", "copilot", "hermes", "opencode"}
+    assert targets.keys() == {"claude", "opencode"}
+    assert "AGENTS.md" in targets["opencode"]
+    assert ".agents/skills/specromancy-release-documentation/SKILL.md" in targets["opencode"]
+    assert all(p.startswith(".claude/") for p in targets["claude"])
+    assert all(not p.startswith(".github/") for p in outputs)
     assert {p for paths in targets.values() for p in paths} == outputs.keys()
     for entry in manifest["generated"]:
         name = entry["path"]

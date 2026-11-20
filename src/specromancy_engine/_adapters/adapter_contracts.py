@@ -12,7 +12,7 @@ from ..exit_codes import ExitCode
 
 
 ADAPTER_SCHEMA_VERSION = 2
-GENERATOR_VERSION = 3
+GENERATOR_VERSION = 4
 MANIFEST_PATH = "adapters/manifest.json"
 REGENERATION_COMMAND = "specromancy adapters generate"
 
@@ -101,10 +101,11 @@ def consumers_for_path(path: str) -> tuple[str, ...]:
     return ()
 
 
-def target_records(paths: Iterable[str]) -> list[dict[str, Any]]:
+def target_records(paths: Iterable[str], harnesses: Iterable[str]) -> list[dict[str, Any]]:
     targets = []
     paths = sorted(paths)
-    for name, mode in sorted(HARNESS_MODES.items()):
+    for name in sorted(harnesses):
+        mode = HARNESS_MODES[name]
         required = [path for path in paths if name in consumers_for_path(path)]
         record = {"name": name, "mode": mode, "paths": required}
         if mode == "native":

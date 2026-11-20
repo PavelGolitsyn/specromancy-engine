@@ -12,9 +12,10 @@ from importlib.resources import files
 from pathlib import Path
 
 from specromancy_engine.adapters import MANIFEST_PATH, AdapterError, generate_adapters
+from specromancy_engine.config import PipelineConfigError
 from specromancy_engine.registry import load_adapter_registry
 from tests.engine.contract.compatibility_support import read_record
-from tests.engine.support import MultiPipelineFixture, write_workflow_skill
+from tests.engine.support import MultiPipelineFixture, select_harnesses, write_workflow_skill
 from specromancy_engine.contracts import RESERVED_COMMANDS
 from specromancy_engine.hashing import sha256_bytes
 
@@ -205,6 +206,7 @@ import sys
 from pathlib import Path
 sys.path.insert(0, sys.argv[1])
 from specromancy_engine import adapters
+from specromancy_engine.config import PipelineConfigError
 from specromancy_engine.registry import load_adapter_registry
 assert Path(adapters.__file__).resolve().is_relative_to(Path(sys.argv[1]).resolve())
 root = Path(sys.argv[2]).resolve()
@@ -215,6 +217,142 @@ for check in (False, True):
                            cwd=directory, check=True)
             for path in outputs:
                 self.assertEqual((self.root / path).read_bytes(), (consumer / path).read_bytes(), path)
+
+    def test_selection_requires_exact_output_union_and_inputs(self):
+        original = json.loads(read_record("adapters-generator-v3.json")[MANIFEST_PATH]["text"])
+        self.fixture.add_pipeline("adapter-fixture", "compose")
+        self.fixture.register("adapter-fixture")
+        required = {target["name"]: set(target["paths"]) for target in original["targets"]}
+        for names in [("claude",), ("codex",), ("copilot",), ("hermes",), ("opencode",),
+                      ("claude", "opencode"), ("codex", "hermes"), ("hermes",)]:
+            with self.subTest(names=names):
+                select_harnesses(self.root, *names)
+                self.generate()
+                manifest = json.loads(self.manifest_path.read_bytes())
+                expected = set.union(*(required[name] for name in names))
+                self.assertEqual([t["name"] for t in manifest["targets"]], list(names))
+                self.assertEqual({t["name"]: set(t["paths"]) for t in manifest["targets"]},
+                                 {name: required[name] for name in names})
+                self.assertEqual([e["path"] for e in manifest["generated"]], sorted(expected))
+                for entry in manifest["generated"]:
+                    self.assertEqual(entry["targets"], [n for n in names if entry["path"] in required[n]])
+                paths = {p.relative_to(self.root).as_posix() for p in self.root.rglob("*")
+                         if p.is_file() and p.relative_to(self.root).parts[0] not in (".git", "workflow")}
+                self.assertEqual(paths, expected | {MANIFEST_PATH})
+                if names == ("claude",):
+                    self.assertFalse((self.root / ".agents").exists())
+                inputs = {e["path"] for e in manifest["canonical_source"]["inputs"]}
+                commands = set(names).intersection(("claude", "copilot", "opencode"))
+                self.assertEqual({p.split("/")[-1] for p in inputs if "/command-" in p},
+                                 {f"command-{n}.md" for n in commands})
+                self.assertEqual("@cli-help-metadata" in inputs, bool(commands))
+                self.generate(check=True)
+
+    def test_reordering_shared_selection_preserves_bytes_and_deselection_keeps_files(self):
+        select_harnesses(self.root, "hermes", "codex")
+        self.generate()
+        manifest = self.manifest_path.read_bytes()
+        config = self.root / "workflow/adapters.toml"
+        config.write_text('# selected clients\nharnesses = ["codex", "hermes"]\nschema_version = 1\n')
+        before = self.tree()
+        self.generate(check=True)
+        self.assertEqual(self.tree(), before)
+        self.generate()
+        self.assertEqual(self.manifest_path.read_bytes(), manifest)
+        select_harnesses(self.root, "hermes")
+        self.assertEqual(self.generate()["adapters"]["removed"], [])
+        updated = json.loads(self.manifest_path.read_bytes())
+        old = json.loads(manifest)
+        self.assertNotEqual(old["canonical_source"]["sha256"], updated["canonical_source"]["sha256"])
+        self.assertEqual([(r["path"], r["sha256"]) for r in old["generated"]],
+                         [(r["path"], r["sha256"]) for r in updated["generated"]])
+
+    def test_selection_conflicts_and_empty_cleanup_preserve_foreign_files(self):
+        foreign = self.root / ".opencode/commands/specromancy-init.md"
+        foreign.parent.mkdir(parents=True)
+        foreign.write_text("consumer file")
+        select_harnesses(self.root, "claude")
+        self.generate()
+        self.generate(check=True)
+        select_harnesses(self.root, "opencode")
+        before = self.tree()
+        with self.assertRaises(AdapterError) as conflict:
+            self.generate()
+        self.assertEqual(conflict.exception.details["unowned"], [foreign.relative_to(self.root).as_posix()])
+        self.assertEqual(self.tree(), before)
+
+        select_harnesses(self.root)
+        owned = json.loads(self.manifest_path.read_bytes())["generated"]
+        stale = self.root / owned[-1]["path"]
+        content = stale.read_bytes()
+        stale.write_text("edit to retain")
+        before = self.tree()
+        with self.assertRaises(AdapterError) as drift:
+            self.generate(check=True)
+        self.assertEqual(drift.exception.details["unexpected"], [e["path"] for e in owned])
+        with self.assertRaises(AdapterError) as conflict:
+            self.generate()
+        self.assertEqual(conflict.exception.details["stale_modified"], [owned[-1]["path"]])
+        self.assertEqual(self.tree(), before)
+        stale.write_bytes(content)
+        (self.root / "workflow/instructions.md").unlink()
+        (self.root / "workflow/skills/compose/SKILL.md").unlink()
+        self.assertEqual(self.generate()["adapters"]["removed"], [e["path"] for e in owned])
+        self.assertTrue(stale.parent.is_dir())
+        self.assertEqual(foreign.read_text(), "consumer file")
+        self.generate(check=True)
+
+    def test_fresh_opt_out_writes_only_manifest(self):
+        select_harnesses(self.root)
+        before = set(self.root.rglob("*"))
+        self.generate()
+        self.assertEqual(set(self.root.rglob("*")) - before, {self.manifest_path, self.manifest_path.parent})
+        manifest = json.loads(self.manifest_path.read_bytes())
+        self.assertEqual(manifest["generated"], [])
+        self.assertEqual(manifest["targets"], [])
+        self.assertEqual([e["path"] for e in manifest["canonical_source"]["inputs"]], ["workflow/adapters.toml"])
+
+    def test_invalid_selection_rejects_both_modes_before_cleanup(self):
+        self.generate()
+        config = self.root / "workflow/adapters.toml"
+        config.unlink()
+        cases = [None, b"\xff", b"[broken", b"harnesses = []", b"schema_version = 1",
+                 b"schema_version = 1\nharnesses = []\nextra = 1",
+                 b"schema_version = true\nharnesses = []", b"schema_version = 2\nharnesses = []"]
+        for value in ('"claude"', '[1]', '["unknown"]', '["codex", "codex"]'):
+            cases.append(f"schema_version = 1\nharnesses = {value}".encode())
+        for content in cases:
+            if content is not None:
+                config.write_bytes(content)
+            before = self.tree()
+            for check in (False, True):
+                with self.subTest(content=content, check=check), self.assertRaises(PipelineConfigError) as error:
+                    self.generate(check)
+                self.assertEqual(error.exception.details["path"], str(config))
+                if content is None:
+                    guidance = error.exception.details["remediation"]
+                    for word in ("codex", "claude", "copilot", "hermes", "opencode", "schema_version", "harnesses"):
+                        self.assertIn(word, guidance)
+                self.assertEqual(self.tree(), before)
+
+    def test_v3_migration_checks_original_consumers_before_applying_selection(self):
+        manifest = self.install_capture("adapters-generator-v3.json")
+        select_harnesses(self.root, "hermes")
+        original = self.manifest_path.read_bytes()
+        root = next(e for e in manifest["generated"] if e["path"] == "AGENTS.md")
+        root["targets"] = ["hermes"]
+        self.manifest_path.write_text(json.dumps(manifest))
+        self.rejected("target does not match")
+        self.manifest_path.write_bytes(original)
+        self.generate()
+        self.generate(check=True)
+        migrated = json.loads(self.manifest_path.read_bytes())
+        self.assertEqual((migrated["schema_version"], migrated["generator"]["version"]), (2, 4))
+        self.assertTrue(all(e["targets"] == ["hermes"] for e in migrated["generated"]))
+        self.assertFalse((self.root / ".claude/CLAUDE.md").exists())
+        migrated["generator"]["version"] = 3
+        self.manifest_path.write_text(json.dumps(migrated))
+        self.rejected("target does not match")
 
     def test_frozen_historical_manifests_migrate_under_original_rules(self):
         for name in ("adapters.json", "adapters-generator-v2.json"):
@@ -242,6 +380,7 @@ for check in (False, True):
                 self.manifest_path = original / MANIFEST_PATH
 
     def test_forged_v2_cannot_replace_or_remove_even_matching_files(self):
+        select_harnesses(self.root)
         manifest = self.install_capture("adapters-generator-v2.json")
         for path in ("AGENTS.md", ".agents/skills/pipeline/SKILL.md", ".agents/skills/compose/SKILL.md",
                      ".agents/skills/retired/SKILL.md"):
@@ -268,7 +407,7 @@ for check in (False, True):
         for change in (
             lambda m: m.pop("generator"), lambda m: m.update(generator=[]),
             lambda m: m["generator"].update(name="other"), lambda m: m["generator"].update(version=True),
-            lambda m: m["generator"].update(version="3"), lambda m: m["generator"].update(version=2),
+            lambda m: m["generator"].update(version=5), lambda m: m["generator"].update(version="3"), lambda m: m["generator"].update(version=2),
             lambda m: m["generator"].pop("command"), lambda m: m.update(schema_version=1),
             lambda m: m["generated"].append(entry(m)), lambda m: entry(m).update(path=MANIFEST_PATH),
             lambda m: entry(m).update(path=".agents/skills/../owned"), lambda m: entry(m).update(sha256="bad"),
@@ -276,6 +415,8 @@ for check in (False, True):
             lambda m: entry(m).update(target="codex"), lambda m: entry(m)["targets"].reverse(),
             lambda m: entry(m)["targets"].append("other"), lambda m: entry(m)["targets"].append("hermes"),
             lambda m: entry(m)["targets"].remove("hermes"), lambda m: m["targets"].pop(),
+            lambda m: m["targets"].append(m["targets"][0]), lambda m: m["targets"][0].update(name="unknown"),
+            lambda m: m.update(targets={}), lambda m: m["canonical_source"].update(inputs=[]),
             lambda m: m["targets"][0]["paths"].append("AGENTS.md"),
             lambda m: m["targets"][1]["discovery_paths"].append(".claude/CLAUDE.md"),
         ):

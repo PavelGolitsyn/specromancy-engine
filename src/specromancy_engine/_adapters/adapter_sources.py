@@ -9,7 +9,8 @@ from importlib.resources import files
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from .adapter_contracts import ADAPTER_COMMANDS, AdapterError
+from .adapter_config import SELECTION_PATH, load_selection, selection_bytes
+from .adapter_contracts import ADAPTER_COMMANDS, COMMAND_PATHS, AdapterError
 from .._config.config_fields import FieldContext
 from .._cli.cli_commands import adapter_command_metadata
 from .._version import get_version
@@ -30,10 +31,8 @@ class SourceInput:
         return {"kind": self.kind, "path": self.path, "sha256": sha256_bytes(self.content)}
 
 
-TEMPLATE_NAMES = (
-    "command-claude.md", "command-copilot.md", "command-opencode.md",
-    "instructions.md", "launch.md", "orchestrator.md", "phase.md",
-)
+COMMON_TEMPLATES = ("instructions.md", "launch.md", "orchestrator.md", "phase.md")
+TEMPLATE_NAMES = (*COMMON_TEMPLATES, *(f"command-{name}.md" for name in COMMAND_PATHS))
 
 
 def load_release_template(name: str) -> SourceInput:
@@ -47,10 +46,10 @@ def load_release_template(name: str) -> SourceInput:
     return SourceInput("release-template", source_id, content)
 
 
-def capture_release_inputs() -> tuple[SourceInput, ...]:
+def capture_release_inputs(names: Sequence[str] = TEMPLATE_NAMES) -> tuple[SourceInput, ...]:
     version = SourceInput("package-version", "@package/specromancy_engine/version",
                           get_version().encode("utf-8"))
-    return (version, *(load_release_template(name) for name in TEMPLATE_NAMES))
+    return (version, *(load_release_template(name) for name in names))
 
 
 def _known_cli_commands(metadata: Mapping[str, Any]) -> set[str]:
@@ -90,8 +89,9 @@ class WorkflowSkill:
 
 @dataclass(frozen=True, slots=True)
 class AdapterSources:
+    harnesses: tuple[str, ...]
     pipelines: tuple[PipelineConfig, ...]
-    instructions: SourceInput
+    instructions: SourceInput | None
     skills: tuple[WorkflowSkill, ...]
     templates: Mapping[str, SourceInput]
     command_help: Mapping[str, str]
@@ -99,14 +99,21 @@ class AdapterSources:
 
 
 def capture_workflow_sources(
-    root: Path, registry: PipelineRegistry, command_metadata: Mapping[str, Any] | None,
+    root: Path, registry: PipelineRegistry | Callable[[Path], PipelineRegistry], command_metadata: Mapping[str, Any] | None,
     *, include_manifest_inputs: bool = True,
 ) -> AdapterSources:
-    """Validate a registry snapshot and capture workflow inputs for generator v3.
+    """Validate a registry snapshot and capture workflow inputs for the selected harnesses.
 
     A caller's reads before supplying the registry are outside this guarantee.
     Render-only still validates graphs but skips bytes needed only for provenance.
     """
+    harnesses = load_selection(root)
+    selection = SourceInput("adapter-selection", SELECTION_PATH, selection_bytes(harnesses))
+    if callable(registry):
+        registry = registry(root)
+    if not harnesses:
+        return AdapterSources(harnesses=(), pipelines=(), instructions=None, skills=(),
+                              templates={}, command_help={}, inputs=(selection,))
     context = FieldContext(registry.path, root)
 
     @cache
@@ -138,23 +145,25 @@ def capture_workflow_sources(
                 if path is not None:
                     dependencies.add(path)
 
-    metadata = _command_metadata(pipelines, command_metadata)
-    command_help = {entry["name"]: entry["help"] for entry in metadata["commands"]
+    command_templates = [f"command-{name}.md" for name in harnesses if name in COMMAND_PATHS]
+    metadata = _command_metadata(pipelines, command_metadata) if command_templates else {}
+    command_help = {entry["name"]: entry["help"] for entry in metadata.get("commands", ())
                     if isinstance(entry, Mapping) and isinstance(entry.get("name"), str)
                     and isinstance(entry.get("help"), str)}
-    release = capture_release_inputs()
+    release = capture_release_inputs((*COMMON_TEMPLATES, *command_templates))
     templates = {
         source.path.rsplit("/", 1)[-1]: source for source in release if source.kind == "release-template"
     }
     inputs = []
     if include_manifest_inputs:
         inputs = [
-            instructions,
+            selection, instructions,
             *release,
             SourceInput("validated-registry", registry.path.relative_to(root).as_posix(),
                         registry.canonical_json.encode("utf-8")),
-            SourceInput("cli-help-metadata", "@cli-help-metadata", canonical_json_bytes(metadata)),
         ]
+        if metadata:
+            inputs.append(SourceInput("cli-help-metadata", "@cli-help-metadata", canonical_json_bytes(metadata)))
         inputs.extend(skill.source for skill in skills.values())
         for pipeline in pipelines:
             inputs.append(SourceInput(
@@ -167,7 +176,7 @@ def capture_workflow_sources(
             except OSError as exc:
                 raise AdapterError("cannot read pipeline dependency", {"path": label}) from exc
     return AdapterSources(
-        pipelines, instructions, tuple(skills[name] for name in sorted(skills)),
+        harnesses, pipelines, instructions, tuple(skills[name] for name in sorted(skills)),
         templates, command_help, tuple(sorted(inputs, key=lambda source: source.path)),
     )
 

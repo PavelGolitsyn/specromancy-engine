@@ -4,6 +4,7 @@ import json
 import re
 import subprocess
 import sys
+import tomllib
 import unittest
 from pathlib import Path
 
@@ -36,7 +37,10 @@ class ShippedAdapterTests(unittest.TestCase):
 
     def test_manifest_covers_harnesses_and_matches_generated_bytes(self) -> None:
         targets = {entry["name"]: entry for entry in self.manifest["targets"]}
-        self.assertEqual(set(targets), set(HARNESS_MODES))
+        config = tomllib.loads((ROOT / "workflow/adapters.toml").read_text())
+        self.assertEqual(config["harnesses"], sorted(HARNESS_MODES))
+        self.assertEqual(list(targets), config["harnesses"])
+        self.assertEqual(self.manifest["generator"]["version"], 4)
         generated_by_target = {name: [] for name in HARNESS_MODES}
         for entry in self.manifest["generated"]:
             for target in entry["targets"]:

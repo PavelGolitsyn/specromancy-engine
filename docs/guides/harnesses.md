@@ -23,7 +23,24 @@ the templates and orchestration procedure and creates no repository files.
 Phase wrappers load the canonical procedure identified by the graph.
 See [Authoring pipelines](authoring-pipelines.md).
 
-Generate or verify adapters with:
+## Choose the project's harnesses
+
+Save the project's choice in `workflow/adapters.toml`. During agent-assisted setup,
+reuse a valid saved choice. If the user has supplied one, save it. Otherwise ask
+which harnesses to support. The supported identifiers are `claude`, `codex`,
+`copilot`, `hermes`, and `opencode`. This example enables Claude and OpenCode.
+
+```toml
+schema_version = 1
+harnesses = ["claude", "opencode"]
+```
+
+Generation and check read the same file without prompting. Missing or invalid
+configuration stops both commands before any files change. Use `harnesses = []`
+to remove eligible owned outputs and retain an empty manifest. The CLI only
+reads this configuration.
+
+Generate the selected files and verify them with the same saved choice.
 
 ```bash
 specromancy adapters generate
@@ -38,6 +55,11 @@ Keep the manifest alongside its generated outputs. Check mode writes nothing
 and returns 11 for drift. Generation replaces current manifest-owned outputs,
 including locally edited ones, and removes only unchanged owned stale outputs.
 It refuses unowned destinations, unsafe paths, and modified stale outputs.
+Deselecting a harness removes its unchanged exclusive files. Shared instructions
+and skills remain while any selected harness needs them. Files belonging only
+to unselected harnesses are ignored unless the previous manifest owns them.
+Changing selection or regenerating during a visit can fail its mutation policy,
+including at approval time.
 
 On a conflict, inspect the reported paths and preserve their content first.
 Merge intentional instructions into `workflow/instructions.md` or canonical skills before

@@ -75,7 +75,7 @@ class DistributionContractTests(unittest.TestCase):
     def test_runtime_dependency_and_consumer_files_are_rejected(self):
         with self.assertRaisesRegex(verifier.VerificationError, "runtime dependencies"):
             verifier.inspect_wheel(self.wheel(dependency=True), ROOT)
-        for name in ("workflow/pipelines.toml", "tests/fixture.py", ".agents/skills/a/SKILL.md",
+        for name in ("workflow/pipelines.toml", "workflow/adapters.toml", "tests/fixture.py", ".agents/skills/a/SKILL.md",
                      "AGENTS.md", "specromancy_engine/resources/adapters/producer-policy.md",
                      "bin/specromancy", "specromancy_engine/__pycache__/cli.pyc",
                      "game-of-life/README.md", ".specromancy/runs/run.json"):
@@ -124,8 +124,9 @@ class DistributionContractTests(unittest.TestCase):
         skill = "examples/release-documentation/workflow/skills/draft-release-notes/SKILL.md"
         source = verifier.extract_sdist(self.sdist(), self.root / "extract", ROOT)
         self.assertEqual((source / skill).read_bytes(), (ROOT / skill).read_bytes())
-        with self.assertRaisesRegex(verifier.VerificationError, "missing=.*SKILL.md"):
-            verifier.extract_sdist(self.sdist(omit={skill}), self.root / "bad", ROOT)
+        for name in (skill, "examples/release-documentation/workflow/adapters.toml"):
+            with self.subTest(name=name), self.assertRaisesRegex(verifier.VerificationError, "missing=.*" + name):
+                verifier.extract_sdist(self.sdist(omit={name}), self.root / "bad", ROOT)
 
     def test_consumer_bundle_copies_only_the_source_example_inputs(self):
         source = self.root / "source"

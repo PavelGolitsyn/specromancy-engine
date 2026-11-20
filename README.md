@@ -66,8 +66,8 @@ The editable graphs and shared artifact templates live in [`workflow/`][workflow
 These top-level resources configure this repository's own development workflow;
 they are not automatically installed consumer defaults.
 Author phase procedures in [`workflow/skills/`][skills-directory] and repository
-constraints in [`workflow/instructions.md`][agent-instructions]. Run
-`specromancy adapters generate` to generate the harness files, including root `AGENTS.md`.
+constraints in [`workflow/instructions.md`][agent-instructions]. Choose your harnesses in `workflow/adapters.toml`, then run
+`specromancy adapters generate` to create their discovery files.
 See the [workflow customization map][workflow-guide] for the authoring layout.
 
 ## Documentation
