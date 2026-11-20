@@ -139,12 +139,24 @@ legacy namespace, schemas, installed template hashes, and both CLI entry points 
 copied test bundle to imports. The rebuilt wheel uses the **sdist's** example and
 installation guide in its consumer tests.
 
+Both consumers start with the example's authored files. The gate verifies that
+a missing installed template leaves the consumer untouched, then restores the
+template and runs generation and check. It hashes the files on disk, checks
+their ownership across all five targets, and compares the complete manifest
+between installations. The retained log includes the common manifest with its
+canonical input and generated output hashes.
+
 The copied suite covers explicit/discovered consumer roots, two-project
 isolation, custom pipeline completion, public API calls, immutable outputs,
 read-only enforcement, and adapter invocation. Original compatibility records
 are replayed without refreshing their expected bytes or hashes, including old
 approvals and exactly-once recovery. Adapter tests verify upgrades from original
 owned files, collision protection, and repeated generation with identical bytes.
+Installed CLI tests also cover registry redirects before TOML parsing, forged
+generator-v2 claims, and reconstruction after removing root instructions and
+shared skills. Wrapper tests execute the rendered CLI arguments and resolve
+procedure references from the canonical file. Live harness sessions require
+separate verification.
 There is no claim that archive bytes are reproducible across timestamps or hosts;
 the gate checks contents and metadata instead.
 

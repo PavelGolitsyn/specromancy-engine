@@ -2,14 +2,16 @@
 
 ## Current plan: generated harness files from canonical workflow sources
 
-**Stages 16–20 are complete. Stages 21–22 are planned.** Stage 16 recorded
+**Stages 16–21 are complete. Stage 22 is planned.** Stage 16 recorded
 the source and ownership inventory and the unfinished-run migration constraint.
 Stage 17 packaged the generic harness templates and verified them in direct
 and sdist-rebuilt wheel installations. Stage 18 added explicit workflow
 procedure sources, selected-graph validation, and guarded adapter registry
 loading. Stage 19 verified workflow-only generation, schema 2 shared ownership,
 and historical manifest migration in isolated consumers. Stage 20 switched the public generator to v3 and migrated the producer,
-consumer example and ordinary fixtures to workflow-owned sources.
+consumer example and ordinary fixtures to workflow-owned sources. Stage 21
+verified identical generation from direct and sdist-rebuilt wheels on Python
+3.11.15 and 3.14.4. The example produced 23 files across all five targets.
 Prepared on 2026-11-11
 against `d0bd655120dfd6eb2bdbc7e61fc12ae45e46f82b`.
 
@@ -123,7 +125,7 @@ harness generation and clarifies the Stage 21 handoff; all changes remain under
 Review amendments strengthen the source boundary and version-specific ownership
 rules, bind skill metadata to identifiers, and replace phase-body copies with
 thin discovery wrappers. Stages 16–22 include corresponding migration and
-regression criteria; these remain planned implementation work.
+regression criteria. Selective generation and its verification remain in Stage 22.
 Further review amendments move registry guards before adapter CLI parsing,
 preserve runtime graph isolation, narrow selection's run-independence promise,
 and establish shared attribution before selection is introduced. Their regression

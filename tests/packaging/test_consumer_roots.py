@@ -300,6 +300,16 @@ class ConsumerRootTests(unittest.TestCase):
     def test_consumer_executes_every_wrapper_and_launch_skill(self) -> None:
         manifest = self.prepare_adapters()
         root = self.first
+        manifest_path = root / "adapters/manifest.json"
+        original_manifest = manifest_path.read_bytes()
+        shutil.rmtree(root / ".agents")
+        (root / "AGENTS.md").unlink()
+        missing = {entry["path"] for entry in manifest["generated"]
+                   if entry["path"] == "AGENTS.md" or entry["path"].startswith(".agents/")}
+        before = snapshot(root)
+        drift = self.command(root, "adapters", "generate", "--check", expected=ExitCode.ADAPTER_DRIFT)
+        self.assertEqual(set(drift["details"]["missing"]), missing)
+        self.assertEqual(snapshot(root), before)
         description = 'A request with spaces, "quotes", $HOME, $(echo never), and café'
         conventions = {
             "claude": (".claude/commands/specromancy/{name}.md", {
@@ -345,11 +355,21 @@ class ConsumerRootTests(unittest.TestCase):
                         action = result["action"]
                         run_id = action["run_id"]
                         self.assertIn(description, Path(action["inputs"][0]["absolute_path"]).read_text())
+                    if name in ("init", "resume", "phase"):
+                        source = Path(result["action"]["skill"]["absolute_path"])
+                        self.assertEqual(source, root / "workflow/skills/compose/SKILL.md")
+                        self.assertIn("Use amber resources.", source.read_text())
             # Status argv uses cwd; validation argv independently carries the root.
             status = self.command(root, "status", run_id)["status"]
             self.assertEqual(status["next_command"], ["specromancy", "validate", run_id, "amber"])
             Path(action["output"]["absolute_path"]).write_text('{"consumer":"amber"}\n')
             self.run_rendered([*status["next_command"], "--json"], cwd=root / "nested/deeper", expected=0)
+
+        self.command(root, "adapters", "generate")
+        self.command(root, "adapters", "generate", "--check")
+        self.assertEqual(manifest_path.read_bytes(), original_manifest)
+        for entry in manifest["generated"]:
+            self.assertEqual(hashlib.sha256((root / entry["path"]).read_bytes()).hexdigest(), entry["sha256"])
 
         launches = [entry["path"] for entry in manifest["generated"]
                     if entry["path"].endswith("skills/specromancy-shared/SKILL.md")]
@@ -376,10 +396,21 @@ class ConsumerRootTests(unittest.TestCase):
     def test_adapter_generation_protects_existing_project_owned_instructions(self) -> None:
         root = self.first
         (root / "AGENTS.md").write_text("# Consumer instructions\n")
+        wrapper = root / ".agents/skills/compose/SKILL.md"
+        wrapper.parent.mkdir(parents=True)
+        source = root / "workflow/skills/compose/SKILL.md"
+        wrapper.write_bytes(source.read_bytes() + b"Additional consumer procedure.\n")
         before = snapshot(root)
         result = self.command(root, "adapters", "generate", expected=ExitCode.ADAPTER_DRIFT)
-        self.assertEqual(result["details"]["unowned"], ["AGENTS.md"])
+        self.assertEqual(result["details"]["unowned"], [".agents/skills/compose/SKILL.md", "AGENTS.md"])
         self.assertEqual(snapshot(root), before)
+        # Relocate the consumer's originals to their declared workflow locations.
+        wrapper.replace(source)
+        (root / "AGENTS.md").replace(root / "workflow/instructions.md")
+        self.command(root, "adapters", "generate")
+        self.command(root, "adapters", "generate", "--check")
+        self.assertIn("Additional consumer procedure.", source.read_text())
+        self.assertIn("# Consumer instructions", (root / "AGENTS.md").read_text())
 
 
 class PackageResourceTests(unittest.TestCase):

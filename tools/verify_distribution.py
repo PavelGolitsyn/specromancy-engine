@@ -34,11 +34,19 @@ ADAPTER_TEMPLATES = {f"specromancy_engine/resources/adapters/{name}.md" for name
     "command-claude", "command-copilot", "command-opencode", "instructions",
     "launch", "orchestrator", "phase",
 )}
+EXAMPLE = Path("examples/release-documentation")
+EXAMPLE_FILES = (
+    ".gitignore", "README.md", "sample-changes.md", "workflow/instructions.md",
+    "workflow/pipelines.toml", "workflow/pipelines/release-documentation.toml",
+    "workflow/skills/draft-release-notes/SKILL.md", "workflow/skills/review-release-notes/SKILL.md",
+    "workflow/templates/release-notes.md", "workflow/templates/review.md",
+)
 TEST_MODULES = (
     "tests.packaging.test_consumer_roots",
     "tests.packaging.test_release_documentation",
     "tests.engine.contract.test_compatibility",
     "tests.engine.contract.test_engine_orchestration",
+    "tests.engine.contract.test_multi_pipeline",
     "tests.engine.contract.test_safety",
     "tests.engine.contract.test_recovery",
     "tests.engine.unit.test_adapters",
@@ -121,16 +129,10 @@ def sdist_sources(root: Path) -> set[str]:
     names = {"pyproject.toml", "MANIFEST.in", "README.md", "LICENSE", "docs/README.md",
              "setup.py", "build_readme.py"}
     names.update("src/" + n for n in inventory(root))
-    example = "examples/release-documentation"
-    names.update(f"{example}/{name}" for name in (
-        "README.md", "workflow/instructions.md", ".gitignore", "sample-changes.md",
-        "workflow/skills/draft-release-notes/SKILL.md",
-        "workflow/skills/review-release-notes/SKILL.md",
-    ))
-    for directory, extensions in ((f"{example}/workflow", {".toml", ".md"}),
-                                  ("docs/guides", {".md"}), ("docs/reference", {".md"})):
-        names.update(p.relative_to(root).as_posix() for p in (root / directory).rglob("*")
-                     if p.is_file() and p.suffix in extensions)
+    names.update((EXAMPLE / name).as_posix() for name in EXAMPLE_FILES)
+    for directory in ("docs/guides", "docs/reference"):
+        names.update(p.relative_to(root).as_posix() for p in (root / directory).rglob("*.md")
+                     if p.is_file())
     return names
 
 
@@ -185,7 +187,8 @@ def environment() -> dict[str, str]:
 
 def copy_bundle(destination: Path, consumer_source: Path) -> None:
     files = {m.replace(".", "/") + ".py" for m in TEST_MODULES}
-    files.update({"tests/engine/contract/compatibility_support.py", "tests/engine/contract/support.py"})
+    files.update({"tests/engine/support.py", "tests/engine/contract/compatibility_support.py",
+                  "tests/engine/contract/support.py"})
     for relative in files:
         target = destination / relative
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -197,8 +200,10 @@ def copy_bundle(destination: Path, consumer_source: Path) -> None:
     for fixture in ("refactoring-compatibility", "example-pipeline"):
         shutil.copytree(ROOT / "tests/engine/fixtures" / fixture,
                         destination / "tests/engine/fixtures" / fixture)
-    shutil.copytree(consumer_source / "examples/release-documentation",
-                    destination / "examples/release-documentation")
+    for name in EXAMPLE_FILES:
+        target = destination / EXAMPLE / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(consumer_source / EXAMPLE / name, target)
     (destination / "docs/guides").mkdir(parents=True)
     shutil.copyfile(consumer_source / "docs/guides/installation.md", destination / "docs/guides/installation.md")
     shutil.copyfile(ROOT / "tools/distribution_smoke.py", destination / "distribution_smoke.py")
@@ -222,7 +227,7 @@ class Verifier:
         self.log.flush()
         require(result.returncode == 0, f"command failed (exit {result.returncode}); see log: {command}")
 
-    def consumer(self, wheel: Path, base: Path, source: Path, expected: dict) -> None:
+    def consumer(self, wheel: Path, base: Path, source: Path, expected: dict) -> bytes:
         base.mkdir()
         venv = base / "venv"
         self.run([sys.executable, "-I", "-m", "venv", str(venv)], base)
@@ -234,7 +239,14 @@ class Verifier:
         env = self.env | {"PATH": str(python.parent) + os.pathsep + self.env["PATH"],
                           "SPECROMANCY_CONSUMER_BUNDLE": str(bundle)}
         self.run([str(python), "-I", "-B", str(bundle / "distribution_smoke.py")], base, env)
+        root = bundle / EXAMPLE
+        manifest = (root / "adapters/manifest.json").read_bytes()
+        for path in ["adapters/manifest.json", *(e["path"] for e in json.loads(manifest)["generated"])]:
+            data = (root / path).read_bytes()
+            for location in (ROOT, source, base):
+                require(os.fsencode(location) not in data, f"host path in generated file: {path}")
         self.say(f"PASS isolated consumer: {wheel.name}")
+        return manifest
 
     def verify(self, wheel: Path, sdist: Path) -> None:
         require(sys.version_info >= (3, 11), "Python >=3.11 is required")
@@ -272,8 +284,10 @@ class Verifier:
             require(len(wheels) == 1, "sdist rebuild must produce exactly one wheel")
             rebuilt = inspect_wheel(wheels[0], ROOT)
             self.say(f"Rebuilt wheel: sha256={rebuilt['sha256']}")
-            self.consumer(wheel, base / "direct", ROOT, expected)
-            self.consumer(wheels[0], base / "from-sdist", source, rebuilt)
+            direct_manifest = self.consumer(wheel, base / "direct", ROOT, expected)
+            rebuilt_manifest = self.consumer(wheels[0], base / "from-sdist", source, rebuilt)
+            require(direct_manifest == rebuilt_manifest, "installed wheels generated different manifests")
+            self.say("Verified identical manifest, inputs and output hashes: " + direct_manifest.decode().strip())
         self.say("PASS distribution verification (direct wheel and sdist-rebuilt wheel)")
 
 

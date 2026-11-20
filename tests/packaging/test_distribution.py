@@ -4,6 +4,7 @@ from __future__ import annotations
 import importlib.util
 import io
 from pathlib import Path
+import shutil
 import tarfile
 import tempfile
 import tomllib
@@ -125,6 +126,24 @@ class DistributionContractTests(unittest.TestCase):
         self.assertEqual((source / skill).read_bytes(), (ROOT / skill).read_bytes())
         with self.assertRaisesRegex(verifier.VerificationError, "missing=.*SKILL.md"):
             verifier.extract_sdist(self.sdist(omit={skill}), self.root / "bad", ROOT)
+
+    def test_consumer_bundle_copies_only_the_source_example_inputs(self):
+        source = self.root / "source"
+        shutil.copytree(ROOT / verifier.EXAMPLE, source / verifier.EXAMPLE)
+        guide = Path("docs/guides/installation.md")
+        (source / guide.parent).mkdir(parents=True)
+        shutil.copyfile(ROOT / guide, source / guide)
+        for name in ("AGENTS.md", ".agents/skills/foreign/SKILL.md", "adapters/manifest.json"):
+            foreign = source / verifier.EXAMPLE / name
+            foreign.parent.mkdir(parents=True, exist_ok=True)
+            foreign.write_text("local generation")
+        runner = self.root / "runner"
+        verifier.copy_bundle(runner, source)
+        example = runner / verifier.EXAMPLE
+        self.assertEqual({p.relative_to(example).as_posix() for p in example.rglob("*") if p.is_file()},
+                         set(verifier.EXAMPLE_FILES))
+        for name in verifier.EXAMPLE_FILES:
+            self.assertEqual((example / name).read_bytes(), (source / verifier.EXAMPLE / name).read_bytes())
 
     def test_sdist_rejects_traversal_links_and_duplicate_members_before_writing(self):
         for name, kind in (("../escaped", tarfile.REGTYPE),
