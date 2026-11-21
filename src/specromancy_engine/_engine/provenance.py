@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from .engine_errors import EngineError
+from ..exit_codes import ExitCode
 from .._config.config_models import PipelineConfig
 from ..hashing import relative_path, sha256_file
 from .._runs.run_records import RunRecord
@@ -54,6 +56,16 @@ def observe_provenance(
                     }
                 )
     return warnings
+
+
+def require_provenance(pipeline: PipelineConfig, manifest: RunRecord) -> None:
+    warnings = observe_provenance(pipeline, manifest)
+    if warnings:
+        warning = warnings[0]
+        raise EngineError(
+            ExitCode.INTERNAL_ERROR, warning["message"], warning["code"],
+            **warning.get("details", {}),
+        )
 
 
 def pipeline_matches(pipeline: PipelineConfig, manifest: RunRecord) -> bool:

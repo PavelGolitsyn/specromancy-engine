@@ -51,7 +51,8 @@ class PhaseConfig:
     completion_criteria: tuple[str, ...]
     validator: ValidatorConfig
     commands: tuple[ValidationCommand, ...]
-    approval_conditions: tuple[str, ...]
+    transition_approval_conditions: tuple[str, ...]
+    action_approval_conditions: tuple[str, ...]
     stop_conditions: tuple[str, ...]
     transitions: tuple[TransitionConfig, ...]
     max_visits: int | None = None

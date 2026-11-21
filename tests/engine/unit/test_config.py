@@ -33,7 +33,8 @@ output_name = "{visit:03}-result.md"
 mutation = "read-only"
 completion_criteria = ["Write the result."]
 validator = "file"
-approval_conditions = []
+transition_approval_conditions = []
+action_approval_conditions = []
 stop_conditions = []
 max_visits = 1
 
@@ -44,7 +45,7 @@ outcome = "done"
 
 def document(phase: str = PHASE, **changes: str) -> str:
     values = {
-        "schema_version": "1",
+        "schema_version": "2",
         "id": '"fixture"',
         "version": "1",
         "start": '"compose"',
@@ -147,7 +148,7 @@ class WorkflowSourceTests(unittest.TestCase):
     def test_portable_strings_and_flat_metadata(self) -> None:
         self.skill.write_text(
             "---\nname: 'compose'\ndescription: \"Use when editing: record evidence.\"\n"
-            "compatibility: Specromancy pipeline schema version 1.\nlicense: MIT\n"
+            "compatibility: Specromancy pipeline schema version 2.\nlicense: MIT\n"
             "metadata:\n  role: phase\n  revision: '2'\n---\n", encoding="utf-8"
         )
         self.assertEqual(self.load(self.graph_text).phases[0].skill_path, self.skill)
@@ -335,6 +336,14 @@ class ConfigTests(unittest.TestCase):
             {"type": "boolean"},
         )
 
+    def test_only_current_pipeline_schema_is_accepted(self) -> None:
+        legacy = PHASE.replace("transition_approval_conditions", "approval_conditions").replace(
+            "action_approval_conditions = []\n", ""
+        )
+        self.assert_error(document(legacy, schema_version="1"), "unsupported-schema-version")
+        self.assert_error(document(legacy), "unknown-field")
+        self.assert_error(document(schema_version="1"), "unsupported-schema-version")
+
     def test_reserved_phase_id_is_rejected(self) -> None:
         phase = PHASE.replace('id = "compose"', 'id = "status"')
         self.assert_error(document(phase, start='"status"'), "reserved-phase-id")
@@ -439,7 +448,8 @@ class ConfigTests(unittest.TestCase):
             mutation = "read-only"
             completion_criteria = ["Choose a route."]
             validator = "file"
-            approval_conditions = []
+            transition_approval_conditions = []
+            action_approval_conditions = []
             stop_conditions = []
             max_visits = 1
             [[phases.transitions]]
@@ -458,7 +468,8 @@ class ConfigTests(unittest.TestCase):
             mutation = "read-only"
             completion_criteria = ["Produce."]
             validator = "file"
-            approval_conditions = []
+            transition_approval_conditions = []
+            action_approval_conditions = []
             stop_conditions = []
             max_visits = 1
             [[phases.transitions]]
@@ -474,7 +485,8 @@ class ConfigTests(unittest.TestCase):
             mutation = "read-only"
             completion_criteria = ["Consume."]
             validator = "file"
-            approval_conditions = []
+            transition_approval_conditions = []
+            action_approval_conditions = []
             stop_conditions = []
             max_visits = 1
             [[phases.transitions]]
@@ -492,7 +504,7 @@ class ConfigTests(unittest.TestCase):
         self.assert_error(document(phase, start='"done"'), "terminal-outcome-phase")
 
     def test_diagnostic_serializes_without_traceback_data(self) -> None:
-        error = self.assert_error(document(schema_version="2"), "unsupported-schema-version")
+        error = self.assert_error(document(schema_version="3"), "unsupported-schema-version")
         payload = error.as_dict()
         self.assertEqual(payload["code"], ExitCode.INVALID_PIPELINE)
         json.dumps(payload)
@@ -512,7 +524,7 @@ class ConfigTests(unittest.TestCase):
                 start = "compose"
                 version = 1
                 id = "fixture"
-                schema_version = 1
+                schema_version = 2
                 {reordered_phase}
                 """
             ),

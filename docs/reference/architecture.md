@@ -285,9 +285,10 @@ verification. Creation and first-visit preparation are separate commits, so
 interrupted initialization can leave a partial run; no automatic cleanup occurs.
 
 Request and completed output artifacts are hash-bound. Visits also record the
-hashes of their skill and template. Approval binds the run, visit, selected
-outcome, pipeline hash, and artifact hash; changing the artifact or pipeline
-makes the approval stale.
+hashes of their skill and template. Action approval binds the proposed details to
+the run, visit, phase, reason, and pipeline hash. Grant or decline returns the same visit to active. Transition
+approval additionally binds the selected outcome and artifact hash, and has a
+separate recoverable advancement step.
 
 ## Transition and mutation safety
 

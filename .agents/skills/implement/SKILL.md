@@ -4,7 +4,7 @@
 name: implement
 description: Apply an approved plan when the current Specromancy phase is implement.
 license: MIT
-compatibility: Specromancy pipeline schema version 1.
+compatibility: Specromancy pipeline schema version 2.
 metadata:
   role: phase
 ---

@@ -19,7 +19,7 @@ from .errors import SpecromancyError, UsageError
 from .exit_codes import EXIT_CODE_DESCRIPTIONS, ExitCode
 from ._cli.pipeline_selection import selected_pipeline as _selected_pipeline
 from .registry import load_registry
-from .status import render_status
+from .status import render_approval, render_status
 
 ACTIONABLE_CODES = frozenset(
     {
@@ -183,9 +183,7 @@ def _write_payload(payload: dict[str, Any], stream: TextIO, as_json: bool) -> No
         stream.write(payload["message"])
         approval = payload.get("approval")
         if approval is not None:
-            stream.write(
-                f"\nReason: {approval['reason']}\nPhase: {approval['phase_id']}"
-            )
+            stream.write("\n" + render_approval(approval))
     else:
         stream.write(payload["message"])
     stream.write("\n")
@@ -230,7 +228,9 @@ def _dispatch(
             outcome=arguments.outcome,
         )
     if arguments.command == "approve":
-        return engine.approve(arguments.run_id, arguments.phase)
+        return engine.approve(arguments.run_id, arguments.phase, request_number=arguments.request)
+    if arguments.command == "decline":
+        return engine.decline(arguments.run_id, arguments.phase, request_number=arguments.request)
     if arguments.command == "block":
         return engine.block(
             arguments.run_id, reason=arguments.reason, details=arguments.details

@@ -2,7 +2,7 @@
 name: implement
 description: Apply an approved plan when the current Specromancy phase is implement.
 license: MIT
-compatibility: Specromancy pipeline schema version 1.
+compatibility: Specromancy pipeline schema version 2.
 metadata:
   role: phase
 ---
@@ -23,15 +23,17 @@ Use this procedure only when the user invocation supplies a `RUN_ID`.
    visit and treat its action packet as authoritative.
 3. Read only the packet's resolved inputs and the repository context needed to
    apply the approved plan.
-4. Respect the packet's mutation policy. Change only repository files required
-   by the approved plan, and write the implementation record only at
-   `action.output.absolute_path` with every required heading.
-5. Record changes, deviations from the plan, and verification in that artifact.
-   For `destructive-action`, `external-side-effect`, `material-scope-change`, or
-   `new-production-dependency`, run `specromancy request-approval RUN_ID`
-   with the matching declared reason and details, then stop. If a declared stop
-   condition applies, run `specromancy block RUN_ID` with its reason and
-   details, then stop.
+4. Before taking an action covered by `action.action_approval_conditions`,
+   check this visit's `action.action_decisions` for its exact reason and details.
+   Proceed with a granted action only within those details. After a decline,
+   continue within scope or submit a revised request with corrected details.
+   For a new action, run
+   `specromancy request-approval RUN_ID --reason CODE --details TEXT`,
+   show the user the decision commands, and stop until the user decides.
+5. Respect the mutation policy throughout the visit. Write the implementation
+   record at `action.output.absolute_path` with every required heading,
+   changes, deviations, and verification. If a declared stop condition applies,
+   run `specromancy block RUN_ID` with its reason and details, then stop.
 6. Run the packet's configured validation commands through its final validation
    command exactly. Do not substitute remembered or easier checks.
 7. Run `specromancy status RUN_ID --json` and report its recorded status,

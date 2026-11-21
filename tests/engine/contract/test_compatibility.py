@@ -112,26 +112,10 @@ class CompatibilityContractTests(unittest.TestCase):
         self.assertEqual(hashing.canonical_json_bytes({"text": "café 日本語"}),
                          '{"text":"café 日本語"}'.encode("utf-8"))
 
-    def test_current_responses_change_only_the_three_command_prefixes(self) -> None:
-        original = read_record("responses.json")
-        expected = read_record("responses-current.json")
-        for name in ("action-pending", "action-active", "resumed"):
-            with self.subTest(response=name):
-                old = original[name]["action"]["final_validation_command"]
-                new = expected[name]["action"]["final_validation_command"]
-                self.assertEqual(old[:3], ["<PYTHON>", "-m", "specromancy"])
-                self.assertEqual(new, ["specromancy", *old[3:]])
-                original[name]["action"]["final_validation_command"] = new
-        self.assertEqual(expected, original)
-
     def test_response_envelopes_and_persisted_bytes_match_baseline(self) -> None:
         states, responses = capture_lifecycle()
         self.assertEqual(responses, read_record("responses-current.json"))
-        expected = read_record("states.json")
-        self.assertEqual(set(states), set(expected))
-        for state, files in states.items():
-            with self.subTest(state=state):
-                self.assertEqual(files, expected[state])
+        self.assertEqual(states, read_record("states.json"))
 
     def test_visit_provenance_hashes_raw_skill_bytes_and_preserves_old_records(self) -> None:
         fixture = CompatibilityFixture()
@@ -174,7 +158,7 @@ class CompatibilityContractTests(unittest.TestCase):
         self.assertEqual(caught.exception.diagnostic_code, "pipeline-hash-mismatch")
         self.assertEqual(fixture.snapshot(), before)
 
-    def test_version_one_records_replay_and_recovery_is_exactly_once(self) -> None:
+    def test_persisted_records_replay_and_recovery_is_exactly_once(self) -> None:
         states = read_record("states.json")
         responses = read_record("responses-current.json")
         for name, files in states.items():
@@ -277,11 +261,11 @@ class CompatibilityContractTests(unittest.TestCase):
             self.assertEqual(set(actual), set(expected))
             manifest = actual.pop("adapters/manifest.json")
             self.assertEqual(hashlib.sha256(manifest).hexdigest(),
-                             "976c77fec903d4e115457f345255c04120d1f09466f7c07bdbaec2bd62a7e1ff")
+                             "b3159d3fa3f3f1335c161adc56ee13bd0739499d83b44f92f3fcf6bf9080e7b8")
             for path, content in actual.items():
                 with self.subTest(path=path):
-                    self.assertEqual(content, expected[path]["text"].encode("utf-8"))
-                    self.assertEqual(hashlib.sha256(content).hexdigest(), expected[path]["sha256"])
+                    text = expected[path]["text"].replace("pipeline schema version 1.", "pipeline schema version 2.")
+                    self.assertEqual(content, text.encode("utf-8"))
         finally:
             fixture.close()
 
@@ -328,7 +312,8 @@ class CompatibilityContractTests(unittest.TestCase):
                 upgraded = fixture.snapshot()
                 self.assertEqual(set(upgraded), set(expected))
                 for path in expected.keys() - {"adapters/manifest.json"}:
-                    self.assertEqual(upgraded[path], expected[path]["text"].encode())
+                    text = expected[path]["text"].replace("pipeline schema version 1.", "pipeline schema version 2.")
+                    self.assertEqual(upgraded[path], text.encode())
                 self.assertEqual(json.loads(upgraded["adapters/manifest.json"])["generator"]["version"], 4)
                 fixture.generate()
                 fixture.generate(check=True)

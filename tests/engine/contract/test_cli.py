@@ -32,7 +32,7 @@ class CliContractTests(unittest.TestCase):
         self.pipeline.write_text(
             textwrap.dedent(
                 """
-                schema_version = 1
+                schema_version = 2
                 id = "cli-fixture"
                 version = 1
                 start = "compose"
@@ -48,7 +48,8 @@ class CliContractTests(unittest.TestCase):
                 mutation = "read-only"
                 completion_criteria = ["Write a result."]
                 validator = "file"
-                approval_conditions = []
+                transition_approval_conditions = []
+                action_approval_conditions = []
                 stop_conditions = []
                 max_visits = 1
                 [[phases.transitions]]

@@ -32,7 +32,7 @@ from .skill_sources import SkillBindings
 from ..graph import validate_graph
 
 
-SUPPORTED_SCHEMA_VERSION = 1
+SUPPORTED_SCHEMA_VERSION = 2
 
 
 def _discover_root(path: Path) -> Path | None:

@@ -1,4 +1,4 @@
-schema_version = 1
+schema_version = 2
 id = "engine-example"
 version = 1
 start = "research"
@@ -17,7 +17,8 @@ mutation = "read-only"
 completion_criteria = ["Record repository evidence and unresolved questions."]
 validator = "markdown"
 required_headings = ["Summary", "Evidence", "Open Questions"]
-approval_conditions = []
+transition_approval_conditions = []
+action_approval_conditions = []
 stop_conditions = ["insufficient-information"]
 max_visits = 1
 
@@ -39,7 +40,8 @@ mutation = "read-only"
 completion_criteria = ["Map requirements to files, tests, verification, and risks."]
 validator = "markdown"
 required_headings = ["Scope", "Requirement Mapping", "Intended Files", "Tests", "Verification", "Risks and Approvals"]
-approval_conditions = ["material-scope-change"]
+transition_approval_conditions = ["material-scope-change"]
+action_approval_conditions = []
 stop_conditions = ["insufficient-information"]
 max_visits = 1
 
@@ -62,7 +64,8 @@ mutation = "repository-write"
 completion_criteria = ["Implement the plan and record changes, deviations, and verification."]
 validator = "markdown"
 required_headings = ["Changes", "Deviations", "Verification"]
-approval_conditions = ["destructive-action", "external-side-effect", "material-scope-change", "new-production-dependency"]
+transition_approval_conditions = ["destructive-action", "external-side-effect", "material-scope-change", "new-production-dependency"]
+action_approval_conditions = []
 stop_conditions = ["insufficient-information"]
 
 [[phases.transitions]]
@@ -83,7 +86,8 @@ mutation = "read-only"
 completion_criteria = ["Record a verdict and actionable findings."]
 validator = "markdown"
 required_headings = ["Verdict", "Findings", "Verification"]
-approval_conditions = []
+transition_approval_conditions = []
+action_approval_conditions = []
 stop_conditions = ["insufficient-information"]
 
 [[phases.transitions]]

@@ -1,4 +1,4 @@
-schema_version = 1
+schema_version = 2
 id = "minimal"
 version = 1
 start = "compose"
@@ -14,7 +14,8 @@ output_name = "{visit:03}-result.md"
 mutation = "read-only"
 completion_criteria = ["Produce a non-empty result."]
 validator = "file"
-approval_conditions = []
+transition_approval_conditions = []
+action_approval_conditions = []
 stop_conditions = []
 max_visits = 1
 

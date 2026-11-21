@@ -250,7 +250,7 @@ class SelectionOutcomeTests(unittest.TestCase):
         current = value["current_visit"]
         first = {"status": "pending", "visit_number": current, "reason": "first"}
         second = {"status": "pending", "visit_number": current, "reason": "second"}
-        approved = {"status": "approved", "visit_number": current}
+        approved = {"kind": "transition", "status": "approved", "visit_number": current}
         other = {"status": "pending", "visit_number": current + 1}
         value["approvals"] = [{}, first, second, approved, other]
         self.assertIs(build_status(value, None)["pending_approval"], other)

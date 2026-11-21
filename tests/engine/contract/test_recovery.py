@@ -30,7 +30,7 @@ class RecoveryContractTests(unittest.TestCase):
             pipeline_path.write_text(
                 textwrap.dedent(
                     """
-                    schema_version = 1
+                    schema_version = 2
                     id = "recovery"
                     version = 1
                     start = "compose"
@@ -46,7 +46,8 @@ class RecoveryContractTests(unittest.TestCase):
                     mutation = "read-only"
                     completion_criteria = ["Write."]
                     validator = "file"
-                    approval_conditions = []
+                    transition_approval_conditions = []
+                    action_approval_conditions = []
                     stop_conditions = []
                     max_visits = 1
                     [[phases.transitions]]

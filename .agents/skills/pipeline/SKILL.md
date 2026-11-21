@@ -4,7 +4,7 @@
 name: pipeline
 description: Coordinate a registered Specromancy pipeline.
 license: MIT
-compatibility: Specromancy pipeline schema version 1.
+compatibility: Specromancy pipeline schema version 2.
 metadata:
   role: orchestrator
 ---

@@ -1,4 +1,4 @@
-schema_version = 1
+schema_version = 2
 id = "replacement"
 version = 1
 start = "inspect"
@@ -17,7 +17,8 @@ mutation = "read-only"
 completion_criteria = ["Identify the source value and selected operation."]
 validator = "markdown"
 required_headings = ["Observations", "Selected Operation"]
-approval_conditions = []
+transition_approval_conditions = []
+action_approval_conditions = []
 stop_conditions = ["unreadable-source"]
 max_visits = 1
 
@@ -40,7 +41,8 @@ allowlist = ["workspace/**"]
 completion_criteria = ["Apply the selected operation and record its result."]
 validator = "markdown"
 required_headings = ["Operation", "Result"]
-approval_conditions = []
+transition_approval_conditions = []
+action_approval_conditions = []
 stop_conditions = ["unsupported-operation"]
 max_visits = 1
 
@@ -62,7 +64,8 @@ mutation = "read-only"
 completion_criteria = ["Check the transformation and record a decision."]
 validator = "markdown"
 required_headings = ["Checks", "Decision"]
-approval_conditions = []
+transition_approval_conditions = []
+action_approval_conditions = []
 stop_conditions = ["inconclusive"]
 max_visits = 1
 

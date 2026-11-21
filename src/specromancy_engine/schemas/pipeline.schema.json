@@ -14,7 +14,7 @@
     "phases"
   ],
   "properties": {
-    "schema_version": {"const": 1},
+    "schema_version": {"const": 2},
     "id": {"$ref": "#/$defs/identifier"},
     "version": {"type": "integer", "minimum": 1},
     "start": {"$ref": "#/$defs/identifier"},
@@ -104,7 +104,8 @@
         "mutation",
         "completion_criteria",
         "validator",
-        "approval_conditions",
+        "transition_approval_conditions",
+        "action_approval_conditions",
         "stop_conditions",
         "transitions"
       ],
@@ -137,7 +138,12 @@
           "type": "array",
           "items": {"$ref": "#/$defs/command"}
         },
-        "approval_conditions": {
+        "transition_approval_conditions": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"$ref": "#/$defs/identifier"}
+        },
+        "action_approval_conditions": {
           "type": "array",
           "uniqueItems": true,
           "items": {"$ref": "#/$defs/identifier"}

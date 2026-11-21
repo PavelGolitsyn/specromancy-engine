@@ -144,7 +144,7 @@ class AdapterFixture:
         self.pipeline_path.write_text(
             textwrap.dedent(
                 """
-                schema_version = 1
+                schema_version = 2
                 id = "adapter-fixture"
                 version = 1
                 start = "compose"
@@ -160,7 +160,8 @@ class AdapterFixture:
                 mutation = "read-only"
                 completion_criteria = ["Write a result."]
                 validator = "file"
-                approval_conditions = []
+                transition_approval_conditions = []
+                action_approval_conditions = []
                 stop_conditions = []
                 max_visits = 1
                 [[phases.transitions]]
@@ -193,7 +194,7 @@ class AdapterFixture:
                 name: {name}
                 description: Use when the fixture needs {name}.
                 license: MIT
-                compatibility: Specromancy pipeline schema version 1.
+                compatibility: Specromancy pipeline schema version 2.
                 metadata:
                   role: phase
                 ---

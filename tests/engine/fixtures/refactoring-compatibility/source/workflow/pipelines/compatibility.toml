@@ -1,4 +1,4 @@
-schema_version = 1
+schema_version = 2
 id = "compatibility"
 version = 1
 start = "compose"
@@ -14,7 +14,8 @@ output_name = "{visit:03}-compose.md"
 mutation = "read-only"
 completion_criteria = ["Écrire un résultat 日本語."]
 validator = "file"
-approval_conditions = ["accept-result"]
+transition_approval_conditions = ["accept-result"]
+action_approval_conditions = []
 stop_conditions = ["no-evidence"]
 [[phases.transitions]]
 outcome = "z-next"
@@ -30,7 +31,8 @@ output_name = "{visit:03}-seal.md"
 mutation = "read-only"
 completion_criteria = ["Seal the result."]
 validator = "file"
-approval_conditions = []
+transition_approval_conditions = []
+action_approval_conditions = []
 stop_conditions = []
 [[phases.transitions]]
 outcome = "done"

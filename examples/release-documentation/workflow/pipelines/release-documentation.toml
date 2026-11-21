@@ -1,4 +1,4 @@
-schema_version = 1
+schema_version = 2
 id = "release-documentation"
 version = 1
 start = "draft-release-notes"
@@ -17,7 +17,8 @@ mutation = "read-only"
 completion_criteria = ["Describe only supplied changes and include the required upgrade action."]
 validator = "markdown"
 required_headings = ["Summary", "Changes", "Upgrade Notes"]
-approval_conditions = []
+transition_approval_conditions = []
+action_approval_conditions = []
 stop_conditions = ["insufficient-change-data"]
 max_visits = 1
 
@@ -39,7 +40,8 @@ mutation = "read-only"
 completion_criteria = ["Compare every release claim and upgrade instruction against the request and record a verdict."]
 validator = "markdown"
 required_headings = ["Verdict", "Findings", "Verification"]
-approval_conditions = []
+transition_approval_conditions = []
+action_approval_conditions = []
 stop_conditions = ["unsupported-release-claims"]
 max_visits = 1
 

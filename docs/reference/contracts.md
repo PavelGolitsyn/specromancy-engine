@@ -1,8 +1,8 @@
 # Specromancy Engine public contracts
 
-These contracts describe Specromancy Engine.
-Breaking stored representation changes require a schema-version change and updated fixtures;
-additive fields with backward-compatible defaults may extend the current version.
+Before v1.0.0, Specromancy supports only the current contracts and schemas.
+Breaking changes may ship in any pre-1.0.0 release. Update the schema version
+and fixtures when changing a stored representation incompatibly.
 
 ## Python import surface
 
@@ -128,7 +128,8 @@ init DESCRIPTION --pipeline ID
 phase RUN_ID PHASE
 <dynamic-phase> RUN_ID
 validate RUN_ID [PHASE] [--outcome OUTCOME]
-approve RUN_ID PHASE
+approve RUN_ID PHASE [--request N]
+decline RUN_ID PHASE --request N
 request-approval RUN_ID [--reason CODE] [--details TEXT] [--outcome OUTCOME]
 block RUN_ID [--reason CODE] [--details TEXT]
 status RUN_ID
@@ -137,10 +138,10 @@ run RUN_ID
 adapters generate [--check]
 ```
 
-Workflow commands accept `--root PATH`, `--pipeline ID`, `--json`, and `--quiet`. Built-in commands are resolved before dynamic phase aliases; pipeline phase names therefore cannot shadow a reserved command.
+Workflow commands accept `--root PATH`, `--pipeline ID`, `--json`, and `--quiet`. Built-in commands are resolved before dynamic phase aliases; pipeline phase names must avoid reserved commands.
 
 `--reason` may be omitted only when the current phase declares exactly one
-reason of the relevant kind. `validate --outcome` is required when a phase has
+approval reason across both lists, or one stop reason for `block`. `validate --outcome` is required when a phase has
 multiple non-blocking outcomes and is rejected when there is only one.
 
 The installed `specromancy` command, diagnostic `python -m specromancy_engine`
@@ -253,7 +254,7 @@ original files exist. Registry ordering and unrelated graph edits do not alter
 another pipeline's run. Every workflow command requires a valid registry;
 help remains available without one.
 
-### Workflow-owned procedures (pipeline schema 1)
+### Workflow-owned procedures (pipeline schema 2)
 
 A phase may declare `skill_source = "workflow/skills/compose/SKILL.md"` alongside
 `skill = "compose"`. The identifier remains lowercase kebab-case. The source
@@ -275,9 +276,9 @@ path checks bindings across the registry and requires explicit sources in every 
 the registry. Its `load_adapter_pipelines(root)` method rechecks the supplied
 registry and registration paths before loading graphs and reuses the parsed registry.
 
-Omitting the field retains legacy skill lookup at `.agents/skills/<skill>/SKILL.md`,
-repository containment for templates and validators, and the original canonical
-bytes and hash. Adding it changes pipeline identity. Keep the original checkout,
+When the field is omitted, the engine resolves the procedure at
+`.agents/skills/<skill>/SKILL.md` and checks that templates and validators
+stay inside the repository. Adding the field changes pipeline identity. Keep the original checkout,
 graph and recorded resource bytes available to finish an existing run.
 Prepared visits seal the raw bytes at the resolved procedure path and return
 that path and digest in `action.skill`. A missing declared source is an error,
@@ -449,7 +450,8 @@ contain `status`.
 An action packet uses schema version 1 and contains stable keys for `run_id`,
 `visit_id`, `visit_attempt`, `visit_status`, `phase`, `skill`, `inputs`,
 `output`, `template`, `mutation`, `completion_criteria`, `validation`,
-`approval_conditions`, `stop_conditions`, `outcomes`, and
+`action_approval_conditions`, `transition_approval_conditions`, `action_decisions`,
+`stop_conditions`, `outcomes`, and
 `final_validation_command`. Literal artifact records retain repository- or
 run-relative paths and add `absolute_path` for direct harness use.
 
@@ -483,44 +485,36 @@ the visit remains retriable.
 
 ## Approval consistency
 
-Approval records bind the run, phase, visit, reason, output hash, pipeline hash,
-outcome, actor, decision, and timestamps. Artifact or pipeline drift marks the
-record stale and leaves the visit awaiting a fresh approval. Phase-visit and
-transition-edge limits are checked atomically before a successor visit is
-created; exceeding a limit blocks the run without resetting its counters.
+The ordered `approvals` array gives each request a one-based number. Every
+record stores `kind` as `action` or `transition`. Both kinds bind the run, visit, phase, pipeline hash, reason,
+exact details, and request timestamp. A transition also binds the validated
+artifact hash and outcome. A visit can have one pending request across both kinds.
 
-Approval grant and advancement are separate durable operations. After an
-interruption following grant, `approve` can resume advancement and revalidation;
-failed revalidation retains the approval record and its audit history. Pending
-or granted approval drift is recorded as stale before `approve` returns the
-stale-approval error. Ordinary commands reject pipeline or prepared resource
-drift; `status` instead reports warnings and remains readable when artifact
-hashes drift.
+Action requests require nonblank details and preserve the visit's original
+mutation baseline and completion evidence. Request and grant check sealed
+inputs, procedure provenance, and mutation policy. They can run before the
+output exists. Grant and decline record the user's decision and restore the
+same visit to active in one revision. Action events carry `payload.request_number`
+for `approval-requested`, `approval-granted`, `approval-declined`, and
+`approval-invalidated`. A pending action with a changed graph becomes stale
+and returns the visit to active. Restoring the graph permits a fresh request.
 
-Approval requests, grants, and invalidations decide against current persisted
-state while holding the run lock. The observed request identity is `run_id`,
-`visit_number`, `phase_id`, `reason`, `details`, `requested_at`, `outcome`,
-`pipeline_sha256`, and `artifact_sha256`; the containing run and referenced visit
-must also agree. Decision fields (`status`, `decision`, `actor`, `decided_at`) are
-mutable and excluded from identity. No persisted request ID is required.
+Under the run lock, a pending request takes priority over a replay. An exact
+pending request returns exit 7. A different request or a decision aimed at
+another record conflicts (5). On the active visit, an exact decided action or
+matching decision returns the recorded result (8). An opposite decision
+conflicts. Replays and conflicts leave the revision and event log intact.
 
-Overlapping request creators compare that identity except `requested_at`. An
-identical pending request returns the winner's record and evidence with
-`approval is already pending` (7), without changing its timestamp or adding a
-revision/event. A new request adds one `approval-requested` revision/event.
-Conflicting bindings or an overtaken visit cannot attach evidence to a successor,
-even if it reuses the same phase ID.
+Transition approval and advancement remain separate durable operations.
+After an interruption, only a granted transition can resume advancement.
+Revalidation failure records evidence and retains the grant. A matching
+continuation of a completed transition leaves the successor untouched.
 
-An exact pending request on the current awaiting-approval visit is granted once.
-An already granted request on that visit resumes revalidation using its saved
-outcome, without another grant event. If its visit already completed with that
-outcome and the configured target, an in-flight approve returns the existing
-`approval was already recorded` response family for current state and never
-advances the successor. Each successful continuation adds one `visit-transitioned`
-event (or `loop-limit-exceeded`); an exact transition retry adds none. Each
-expected validation failure adds one `validation-failed` event and retains the
-grant; interruption before evidence recording adds none. Duplicate continuations
-may still execute validation commands more than once.
+Validation commands execute outside the lock. A validation result, transition
+request, or block observed on an active visit may commit only at the observed
+revision with the same active visit. This also excludes observations from before
+an intervening action grant or decline. A failed validation that commits first
+leaves the visit eligible for an action request.
 
 A stale observation invalidates only its exact eligible pending or granted
 request, adding one `approval-invalidated` revision/event before returning
@@ -534,19 +528,15 @@ outcome/target fails with `EngineError`, `ILLEGAL_TRANSITION` (5), diagnostic
 `approval-state-changed`, and message `approval state changed before the command
 could be applied`. Details contain `error_code`, `run_id`, observed `phase`, and
 observed `visit_number`. The conflict creates no revision/event and preserves the
-winner. Fresh sequential commands finding a different pending request, or finding
-no pending request after invalidation, retain `illegal-transition`.
+winner.
 
 Lock contention still returns `LOCK_HELD` (10) without implicit retries. General
 `RunStore.mutate` still commits an unchanged callback; only explicit decision
 no-ops skip commits. Approval decisions use the existing persistence protocol:
 interruption after manifest replacement but before event append is repaired on
 load with one `recovery` event at the same revision, without synthesizing the
-missing approval event. Schemas and existing stored records remain compatible.
+missing approval event.
 External artifact edits are not made atomic with validation by this lock.
 
 The [integration evidence](../implementation-history/refactoring/15-follow-on-integration.md#intentional-behavior-corrections)
 maps approval overlap outcomes and malformed-status diagnostics to their tests.
-Those are the only intended behavior corrections in the follow-on refactoring;
-sequential version-1 captures, public imports, schema versions, command metadata,
-and generated adapter bytes remain unchanged.

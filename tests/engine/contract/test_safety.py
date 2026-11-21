@@ -30,7 +30,8 @@ def phase(name: str, *, target: str | None = None, extra: str = "") -> str:
         mutation = "read-only"
         completion_criteria = ["Complete safely."]
         validator = "file"
-        approval_conditions = []
+        transition_approval_conditions = []
+        action_approval_conditions = []
         stop_conditions = []
         {extra}
         [[phases.transitions]]
@@ -56,7 +57,7 @@ class SafetyFixture:
         self.pipeline_path.write_text(
             textwrap.dedent(
                 f"""
-                schema_version = 1
+                schema_version = 2
                 id = "safety"
                 version = 1
                 start = "{names[0]}"
@@ -255,7 +256,7 @@ class SafetyContractTests(unittest.TestCase):
 
     def test_artifact_edit_invalidates_pending_approval(self) -> None:
         configured = phase("publish").replace(
-            "approval_conditions = []", 'approval_conditions = ["external-side-effect"]'
+            "transition_approval_conditions = []", 'transition_approval_conditions = ["external-side-effect"]'
         )
         fixture = SafetyFixture(configured)
         try:
@@ -274,7 +275,7 @@ class SafetyContractTests(unittest.TestCase):
 
     def test_pipeline_edit_invalidates_pending_approval(self) -> None:
         configured = phase("publish").replace(
-            "approval_conditions = []", 'approval_conditions = ["external-side-effect"]'
+            "transition_approval_conditions = []", 'transition_approval_conditions = ["external-side-effect"]'
         )
         fixture = SafetyFixture(configured)
         try:

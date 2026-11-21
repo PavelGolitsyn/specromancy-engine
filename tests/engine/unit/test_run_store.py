@@ -28,7 +28,7 @@ RUN_ID = "20260925T120000Z-01020304"
 
 
 PIPELINE = """
-schema_version = 1
+schema_version = 2
 id = "fixture"
 version = 1
 start = "compose"
@@ -44,7 +44,8 @@ output_name = "{visit:03}-result.md"
 mutation = "read-only"
 completion_criteria = ["Write a result."]
 validator = "file"
-approval_conditions = []
+transition_approval_conditions = []
+action_approval_conditions = []
 stop_conditions = []
 max_visits = 2
 

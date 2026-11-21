@@ -25,7 +25,8 @@ def _canonical_document(
         "phases": [
             {
                 "allowlist": list(phase.allowlist),
-                "approval_conditions": list(phase.approval_conditions),
+                "transition_approval_conditions": list(phase.transition_approval_conditions),
+                "action_approval_conditions": list(phase.action_approval_conditions),
                 "commands": [
                     {
                         "argv": list(command.argv),

@@ -38,7 +38,8 @@ def parse_phase(context: FieldContext, value: Any) -> PhaseConfig:
         "heading_occurrence",
         "commands",
         "validation_commands",
-        "approval_conditions",
+        "transition_approval_conditions",
+        "action_approval_conditions",
         "stop_conditions",
         "transitions",
         "max_visits",
@@ -131,12 +132,21 @@ def parse_phase(context: FieldContext, value: Any) -> PhaseConfig:
     )
     validator = parse_validator(context, raw, phase_id)
     commands = parse_commands(context, raw, phase_id)
-    approval_conditions = context.string_list(
-        raw.get("approval_conditions"),
-        "approval_conditions",
-        phase=phase_id,
-        identifiers=True,
+    transition_reasons = context.string_list(
+        raw.get("transition_approval_conditions"), "transition_approval_conditions",
+        phase=phase_id, identifiers=True,
     )
+    action_reasons = context.string_list(
+        raw.get("action_approval_conditions"), "action_approval_conditions",
+        phase=phase_id, identifiers=True,
+    )
+    overlap = sorted(set(action_reasons).intersection(transition_reasons))
+    if overlap:
+        context.fail(
+            "conflicting-fields", "approval reasons must have a single kind",
+            phase=phase_id, field="action_approval_conditions", value=overlap,
+            remediation="declare each reason in only one approval list",
+        )
     stop_conditions = context.string_list(
         raw.get("stop_conditions"),
         "stop_conditions",
@@ -175,7 +185,8 @@ def parse_phase(context: FieldContext, value: Any) -> PhaseConfig:
         completion_criteria=completion_criteria,
         validator=validator,
         commands=commands,
-        approval_conditions=approval_conditions,
+        transition_approval_conditions=transition_reasons,
+        action_approval_conditions=action_reasons,
         stop_conditions=stop_conditions,
         transitions=transitions,
         max_visits=max_visits,

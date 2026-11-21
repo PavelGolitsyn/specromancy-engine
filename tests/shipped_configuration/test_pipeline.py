@@ -105,7 +105,10 @@ class ShippedPipelineTests(unittest.TestCase):
                     action["completion_criteria"], list(phase.completion_criteria)
                 )
                 self.assertEqual(
-                    action["approval_conditions"], list(phase.approval_conditions)
+                    action["action_approval_conditions"], list(phase.action_approval_conditions)
+                )
+                self.assertEqual(
+                    action["transition_approval_conditions"], list(phase.transition_approval_conditions)
                 )
                 self.assertEqual(action["stop_conditions"], list(phase.stop_conditions))
                 self.assertEqual(

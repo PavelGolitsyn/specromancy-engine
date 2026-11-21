@@ -4,7 +4,7 @@
 name: specromancy-implementation
 description: Coordinate the implementation pipeline when the user requests this workflow.
 license: MIT
-compatibility: Specromancy pipeline schema version 1.
+compatibility: Specromancy pipeline schema version 2.
 metadata:
   role: orchestrator
 ---

@@ -9,6 +9,7 @@ RESERVED_COMMANDS = frozenset(
         "phase",
         "validate",
         "approve",
+        "decline",
         "request-approval",
         "block",
         "status",

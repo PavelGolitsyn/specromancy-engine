@@ -54,14 +54,14 @@ def write_consumer(root: Path, phase: str, *, allow_non_git: bool = False) -> No
         "workflow/instructions.md": "# Consumer instructions\n",
         "workflow/pipelines.toml": 'schema_version = 1\n[[pipelines]]\nid = "shared"\npath = "pipelines/flow.toml"\n',
         "workflow/pipelines/flow.toml": (
-            f'schema_version = 1\nid = "shared"\nversion = 1\nstart = "{phase}"\n'
+            f'schema_version = 2\nid = "shared"\nversion = 1\nstart = "{phase}"\n'
             'terminal_outcomes = ["done"]\nartifact_pattern = "artifacts/{visit:03}-{phase}.json"\n'
             f'allow_non_git = {str(allow_non_git).lower()}\n'
             f'[[phases]]\nid = "{phase}"\nskill = "compose"\n{source_field}inputs = ["request"]\n'
             'output_name = "result.json"\noutput_template = "../templates/result.json"\n'
             'mutation = "read-only"\ncompletion_criteria = ["Record the consumer result."]\n'
             'validator = {type = "json", path = "../schemas/result.json"}\n'
-            'approval_conditions = []\nstop_conditions = []\n'
+            'transition_approval_conditions = []\naction_approval_conditions = []\nstop_conditions = []\n'
             '[[phases.transitions]]\noutcome = "done"\n'
         ),
         skill: f"---\nname: compose\ndescription: Record {phase}.\n---\nUse {phase} resources.\n",
@@ -283,7 +283,7 @@ class ConsumerRootTests(unittest.TestCase):
             with self.subTest(policy=policy):
                 graph = root / "workflow/pipelines/flow.toml"
                 config = root / "workflow/adapters.toml"
-                source = graph.read_text().replace('approval_conditions = []', 'approval_conditions = ["accept"]')
+                source = graph.read_text().replace('transition_approval_conditions = []', 'transition_approval_conditions = ["accept"]')
                 if policy == "allowlist":
                     source = source.replace('mutation = "read-only"', 'mutation = "allowlist"\nallowlist = ["workflow/adapters.toml"]')
                 graph.write_text(source)

@@ -1,16 +1,16 @@
-# Pre-extraction compatibility records
+# Engine contract records
 
-Captured on 2026-10-03 from runtime commit
-`7f8aafab4a4f7b6597fded823deb5cd49889450f` using Python 3.14.4.
-These records are independent of the shipped workflow. `source/` is the entire
-test-owned configuration used for lifecycle, configuration, and error records.
+The lifecycle records use the current pipeline schema and a test-owned graph in
+`source/`. They cover configuration identity, CLI responses and recovery.
+The historical adapter captures originated on 2026-10-03 at runtime commit
+`7f8aafab4a4f7b6597fded823deb5cd49889450f`.
 The existing `tests.engine.unit.test_adapters.AdapterFixture` supplies adapter
 inputs; its generated outputs are captured separately.
 
 | Record | Contract |
 | --- | --- |
 | `canonical.json` | Exact canonical strings and SHA-256 for omitted pause, explicit false, and true; non-ASCII criteria and omitted optional defaults |
-| `responses.json` | Complete pending/active actions, approval, pause/resume, terminal and blocked envelopes; array order retained |
+| `responses-current.json` | Complete pending/active actions, approval, pause/resume, terminal and blocked envelopes; array order retained |
 | `diagnostics.json` | Exact configuration locations, remediation, error values, CLI exit codes and stdout/stderr routing; outcome-before-output and artifact-before-pipeline mismatch ordering |
 | `states.json` | State name → relative run filename → exact UTF-8 contents, including complete `run.json`, `events.jsonl`, request and output artifacts |
 | `adapters.json` | Generated relative path → exact UTF-8 content and SHA-256, including the adapter manifest |
@@ -47,8 +47,4 @@ both the scenario and the expected record; do not refresh records merely to make
 an extraction pass. Adapter generation must also stay in `AdapterFixture`'s
 temporary repository.
 
-`responses-current.json` holds the installed-command response expectation. Its
-contents are preserved from the development snapshot; its filename change is
-recorded in [implementation history](../../../../docs/implementation-history/initial-release-baseline.md). The comparison with `responses.json` permits only the
-three final-validation command prefixes to differ. Package release numbering
-does not alter these records or the separately versioned adapter fixtures.
+`responses.json` is a historical capture retained for the implementation history.

@@ -186,15 +186,20 @@ separate pipeline and store for each consumer; no new builder API is required.
 
 ## Approvals and stops
 
-Declare stable kebab-case reason codes:
+In pipeline schema version 2, every phase declares both approval lists. Use
+empty arrays when a phase has no reasons of that kind. Each reason must occur
+in only one list per phase.
 
 ```toml
-approval_conditions = ["external-side-effect", "material-scope-change"]
+transition_approval_conditions = ["material-scope-change"]
+action_approval_conditions = ["external-side-effect"]
 stop_conditions = ["insufficient-information"]
 ```
 
 The phase skill explains when each code applies. It must call
 `request-approval` or `block` rather than merely mentioning a concern in prose.
+Request action permission before doing the described work. Request transition
+approval when the output is ready for validation and the selected transition.
 Changing or adding a reason changes the pipeline hash.
 
 ## Mutation policies
