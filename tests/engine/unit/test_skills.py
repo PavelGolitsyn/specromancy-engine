@@ -11,7 +11,7 @@ from specromancy_engine.validation import markdown_heading_counts
 
 ROOT = Path(__file__).resolve().parents[3]
 WORKFLOW_FIXTURE = ROOT / "tests" / "engine" / "fixtures" / "example-pipeline"
-FIXTURE_SKILLS = WORKFLOW_FIXTURE / ".agents" / "skills"
+FIXTURE_SKILLS = WORKFLOW_FIXTURE / "workflow" / "skills"
 ALLOWED_FRONTMATTER = {"name", "description", "license", "compatibility", "metadata"}
 
 
@@ -50,7 +50,7 @@ class SkillFileFixtureTests(unittest.TestCase):
         paths = self.skill_paths()
         self.assertEqual(
             [path.parent.name for path in paths],
-            ["implement", "pipeline", "plan", "research", "review"],
+            ["implement", "plan", "research", "review"],
         )
         for path in paths:
             with self.subTest(skill=path.parent.name):
@@ -75,7 +75,7 @@ class SkillFileFixtureTests(unittest.TestCase):
                 for relative in re.findall(
                     r"templates/[a-z0-9-]+\.md", text
                 ):
-                    self.assertTrue((WORKFLOW_FIXTURE / relative).is_file(), relative)
+                    self.assertTrue((WORKFLOW_FIXTURE / "workflow" / relative).is_file(), relative)
 
     def test_skills_have_no_vendor_or_unsafe_execution_instructions(self) -> None:
         forbidden = (
@@ -99,10 +99,6 @@ class SkillFileFixtureTests(unittest.TestCase):
             with self.subTest(skill=path.parent.name):
                 for value in forbidden:
                     self.assertNotIn(value, text)
-        orchestrator = (FIXTURE_SKILLS / "pipeline" / "SKILL.md").read_text(
-            encoding="utf-8"
-        )
-        self.assertIn("never edit `run.json`", orchestrator)
 
     def test_fixture_templates_satisfy_declared_contracts(self) -> None:
         pipeline = load_pipeline(
@@ -117,7 +113,7 @@ class SkillFileFixtureTests(unittest.TestCase):
                 for heading in phase.validator.required_headings:
                     self.assertEqual(headings.get(heading), 1)
         request_headings = markdown_heading_counts(
-            (WORKFLOW_FIXTURE / "templates" / "request.md").read_text(encoding="utf-8")
+            (WORKFLOW_FIXTURE / "workflow/templates" / "request.md").read_text(encoding="utf-8")
         )
         for heading in ("Requirements", "Constraints", "Acceptance Criteria"):
             self.assertEqual(request_headings.get(heading), 1)

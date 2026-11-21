@@ -19,7 +19,7 @@ class CliContractTests(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name)
         (self.root / ".git").mkdir()
-        skill = self.root / ".agents" / "skills" / "compose" / "SKILL.md"
+        skill = self.root / "workflow" / "skills" / "compose" / "SKILL.md"
         skill.parent.mkdir(parents=True)
         skill.write_text(
             "---\nname: compose\ndescription: Fixture.\n---\n", encoding="utf-8"
@@ -32,7 +32,7 @@ class CliContractTests(unittest.TestCase):
         self.pipeline.write_text(
             textwrap.dedent(
                 """
-                schema_version = 1
+                schema_version = 2
                 id = "cli-fixture"
                 version = 1
                 start = "compose"
@@ -42,12 +42,14 @@ class CliContractTests(unittest.TestCase):
                 [[phases]]
                 id = "compose"
                 skill = "compose"
+                skill_source = "workflow/skills/compose/SKILL.md"
                 inputs = ["request"]
                 output_name = "{visit:03}-result.md"
                 mutation = "read-only"
                 completion_criteria = ["Write a result."]
                 validator = "file"
-                approval_conditions = []
+                transition_approval_conditions = []
+                action_approval_conditions = []
                 stop_conditions = []
                 max_visits = 1
                 [[phases.transitions]]

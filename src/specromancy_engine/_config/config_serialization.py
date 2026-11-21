@@ -25,7 +25,8 @@ def _canonical_document(
         "phases": [
             {
                 "allowlist": list(phase.allowlist),
-                "approval_conditions": list(phase.approval_conditions),
+                "transition_approval_conditions": list(phase.transition_approval_conditions),
+                "action_approval_conditions": list(phase.action_approval_conditions),
                 "commands": [
                     {
                         "argv": list(command.argv),
@@ -42,6 +43,7 @@ def _canonical_document(
                 "output_name": phase.output_name,
                 "output_template": phase.output_template,
                 "skill": phase.skill,
+                **({"skill_source": phase.skill_source} if phase.skill_source is not None else {}),
                 "stop_conditions": list(phase.stop_conditions),
                 "transitions": [
                     {

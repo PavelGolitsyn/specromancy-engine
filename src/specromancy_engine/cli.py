@@ -19,7 +19,7 @@ from .errors import SpecromancyError, UsageError
 from .exit_codes import EXIT_CODE_DESCRIPTIONS, ExitCode
 from ._cli.pipeline_selection import selected_pipeline as _selected_pipeline
 from .registry import load_registry
-from .status import render_status
+from .status import render_approval, render_status
 
 ACTIONABLE_CODES = frozenset(
     {
@@ -183,9 +183,7 @@ def _write_payload(payload: dict[str, Any], stream: TextIO, as_json: bool) -> No
         stream.write(payload["message"])
         approval = payload.get("approval")
         if approval is not None:
-            stream.write(
-                f"\nReason: {approval['reason']}\nPhase: {approval['phase_id']}"
-            )
+            stream.write("\n" + render_approval(approval))
     else:
         stream.write(payload["message"])
     stream.write("\n")
@@ -230,7 +228,9 @@ def _dispatch(
             outcome=arguments.outcome,
         )
     if arguments.command == "approve":
-        return engine.approve(arguments.run_id, arguments.phase)
+        return engine.approve(arguments.run_id, arguments.phase, request_number=arguments.request)
+    if arguments.command == "decline":
+        return engine.decline(arguments.run_id, arguments.phase, request_number=arguments.request)
     if arguments.command == "block":
         return engine.block(
             arguments.run_id, reason=arguments.reason, details=arguments.details
@@ -297,7 +297,6 @@ def main(
         root = discover_repository_root(
             explicit_root=getattr(arguments, "root", None)
         )
-        registry = load_registry(root)
         selector = getattr(arguments, "pipeline", None)
         if arguments.command == "adapters" and not getattr(
             arguments, "adapter_command", None
@@ -306,15 +305,11 @@ def main(
         if arguments.command == "adapters":
             if selector is not None:
                 raise UsageError("adapters generate processes all registered pipelines; omit --pipeline")
-            from .adapters import generate_adapters
+            from .adapters import _generate_adapters
 
-            payload = generate_adapters(
-                root,
-                registry,
-                check=arguments.check,
-            )
+            payload = _generate_adapters(root, check=arguments.check)
         else:
-            pipeline = _selected_pipeline(arguments, root, registry)
+            pipeline = _selected_pipeline(arguments, root, load_registry(root))
             arguments = build_parser(pipeline.phase_ids).parse_args(raw_args)
             payload = _dispatch(arguments, root, pipeline)
         if wants_json or not wants_quiet:

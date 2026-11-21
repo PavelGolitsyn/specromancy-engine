@@ -2,130 +2,56 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
-from pathlib import Path
+from string import Template
 from typing import TYPE_CHECKING, Any
 
 from .adapter_contracts import (
-    ADAPTER_COMMANDS, ADAPTER_SCHEMA_VERSION, GENERATOR_VERSION, HARNESS_MODES,
-    MANIFEST_PATH, REGENERATION_COMMAND, AdapterCommand, AdapterError, _target_for_path,
+    ADAPTER_COMMANDS, ADAPTER_SCHEMA_VERSION, GENERATOR_VERSION,
+    MANIFEST_PATH, REGENERATION_COMMAND, AdapterCommand, AdapterError,
+    COMMAND_PATHS, SKILL_CONSUMERS, INSTRUCTION_CONSUMERS, consumers_for_path, target_records,
 )
 from ..hashing import sha256_bytes, sha256_json
 
 if TYPE_CHECKING:
-    from .adapter_sources import AdapterSources
+    from .adapter_sources import AdapterSources, SourceInput
 
 
-def render_sources(sources: AdapterSources) -> dict[str, bytes]:
-    """Render captured sources without reading the filesystem or registry."""
+class _TemplateFields(Template):
+    # Dollar signs are literal harness syntax, including $0 and $ARGUMENTS.
+    delimiter = "%"
 
-    files: dict[str, bytes] = {}
-    files[".claude/CLAUDE.md"] = _markdown_document(
-        "AGENTS.md",
-        sources.agents,
-        preface="The following repository instructions mirror the canonical AGENTS.md.\n\n",
+
+def render_release_template(source: SourceInput, **values: str) -> str:
+    """Render a captured template once, preserving its original bytes for hashing."""
+    try:
+        template = _TemplateFields(source.content.decode("utf-8"))
+    except UnicodeDecodeError as exc:
+        raise AdapterError("invalid UTF-8 in adapter release template", {"path": source.path}) from exc
+    if not template.is_valid():
+        raise AdapterError("invalid adapter template placeholder", {"path": source.path})
+    required = set(template.get_identifiers())
+    if required != values.keys():
+        raise AdapterError("adapter template fields differ", {
+            "path": source.path, "missing": sorted(required - values.keys()),
+            "unknown": sorted(values.keys() - required),
+        })
+    rendered = template.substitute(values).replace("\r\n", "\n").replace("\r", "\n")
+    return rendered.rstrip("\n") + "\n"
+
+
+def render_release_launch(pipeline_id: str | None, launch: SourceInput, orchestrator: SourceInput) -> str:
+    return render_release_template(
+        launch, template_id=launch.path, title=pipeline_id or "Pipeline",
+        skill_name=f"specromancy-{pipeline_id}" if pipeline_id else "pipeline",
+        description=(f"Coordinate the {pipeline_id} pipeline when the user requests this workflow."
+                     if pipeline_id else "Coordinate a registered Specromancy pipeline."),
+        binding=(f"This invocation supplies `{pipeline_id}` as the pipeline ID for a new run."
+                 if pipeline_id else "Use the registered pipeline ID supplied by the caller."),
+        orchestrator_id=orchestrator.path,
+        orchestration=render_release_template(orchestrator, pipeline_id=pipeline_id or "PIPELINE_ID"),
     )
-    for skill_path, skill_text in sources.skills:
-        name = Path(skill_path).parent.name
-        files[f".claude/skills/{name}/SKILL.md"] = _skill_mirror(
-            skill_path, skill_text
-        )
-    for pipeline in sources.pipelines:
-        name = f"specromancy-{pipeline.id}"
-        skill = _pipeline_skill(pipeline.id)
-        files[f".agents/skills/{name}/SKILL.md"] = skill
-        files[f".claude/skills/{name}/SKILL.md"] = skill
-    for command in ADAPTER_COMMANDS:
-        files[f".claude/commands/specromancy/{command.name}.md"] = (
-            _command_wrapper("claude", command)
-        )
-
-    files[".github/copilot-instructions.md"] = _markdown_document(
-        "AGENTS.md",
-        sources.agents,
-        preface=(
-            "These repository-work rules mirror the canonical instructions used by "
-            "Specromancy.\n\n"
-        ),
-    )
-    for command in ADAPTER_COMMANDS:
-        files[f".github/prompts/specromancy-{command.name}.prompt.md"] = (
-            _command_wrapper("copilot", command)
-        )
-        files[f".opencode/commands/specromancy-{command.name}.md"] = (
-            _command_wrapper("opencode", command)
-        )
-
-    # Sorting here is part of the public reproducibility guarantee.
-    return {path: files[path] for path in sorted(files)}
-
-
-def _pipeline_skill(pipeline_id: str) -> bytes:
-    source = "workflow/pipelines.toml and .agents/skills/pipeline/SKILL.md"
-    lines = [
-        "---",
-        *_yaml_provenance(source),
-        f"name: specromancy-{pipeline_id}",
-        f"description: Coordinate the {pipeline_id} pipeline when the user requests this workflow.",
-        "license: MIT",
-        "compatibility: Specromancy pipeline schema version 1.",
-        "metadata:",
-        "  role: orchestrator",
-        "---",
-        "",
-        f"# {pipeline_id}",
-        "",
-        f"For a new request, run `specromancy init DESCRIPTION --pipeline {pipeline_id} --json`.",
-        "Retain the emitted RUN_ID. For an existing invocation, obtain RUN_ID from the user.",
-        "Then load `.agents/skills/pipeline/SKILL.md` and follow its existing-run procedure",
-        "using that RUN_ID and the CLI's persisted status and action packets.",
-        "Never edit run.json or events.jsonl.",
-        "",
-    ]
-    return "\n".join(lines).encode("utf-8")
-
-
-def _command_wrapper(harness: str, command: AdapterCommand) -> bytes:
-    source = "CLI help metadata and canonical .agents skills"
-    invocation = _harness_invocation(harness, command)
-    if command.name == "init":
-        follow = (
-            "Use the returned run ID and recorded next command. If the response contains "
-            "an action packet, load its `skill.absolute_path` and follow that canonical "
-            "procedure exactly."
-        )
-    elif command.name == "status":
-        follow = (
-            "Report the persisted status and recorded next command. Do not infer run state "
-            "from conversation history."
-        )
-    else:
-        follow = (
-            "If the response contains an action packet, load its `skill.absolute_path` and "
-            "follow that canonical procedure exactly. Stop at any recorded pause, approval, "
-            "block, validation failure, or terminal result."
-        )
-
-    frontmatter = [
-        "---",
-        *_yaml_provenance(source),
-        f"description: {command.description}",
-    ]
-    if harness == "copilot":
-        frontmatter.append(f"argument-hint: {command.arguments}")
-        frontmatter.append("agent: agent")
-    elif harness == "claude":
-        frontmatter.append(f"argument-hint: {command.arguments}")
-    frontmatter.extend(["---", ""])
-    text = "\n".join(frontmatter)
-    if harness == "copilot":
-        text += (
-            f"Using the values supplied after this prompt's slash command, replace the "
-            f"placeholders in `{invocation}` and run it. {follow}\n"
-        )
-    else:
-        text += f"Run `{invocation}`. {follow}\n"
-    return text.encode("utf-8")
 
 
 def _harness_invocation(harness: str, command: AdapterCommand) -> str:
@@ -148,56 +74,78 @@ def _harness_invocation(harness: str, command: AdapterCommand) -> str:
     return f"specromancy {command.cli_command} {arguments} --json"
 
 
-def _skill_mirror(source: str, text: str) -> bytes:
-    lines = text.splitlines()
-    if not lines or lines[0] != "---":
-        raise AdapterError(
-            "canonical skill has no portable frontmatter",
-            {"path": source},
+def _command_follow(command: AdapterCommand) -> str:
+    if command.name == "init":
+        return (
+            "Use the returned run ID and recorded next command. If the response contains "
+            "an action packet, load its `skill.absolute_path` and follow that canonical "
+            "procedure exactly."
         )
-    mirrored = [lines[0], *_yaml_provenance(source), *lines[1:]]
-    return ("\n".join(mirrored) + "\n").encode("utf-8")
-
-
-def _markdown_document(source: str, body: str, *, preface: str = "") -> bytes:
-    header = (
-        f"<!-- Generated by Specromancy adapter generator v{GENERATOR_VERSION}.\n"
-        f"Canonical source: {source}.\n"
-        f"Regenerate: {REGENERATION_COMMAND}\n"
-        "Do not edit this file directly. -->\n\n"
+    if command.name == "status":
+        return (
+            "Report the persisted status and recorded next command. Do not infer run state "
+            "from conversation history."
+        )
+    return (
+        "If the response contains an action packet, load its `skill.absolute_path` and "
+        "follow that canonical procedure exactly. Stop at any recorded pause, approval, "
+        "block, validation failure, or terminal result."
     )
-    return (header + preface + body).encode("utf-8")
 
 
-def _yaml_provenance(source: str) -> list[str]:
-    return [
-        f"# Generated by Specromancy adapter generator v{GENERATOR_VERSION}.",
-        f"# Canonical source: {source}.",
-        f"# Regenerate: {REGENERATION_COMMAND}",
-        "# Do not edit this file directly.",
-    ]
+def render_workflow_sources(sources: AdapterSources) -> dict[str, bytes]:
+    """Render the union of the selected harnesses' requirements from a single capture."""
+    if not sources.harnesses:
+        return {}
+    assert sources.instructions is not None
+    selected = set(sources.harnesses)
+    templates = sources.templates
+    envelope = templates["instructions.md"]
+    files = {
+        path: render_release_template(envelope, template_id=envelope.path,
+                                      instructions=sources.instructions.content.decode("utf-8"))
+        for path, consumers in INSTRUCTION_CONSUMERS.items() if selected.intersection(consumers)
+    }
 
-
-def expected_manifest(
-    bundle: AdapterSources,
-    rendered: Mapping[str, bytes],
-) -> dict[str, Any]:
-    sources = [source.record() for source in bundle.inputs]
-    generated = []
-    for path, content in rendered.items():
-        generated.append(
-            {
-                "path": path,
-                "sha256": sha256_bytes(content),
-                "target": _target_for_path(path),
-            }
+    launch, orchestrator = templates["launch.md"], templates["orchestrator.md"]
+    skills = {"pipeline": render_release_launch(None, launch, orchestrator)}
+    for pipeline in sources.pipelines:
+        skills[f"specromancy-{pipeline.id}"] = render_release_launch(pipeline.id, launch, orchestrator)
+    wrapper = templates["phase.md"]
+    for skill in sources.skills:
+        skills[skill.name] = render_release_template(
+            wrapper, template_id=wrapper.path, validated_metadata=skill.frontmatter, skill_source=skill.source.path,
         )
-    targets = []
-    for name in sorted(HARNESS_MODES):
-        paths = [item["path"] for item in generated if item["target"] == name]
-        targets.append({"name": name, "mode": HARNESS_MODES[name], "paths": paths})
-        if HARNESS_MODES[name] == "native":
-            targets[-1]["discovery_paths"] = [path for path in rendered if path.startswith(".agents/")]
+    for directory, consumers in SKILL_CONSUMERS.items():
+        if selected.isdisjoint(consumers):
+            continue
+        for name, content in skills.items():
+            files[f"{directory}/{name}/SKILL.md"] = content
+
+    for harness, pattern in COMMAND_PATHS.items():
+        if harness not in selected:
+            continue
+        source = templates[f"command-{harness}.md"]
+        for command in ADAPTER_COMMANDS:
+            description = sources.command_help.get(command.cli_command, command.description)
+            values = {
+                "template_id": source.path,
+                "description": json.dumps(description, ensure_ascii=False),
+                "invocation": _harness_invocation(harness, command),
+                "follow": _command_follow(command),
+            }
+            if harness != "opencode":
+                values["arguments"] = command.arguments
+            files[pattern.format(name=command.name)] = render_release_template(source, **values)
+    return {path: files[path].encode("utf-8") for path in sorted(files)}
+
+
+def workflow_manifest(bundle: AdapterSources, rendered: Mapping[str, bytes]) -> dict[str, Any]:
+    selected = set(bundle.harnesses)
+    generated = [{"path": path, "sha256": sha256_bytes(content),
+                  "targets": sorted(selected.intersection(consumers_for_path(path)))}
+                 for path, content in sorted(rendered.items())]
+    sources = [source.record() for source in bundle.inputs]
     return {
         "schema_version": ADAPTER_SCHEMA_VERSION,
         "generator": {
@@ -213,6 +161,6 @@ def expected_manifest(
             "path": MANIFEST_PATH,
             "self_hash_omitted": True,
         },
-        "targets": targets,
+        "targets": target_records(rendered, bundle.harnesses),
         "generated": generated,
     }

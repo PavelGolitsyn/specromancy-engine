@@ -1,7 +1,7 @@
 """Execute consumer documentation against the active installed engine.
 
-For a wheel-only check, copy this module plus examples/release-documentation/
-and docs/guides/installation.md outside the producer. Set
+For a wheel-only check, copy this module, examples/release-documentation/,
+docs/guides/installation.md and the frozen generator-v2 adapter fixture outside the producer. Set
 SPECROMANCY_CONSUMER_BUNDLE to that bundle root and run this module there with
 the wheel environment's Python. No tests build or install dependencies.
 """
@@ -61,6 +61,8 @@ class ReleaseDocumentationTests(unittest.TestCase):
                        env=self.env, capture_output=True)
         self.assertFalse((self.root / "src").exists())
         self.assertFalse((self.root / "bin/specromancy").exists())
+        for name in ("AGENTS.md", ".agents", ".claude", ".github", ".opencode", "adapters"):
+            self.assertFalse((self.root / name).exists(), name)
         self.store = RunStore(self.root)
 
     def command(self, *args: str, expected: int = 0) -> dict:
@@ -140,6 +142,62 @@ class ReleaseDocumentationTests(unittest.TestCase):
                                "--pipeline", "release-documentation", expected=8)["action"]
         return self.command("phase", pending["run_id"], pending["phase"], expected=8)["action"]
 
+    def test_phase_wrappers_follow_the_example_procedures_relative_reference(self) -> None:
+        self.command("adapters", "generate")
+        manifest_path = self.root / "adapters/manifest.json"
+        original = json.loads(manifest_path.read_bytes())
+        source = self.root / "workflow/skills/draft-release-notes/SKILL.md"
+        link = "../../templates/release-notes.md"
+        source.write_text(source.read_text() + f"\nRead the [draft template]({link}).\n")
+        drift = self.command("adapters", "generate", "--check", expected=11)
+        self.assertEqual(drift["details"]["modified"], ["adapters/manifest.json"])
+        self.command("adapters", "generate")
+        self.command("adapters", "generate", "--check")
+        updated = json.loads(manifest_path.read_bytes())
+        self.assertNotEqual(updated["canonical_source"]["sha256"], original["canonical_source"]["sha256"])
+        self.assertEqual(updated["generated"], original["generated"])
+        action = self.start_draft()
+        for directory in (".agents", ".claude"):
+            wrapper = self.root / directory / "skills/draft-release-notes/SKILL.md"
+            text = wrapper.read_text()
+            relative = re.search(r"Load `([^`]+)` from the consumer repository root", text).group(1)
+            canonical = self.root / relative
+            self.assertEqual(canonical, Path(action["skill"]["absolute_path"]))
+            self.assertIn("directory containing the canonical file", text)
+            self.assertNotIn(link, text)
+            reference = re.search(r"\[draft template\]\(([^)]+)\)", canonical.read_text()).group(1)
+            self.assertEqual((canonical.parent / reference).resolve(), Path(action["template"]["absolute_path"]))
+
+    def test_v2_upgrade_rejects_matching_hash_claim_before_touching_files(self) -> None:
+        fixture = BUNDLE / "tests/engine/fixtures/refactoring-compatibility/adapters-generator-v2.json"
+        for name, record in json.loads(fixture.read_bytes()).items():
+            path = self.root / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(record["text"])
+        manifest = self.root / "adapters/manifest.json"
+        valid = manifest.read_bytes()
+        forged = json.loads(valid)
+        instructions = self.root / "AGENTS.md"
+        instructions.write_bytes(b"# Hand-written consumer policy\n")
+        forged["generated"].append({"path": "AGENTS.md", "target": "codex",
+                                    "sha256": hashlib.sha256(instructions.read_bytes()).hexdigest()})
+        manifest.write_text(json.dumps(forged))
+        before = snapshot(self.root)
+        for options in ((), ("--check",)):
+            result = self.command("adapters", "generate", *options, expected=11)
+            self.assertIn("outside generated adapter locations", result["message"])
+            self.assertEqual(result["details"]["path"], "AGENTS.md")
+            self.assertEqual(snapshot(self.root), before)
+        manifest.write_bytes(valid)
+        before = snapshot(self.root)
+        refused = self.command("adapters", "generate", expected=11)
+        self.assertEqual(refused["details"]["unowned"], ["AGENTS.md"])
+        self.assertEqual(snapshot(self.root), before)
+        instructions.replace(self.root / "workflow/instructions.md")
+        self.command("adapters", "generate")
+        self.command("adapters", "generate", "--check")
+        self.assertEqual(json.loads(manifest.read_bytes())["schema_version"], 2)
+
     def write_draft(self, action: dict) -> None:
         Path(action["output"]["absolute_path"]).write_text(
             "# Lantern 1.4.0\n## Summary\nReport updates.\n## Changes\n"
@@ -181,11 +239,11 @@ class ReleaseDocumentationTests(unittest.TestCase):
         self.assertFalse((self.root / ".specromancy").exists())
         self.assertEqual(snapshot(self.root), before)
 
-    def test_missing_orchestrator_fails_without_writes(self) -> None:
-        (self.root / ".agents/skills/pipeline/SKILL.md").unlink()
+    def test_missing_instructions_fails_without_writes(self) -> None:
+        (self.root / "workflow/instructions.md").unlink()
         before = snapshot(self.root)
-        response = self.command("adapters", "generate", expected=11)
-        self.assertEqual(response["message"], "canonical pipeline orchestrator skill is missing")
+        response = self.command("adapters", "generate", expected=3)
+        self.assertEqual(response["details"]["error_code"], "missing-file")
         self.assertEqual(snapshot(self.root), before)
 
     def test_invalid_or_missing_pipeline_selection_fails_without_writes(self) -> None:

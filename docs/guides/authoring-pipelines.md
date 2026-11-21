@@ -21,13 +21,11 @@ Installation supplies the engine and its four published schemas; author the
 registry, graph, skills, templates, and validator schemas in the consumer project.
 Nothing is implicitly loaded from the engine's source checkout or home directory.
 
-Adapter generation also requires the project-owned generic
-`.agents/skills/pipeline/SKILL.md`. Explicitly copy the
-[reusable procedure](../../.agents/skills/pipeline/SKILL.md) to that path in the
-consumer; review existing content before replacing it. Installation does not
-create it. The procedure resolves phases from persisted CLI packets and needs
-no example phase names. See [Harness usage](harnesses.md) for command environment
-setup, including GUI harnesses.
+Write repository-wide instructions in `workflow/instructions.md`. The generator
+combines them with packaged harness templates, including the generic orchestrator.
+Keep the project's harness choice in `workflow/adapters.toml`. The registry and
+graphs retain their own identities when the selected harnesses change.
+See [Harness usage](harnesses.md#choose-the-projects-harnesses) for setup and commands.
 
 Pipeline files use TOML so Python 3.11 can load them without a dependency. A
 pipeline declares schema version, identity, start phase, terminal outcomes,
@@ -39,12 +37,12 @@ transitions.
 
 To add a phase:
 
-1. add `.agents/skills/<name>/SKILL.md` with portable frontmatter;
-2. add any output template under the pipeline's directory;
-3. add `[[phases]]` with a unique lowercase identifier;
+1. Write the procedure in `workflow/skills/<name>/SKILL.md` with portable frontmatter.
+2. Add any output template under `workflow/`.
+3. Add `[[phases]]` with a unique lowercase identifier, the `skill` name and its `skill_source`.
 4. route an existing transition to it and give it at least one transition;
 5. make every symbolic input available on every incoming route;
-6. regenerate adapters and run tests.
+6. Validate the graph and run its tests. The runtime can execute it before generating any adapters.
 
 Delete a phase by removing all inbound transitions first, then its phase table,
 skill, and unused template. Reordering table text alone does not change graph
@@ -90,15 +88,48 @@ the canonical hash of an otherwise unchanged version-1 pipeline.
 
 ## Skills and templates
 
-`skill = "inspect"` resolves to `.agents/skills/inspect/SKILL.md` at the
-repository root. Canonical skill frontmatter is limited to portable Agent
-Skills fields (`name`, `description`, `license`, `compatibility`, and optional
-`metadata`). Keep vendor models, tool allowlists, and slash-command syntax in
-generated harness surfaces, never canonical skills.
+Declare the skill identifier and its repository-relative procedure in each new phase:
+
+```toml
+[[phases]]
+id = "inspect-changes"
+skill = "inspect"
+skill_source = "workflow/skills/inspect/SKILL.md"
+# Add inputs, output, mutation policy, validator, gates and transitions here.
+```
+
+Start that UTF-8 Markdown file with portable frontmatter:
+
+```markdown
+---
+name: inspect
+description: Inspect the changes listed in the request.
+---
+```
+
+`name` must equal `skill`. Several phases may reuse the same identifier and
+source. Across registered graphs each identifier has one declared source and each resolved
+file has one identifier. Resolve supporting references relative to the canonical
+procedure file. Reserve `pipeline` and `specromancy-*` for orchestration and launch skills.
+The reader accepts single-line string values for `name`, `description`, and
+optional `license` and `compatibility`. Optional `metadata` holds a flat mapping
+of string values indented two spaces. Quote values containing YAML punctuation
+such as a colon followed by a space.
+
+With `skill_source`, the procedure, template and validator files must all resolve
+under the repository's actual `workflow/` directory. The directory itself must
+not be a symlink. Descendant links can target files elsewhere inside it. Use
+forward slashes and omit parent segments in `skill_source`. The CLI returns
+the canonical procedure in `action.skill` and checks its bytes on continuation.
+
+For an existing graph without `skill_source`, the runtime still loads
+`.agents/skills/<skill>/SKILL.md`. Adapter generation requires explicit declarations in every registered graph. Adding the field changes the graph hash. Finish an
+existing run with its original graph and procedure bytes, or retain its checkout
+and start new runs in a separate checkout.
 
 `output_template` is relative to the pipeline file. `../templates/result.md`
 can reference shared `workflow/templates/`; multiple graphs may use the same
-canonical skill or template. The resolved file must remain inside the repository.
+canonical skill or template.
 The `.agents/skills/specromancy-*` namespace holds generated launch skills and
 is not a phase-procedure customization surface. A Markdown validator can
 declare `required_headings` and `heading_occurrence`; a JSON validator may use
@@ -107,7 +138,8 @@ required heading exactly once and meaningful placeholder content that a valid
 artifact must replace.
 
 JSON validator `path` (or `schema`) resolves relative to the pipeline file and
-must stay inside the consumer root, including after symlink resolution. The
+follows the same containment rule as the template. Legacy phases use the
+consumer root as their resource boundary. The
 `load_json_schema(path)` API still reads these project-owned files and rejects
 unsupported keywords. The four published engine schemas are a separate package
 resource contract, not artifact validators for that subset; see
@@ -154,15 +186,20 @@ separate pipeline and store for each consumer; no new builder API is required.
 
 ## Approvals and stops
 
-Declare stable kebab-case reason codes:
+In pipeline schema version 2, every phase declares both approval lists. Use
+empty arrays when a phase has no reasons of that kind. Each reason must occur
+in only one list per phase.
 
 ```toml
-approval_conditions = ["external-side-effect", "material-scope-change"]
+transition_approval_conditions = ["material-scope-change"]
+action_approval_conditions = ["external-side-effect"]
 stop_conditions = ["insufficient-information"]
 ```
 
 The phase skill explains when each code applies. It must call
 `request-approval` or `block` rather than merely mentioning a concern in prose.
+Request action permission before doing the described work. Request transition
+approval when the output is ready for validation and the selected transition.
 Changing or adding a reason changes the pipeline hash.
 
 ## Mutation policies
@@ -198,15 +235,20 @@ redirections are not interpreted.
 
 ## Regeneration and active runs
 
-After changing `AGENTS.md`, a canonical skill, the registry, a pipeline or its
+After changing `workflow/adapters.toml`, `workflow/instructions.md`, a canonical skill, the registry, a pipeline or its
 referenced templates/schemas, or CLI help
-metadata, run:
+metadata, regenerate and check. A body edit can change only manifest provenance.
+A frontmatter or source-path edit can also change the wrapper bytes. Run:
 
 ```bash
 specromancy adapters generate
 specromancy adapters generate --check
 python -m unittest discover
 ```
+
+Selection and regeneration write ordinary repository files. Make these edits
+before starting a read-only visit. An active visit's original mutation policy
+and allowlist still apply during validation and approval.
 
 A run stores its pipeline hash. Any pipeline change causes `resume`, `phase`,
 and transition commands to reject that run with `pipeline-hash-mismatch`.

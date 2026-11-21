@@ -24,6 +24,7 @@ def parse_phase(context: FieldContext, value: Any) -> PhaseConfig:
     allowed = {
         "id",
         "skill",
+        "skill_source",
         "inputs",
         "output_name",
         "output_template",
@@ -37,7 +38,8 @@ def parse_phase(context: FieldContext, value: Any) -> PhaseConfig:
         "heading_occurrence",
         "commands",
         "validation_commands",
-        "approval_conditions",
+        "transition_approval_conditions",
+        "action_approval_conditions",
         "stop_conditions",
         "transitions",
         "max_visits",
@@ -53,12 +55,15 @@ def parse_phase(context: FieldContext, value: Any) -> PhaseConfig:
             remediation="choose a phase id that is not a CLI command",
         )
     skill = context.require_identifier(raw.get("skill"), "skill", phase=phase_id)
-    skill_path = context.existing_path(
-        f".agents/skills/{skill}/SKILL.md",
-        "skill",
-        phase=phase_id,
-        base=context.repository_root,
-    )
+    skill_source = None
+    if "skill_source" in raw:
+        declared = context.require_string(raw["skill_source"], "skill_source", phase=phase_id)
+        skill_path = context.workflow_path(declared, "skill_source", phase=phase_id)
+        skill_source = Path(declared).as_posix()
+    else:
+        skill_path = context.existing_path(
+            f".agents/skills/{skill}/SKILL.md", "skill", phase=phase_id, base=context.repository_root,
+        )
     inputs = context.string_list(raw.get("inputs"), "inputs", phase=phase_id)
     _validate_inputs(inputs, phase_id, context.fail)
     output_name = context.require_string(
@@ -74,8 +79,8 @@ def parse_phase(context: FieldContext, value: Any) -> PhaseConfig:
         output_template = context.require_string(
             output_template_raw, "output_template", phase=phase_id
         )
-        output_template_path = context.existing_path(
-            output_template, "output_template", phase=phase_id
+        output_template_path = context.phase_dependency(
+            output_template, "output_template", phase=phase_id, workflow_owned=skill_source is not None,
         )
     mutation = context.require_string(raw.get("mutation"), "mutation", phase=phase_id)
     if mutation not in MUTATION_POLICIES:
@@ -127,12 +132,21 @@ def parse_phase(context: FieldContext, value: Any) -> PhaseConfig:
     )
     validator = parse_validator(context, raw, phase_id)
     commands = parse_commands(context, raw, phase_id)
-    approval_conditions = context.string_list(
-        raw.get("approval_conditions"),
-        "approval_conditions",
-        phase=phase_id,
-        identifiers=True,
+    transition_reasons = context.string_list(
+        raw.get("transition_approval_conditions"), "transition_approval_conditions",
+        phase=phase_id, identifiers=True,
     )
+    action_reasons = context.string_list(
+        raw.get("action_approval_conditions"), "action_approval_conditions",
+        phase=phase_id, identifiers=True,
+    )
+    overlap = sorted(set(action_reasons).intersection(transition_reasons))
+    if overlap:
+        context.fail(
+            "conflicting-fields", "approval reasons must have a single kind",
+            phase=phase_id, field="action_approval_conditions", value=overlap,
+            remediation="declare each reason in only one approval list",
+        )
     stop_conditions = context.string_list(
         raw.get("stop_conditions"),
         "stop_conditions",
@@ -160,6 +174,7 @@ def parse_phase(context: FieldContext, value: Any) -> PhaseConfig:
     return PhaseConfig(
         id=phase_id,
         skill=skill,
+        skill_source=skill_source,
         skill_path=skill_path,
         inputs=inputs,
         output_name=output_name,
@@ -170,7 +185,8 @@ def parse_phase(context: FieldContext, value: Any) -> PhaseConfig:
         completion_criteria=completion_criteria,
         validator=validator,
         commands=commands,
-        approval_conditions=approval_conditions,
+        transition_approval_conditions=transition_reasons,
+        action_approval_conditions=action_reasons,
         stop_conditions=stop_conditions,
         transitions=transitions,
         max_visits=max_visits,
@@ -306,8 +322,8 @@ def parse_validator(
         declared_path = context.require_string(
             declared_path_raw, "validator_path", phase=phase_id
         )
-        resolved_path = context.existing_path(
-            declared_path, "validator_path", phase=phase_id
+        resolved_path = context.phase_dependency(
+            declared_path, "validator_path", phase=phase_id, workflow_owned="skill_source" in phase_raw,
         )
         if validator_type != "json":
             context.fail(
@@ -319,7 +335,7 @@ def parse_validator(
                 remediation="remove the path or use validator = 'json'",
             )
         try:
-            json_schema = load_json_schema(resolved_path)
+            json_schema = load_json_schema(resolved_path, read_bytes=context.read_bytes)
         except SchemaDefinitionError as exc:
             context.fail(
                 "unsupported-json-schema",

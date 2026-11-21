@@ -12,7 +12,7 @@ from specromancy_engine.run_store import RunStore
 
 
 PIPELINE = """
-schema_version = 1
+schema_version = 2
 id = "engine-fixture"
 version = 1
 start = "survey"
@@ -23,12 +23,14 @@ allow_non_git = true
 [[phases]]
 id = "survey"
 skill = "survey"
+skill_source = "workflow/skills/survey/SKILL.md"
 inputs = ["request"]
 output_name = "{visit:03}-survey.md"
 mutation = "read-only"
 completion_criteria = ["Produce evidence."]
 validator = "file"
-approval_conditions = []
+transition_approval_conditions = []
+action_approval_conditions = []
 stop_conditions = ["no-evidence"]
 max_visits = 1
 [[phases.transitions]]
@@ -40,12 +42,14 @@ outcome = "blocked"
 [[phases]]
 id = "publish"
 skill = "publish"
+skill_source = "workflow/skills/publish/SKILL.md"
 inputs = ["request", "latest:survey"]
 output_name = "{visit:03}-publish.md"
 mutation = "repository-write"
 completion_criteria = ["Publish the result."]
 validator = "file"
-approval_conditions = ["external-effect"]
+transition_approval_conditions = ["external-effect"]
+action_approval_conditions = []
 stop_conditions = ["no-target"]
 max_visits = 1
 [[phases.transitions]]
@@ -59,12 +63,12 @@ class EngineFixture:
         self.root = Path(self.temporary.name)
         (self.root / ".git").mkdir()
         for name in ("survey", "publish"):
-            path = self.root / ".agents" / "skills" / name / "SKILL.md"
+            path = self.root / "workflow" / "skills" / name / "SKILL.md"
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(
                 f"---\nname: {name}\ndescription: Fixture.\n---\n", encoding="utf-8"
             )
-        self.pipeline_path = self.root / "pipeline.toml"
+        self.pipeline_path = self.root / "workflow/pipeline.toml"
         self.pipeline_path.write_text(textwrap.dedent(PIPELINE), encoding="utf-8")
         self.pipeline = load_pipeline(self.pipeline_path, self.root)
         self.store = RunStore(self.root)
@@ -231,7 +235,9 @@ class EngineTests(unittest.TestCase):
             "mutation",
             "completion_criteria",
             "validation",
-            "approval_conditions",
+            "transition_approval_conditions",
+            "action_approval_conditions",
+            "action_decisions",
             "stop_conditions",
             "outcomes",
             "final_validation_command",

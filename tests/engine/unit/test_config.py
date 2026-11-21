@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import tempfile
 import textwrap
 import unittest
@@ -14,6 +15,7 @@ from specromancy_engine.config import (
     require_pipeline_hash,
 )
 from specromancy_engine.exit_codes import ExitCode
+from tests.engine.support import MultiPipelineFixture, write_workflow_skill
 
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -25,12 +27,14 @@ PHASE = """
 [[phases]]
 id = "compose"
 skill = "compose"
+skill_source = "workflow/skills/compose/SKILL.md"
 inputs = ["request"]
 output_name = "{visit:03}-result.md"
 mutation = "read-only"
 completion_criteria = ["Write the result."]
 validator = "file"
-approval_conditions = []
+transition_approval_conditions = []
+action_approval_conditions = []
 stop_conditions = []
 max_visits = 1
 
@@ -41,7 +45,7 @@ outcome = "done"
 
 def document(phase: str = PHASE, **changes: str) -> str:
     values = {
-        "schema_version": "1",
+        "schema_version": "2",
         "id": '"fixture"',
         "version": "1",
         "start": '"compose"',
@@ -67,13 +71,13 @@ class PipelineFixture:
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name)
         (self.root / ".git").mkdir()
-        skill = self.root / ".agents" / "skills" / "compose" / "SKILL.md"
+        skill = self.root / "workflow" / "skills" / "compose" / "SKILL.md"
         skill.parent.mkdir(parents=True)
         skill.write_text("---\nname: compose\ndescription: Test.\n---\n", encoding="utf-8")
-        templates = self.root / "config" / "templates"
+        templates = self.root / "workflow/config" / "templates"
         templates.mkdir(parents=True)
         (templates / "result.md").write_text("# Result\n", encoding="utf-8")
-        self.path = self.root / "config" / "pipeline.toml"
+        self.path = self.root / "workflow/config" / "pipeline.toml"
 
     def close(self) -> None:
         self.temporary.cleanup()
@@ -82,6 +86,128 @@ class PipelineFixture:
         path = self.path.with_name(name)
         path.write_text(content, encoding="utf-8")
         return path
+
+
+class WorkflowSourceTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.fixture = MultiPipelineFixture()
+        self.addCleanup(self.fixture.close)
+        self.root = self.fixture.root
+        self.graph = self.root / "workflow/pipelines/alpha.toml"
+        self.graph_text = self.graph.read_text()
+        self.source = "workflow/skills/compose/SKILL.md"
+        self.skill = self.root / self.source
+
+    def load(self, graph: str):
+        self.graph.write_text(graph, encoding="utf-8")
+        return load_pipeline(self.graph, self.root)
+
+    def assert_failure(self, graph: str, diagnostic: str, field: str) -> None:
+        with self.assertRaises(PipelineConfigError) as caught:
+            self.load(graph)
+        self.assertEqual(caught.exception.diagnostic_code, diagnostic)
+        self.assertEqual(caught.exception.details["field"], field)
+
+    def test_declared_source_syntax_agrees_with_published_schema(self) -> None:
+        schema = json.loads(files("specromancy_engine").joinpath("schemas", "pipeline.schema.json").read_text())
+        phase = schema["$defs"]["phase"]
+        rule = phase["properties"]["skill_source"]
+        self.assertEqual(rule["type"], "string")
+        self.assertNotIn("skill_source", phase["required"])
+        for spelling in (self.source, "./workflow//skills/./compose/SKILL.md"):
+            with self.subTest(spelling=spelling):
+                self.assertRegex(spelling, rule["pattern"])
+                pipeline = self.load(self.graph_text.replace(self.source, spelling))
+                self.assertEqual(pipeline.phases[0].skill_path, self.skill)
+                self.assertEqual(pipeline.phases[0].skill_source, self.source)
+                self.assertEqual(json.loads(pipeline.canonical_json)["phases"][0]["skill_source"], self.source)
+        for spelling in ("/" + self.source, ".agents/skills/compose/SKILL.md",
+                         "workflow/../" + self.source, "workflow//skills/..//SKILL.md",
+                         "workflow/skills/*/SKILL.md", r"workflow\skills", "C:/workflow/skill.md"):
+            with self.subTest(spelling=spelling):
+                self.assertIsNone(re.fullmatch(rule["pattern"], spelling))
+                graph = self.graph_text.replace(json.dumps(self.source), json.dumps(spelling))
+                self.assert_failure(graph, "unsafe-path", "skill_source")
+        self.assert_failure(self.graph_text.replace(json.dumps(self.source), "42"),
+                            "invalid-field-type", "skill_source")
+
+    def test_safe_descendant_link_and_graph_relative_dependency(self) -> None:
+        self.skill.rename(self.skill.with_suffix(".canonical"))
+        self.skill.symlink_to(self.skill.with_suffix(".canonical"))
+        phase = self.load(self.graph_text).phases[0]
+        self.assertEqual(phase.skill_source, self.source)
+        self.assertEqual(phase.skill_path, self.skill.resolve())
+        self.assertEqual(phase.output_template_path, self.root / "workflow/templates/shared.md")
+
+    def test_runtime_resource_lookup_rejects_a_symlinked_workflow_root(self) -> None:
+        workflow = self.root / "workflow"
+        workflow.rename(self.root / ".claude")
+        workflow.symlink_to(self.root / ".claude", target_is_directory=True)
+        self.assert_failure(self.graph_text, "unsafe-path", "skill_source")
+
+    def test_portable_strings_and_flat_metadata(self) -> None:
+        self.skill.write_text(
+            "---\nname: 'compose'\ndescription: \"Use when editing: record evidence.\"\n"
+            "compatibility: Specromancy pipeline schema version 2.\nlicense: MIT\n"
+            "metadata:\n  role: phase\n  revision: '2'\n---\n", encoding="utf-8"
+        )
+        self.assertEqual(self.load(self.graph_text).phases[0].skill_path, self.skill)
+
+    def test_outside_declared_or_resolved_dependencies_fail_before_parsing(self) -> None:
+        outside = self.root / ".opencode/generated"
+        outside.parent.mkdir()
+        outside.write_bytes(b"malformed JSON and frontmatter")
+        link = self.root / "workflow/link"
+        link.symlink_to(outside)
+        outside_alias = outside.with_name("alias")
+        outside_alias.symlink_to(self.skill)
+        for ref in ("../../.opencode/generated", "../../.opencode/alias", "../link"):
+            for field in ("output_template", "validator_path"):
+                with self.subTest(ref=ref, field=field):
+                    if field == "validator_path":
+                        graph = self.graph_text.replace('validator = "markdown"',
+                                                        f'validator = {{type = "json", schema = "{ref}"}}')
+                        graph = graph.replace('required_headings = ["Result"]', '')
+                    else:
+                        graph = self.graph_text.replace("../templates/shared.md", ref)
+                    self.assert_failure(graph, "unsafe-path", field)
+        self.assert_failure(self.graph_text.replace(self.source, "workflow/link"), "unsafe-path", "skill_source")
+        parent = self.root / "workflow/linked"
+        parent.symlink_to(outside.parent, target_is_directory=True)
+        self.assert_failure(self.graph_text.replace(self.source, "workflow/linked/generated"),
+                            "unsafe-path", "skill_source")
+
+    def test_metadata_errors_are_controlled_and_identify_the_source(self) -> None:
+        for header in ("no header", "---\nname: compose", "---\nname: compose\n---",
+                       "---\nname: compose\ndescription:  \n---",
+                       "---\nname: compose\nname: compose\ndescription: Test\n---",
+                       "---\nname: compose\ndescription: [a, b]\n---",
+                       "---\nname: compose\ndescription: false\n---",
+                       "---\nname: compose\ndescription: Test\nmodel: fixture\n---",
+                       "---\nname: compose\ndescription: Test\nmetadata:\n  role:\n---"):
+            with self.subTest(header=header):
+                self.skill.write_text(header)
+                self.assert_failure(self.graph_text, "invalid-skill-frontmatter", "skill_source")
+        self.skill.write_bytes(b"\xff")
+        self.assert_failure(self.graph_text, "invalid-skill-frontmatter", "skill_source")
+        self.skill.write_text("---\nname: other\ndescription: Test\n---")
+        self.assert_failure(self.graph_text, "skill-name-mismatch", "skill_source")
+        for name in ("pipeline", "specromancy-alpha"):
+            self.assert_failure(self.graph_text.replace('skill = "compose"', f'skill = "{name}"'),
+                                "reserved-skill", "skill")
+
+    def test_graph_binding_is_checked_before_reusing_procedure_metadata(self) -> None:
+        first = self.graph_text.replace('outcome = "done"', 'outcome = "next"\ntarget = "finish"')
+        second = self.graph_text[self.graph_text.index("[[phases]]"):].replace('id = "compose"', 'id = "finish"')
+        self.assertEqual(self.load(first + second).phase_ids, ("compose", "finish"))
+        other = "workflow/other.md"
+        write_workflow_skill(self.root, source=other)
+        self.assert_failure(first + second.replace(self.source, other), "conflicting-skill-source", "skill_source")
+        alias = self.root / "workflow/alias.md"
+        alias.symlink_to(self.skill)
+        for name in ("compose", "other"):
+            graph = second.replace(self.source, "workflow/alias.md").replace('skill = "compose"', f'skill = "{name}"')
+            self.assert_failure(first + graph, "conflicting-skill-source", "skill_source")
 
 
 class ConfigTests(unittest.TestCase):
@@ -121,7 +247,7 @@ class ConfigTests(unittest.TestCase):
         ):
             with self.subTest(name=name):
                 fixture = FIXTURES / name
-                loaded = load_pipeline(fixture / "pipeline.toml", fixture)
+                loaded = load_pipeline(fixture / "workflow/pipeline.toml", fixture)
                 self.assertEqual(loaded.phase_ids, expected)
 
     def test_duplicate_phase_is_rejected(self) -> None:
@@ -210,6 +336,14 @@ class ConfigTests(unittest.TestCase):
             {"type": "boolean"},
         )
 
+    def test_only_current_pipeline_schema_is_accepted(self) -> None:
+        legacy = PHASE.replace("transition_approval_conditions", "approval_conditions").replace(
+            "action_approval_conditions = []\n", ""
+        )
+        self.assert_error(document(legacy, schema_version="1"), "unsupported-schema-version")
+        self.assert_error(document(legacy), "unknown-field")
+        self.assert_error(document(schema_version="1"), "unsupported-schema-version")
+
     def test_reserved_phase_id_is_rejected(self) -> None:
         phase = PHASE.replace('id = "compose"', 'id = "status"')
         self.assert_error(document(phase, start='"status"'), "reserved-phase-id")
@@ -232,7 +366,7 @@ class ConfigTests(unittest.TestCase):
 
     def test_missing_skill_and_template_are_rejected(self) -> None:
         self.assert_error(
-            document(PHASE.replace('skill = "compose"', 'skill = "missing"')),
+            document(PHASE.replace("workflow/skills/compose/", "workflow/skills/missing/")),
             "missing-file",
         )
         phase = PHASE.replace(
@@ -240,6 +374,25 @@ class ConfigTests(unittest.TestCase):
             'output_name = "{visit:03}-result.md"\noutput_template = "templates/missing.md"',
         )
         self.assert_error(document(phase), "missing-file")
+
+    def test_legacy_skill_resolution_and_hash_do_not_depend_on_procedure_bytes(self) -> None:
+        legacy = self.fixture.root / ".agents/skills/compose/SKILL.md"
+        legacy.parent.mkdir(parents=True)
+        legacy.write_bytes((self.fixture.root / "workflow/skills/compose/SKILL.md").read_bytes())
+        path = self.fixture.write(document().replace('skill_source = "workflow/skills/compose/SKILL.md"\n', ""))
+        first = load_pipeline(path)
+        skill = self.fixture.root / ".agents/skills/compose/SKILL.md"
+        self.assertEqual(first.phase("compose").skill_path, skill.resolve())
+        self.assertNotIn("skill_source", json.loads(first.canonical_json)["phases"][0])
+        skill.write_bytes(skill.read_bytes() + b"\nUpdated procedure.\n")
+        self.assertEqual(load_pipeline(path).canonical_json, first.canonical_json)
+        self.assertEqual(load_pipeline(path).config_hash, first.config_hash)
+        skill.unlink()
+        with self.assertRaises(PipelineConfigError) as caught:
+            load_pipeline(path)
+        self.assertEqual(caught.exception.diagnostic_code, "missing-file")
+        self.assertEqual(caught.exception.details["field"], "skill")
+        self.assertEqual(caught.exception.details["value"], ".agents/skills/compose/SKILL.md")
 
     def test_unsafe_template_and_output_paths_are_rejected(self) -> None:
         (self.fixture.root / "outside.md").write_text("# Safe parent\n", encoding="utf-8")
@@ -257,7 +410,7 @@ class ConfigTests(unittest.TestCase):
         )
 
     def test_template_parent_segments_may_stay_inside_repository(self) -> None:
-        template = self.fixture.root / "shared.md"
+        template = self.fixture.root / "workflow/shared.md"
         template.write_text("# Shared\n", encoding="utf-8")
         phase = PHASE.replace(
             'output_name = "{visit:03}-result.md"',
@@ -270,7 +423,7 @@ class ConfigTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as outside:
             target = Path(outside) / "target.md"
             target.write_text("# Outside\n", encoding="utf-8")
-            link = self.fixture.root / "config" / "templates" / "link.md"
+            link = self.fixture.root / "workflow/config" / "templates" / "link.md"
             link.symlink_to(target)
             phase = PHASE.replace(
                 'output_name = "{visit:03}-result.md"',
@@ -289,12 +442,14 @@ class ConfigTests(unittest.TestCase):
             [[phases]]
             id = "compose"
             skill = "compose"
+            skill_source = "workflow/skills/compose/SKILL.md"
             inputs = ["request"]
             output_name = "compose.md"
             mutation = "read-only"
             completion_criteria = ["Choose a route."]
             validator = "file"
-            approval_conditions = []
+            transition_approval_conditions = []
+            action_approval_conditions = []
             stop_conditions = []
             max_visits = 1
             [[phases.transitions]]
@@ -307,12 +462,14 @@ class ConfigTests(unittest.TestCase):
             [[phases]]
             id = "produce"
             skill = "compose"
+            skill_source = "workflow/skills/compose/SKILL.md"
             inputs = ["request"]
             output_name = "produce.md"
             mutation = "read-only"
             completion_criteria = ["Produce."]
             validator = "file"
-            approval_conditions = []
+            transition_approval_conditions = []
+            action_approval_conditions = []
             stop_conditions = []
             max_visits = 1
             [[phases.transitions]]
@@ -322,12 +479,14 @@ class ConfigTests(unittest.TestCase):
             [[phases]]
             id = "consume"
             skill = "compose"
+            skill_source = "workflow/skills/compose/SKILL.md"
             inputs = ["latest:produce"]
             output_name = "consume.md"
             mutation = "read-only"
             completion_criteria = ["Consume."]
             validator = "file"
-            approval_conditions = []
+            transition_approval_conditions = []
+            action_approval_conditions = []
             stop_conditions = []
             max_visits = 1
             [[phases.transitions]]
@@ -345,7 +504,7 @@ class ConfigTests(unittest.TestCase):
         self.assert_error(document(phase, start='"done"'), "terminal-outcome-phase")
 
     def test_diagnostic_serializes_without_traceback_data(self) -> None:
-        error = self.assert_error(document(schema_version="2"), "unsupported-schema-version")
+        error = self.assert_error(document(schema_version="3"), "unsupported-schema-version")
         payload = error.as_dict()
         self.assertEqual(payload["code"], ExitCode.INVALID_PIPELINE)
         json.dumps(payload)
@@ -365,7 +524,7 @@ class ConfigTests(unittest.TestCase):
                 start = "compose"
                 version = 1
                 id = "fixture"
-                schema_version = 1
+                schema_version = 2
                 {reordered_phase}
                 """
             ),
@@ -396,11 +555,11 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(configured.output_template, "templates/result.md")
         self.assertEqual(
             configured.output_template_path,
-            (self.fixture.root / "config" / "templates" / "result.md").resolve(),
+            (self.fixture.root / "workflow/config" / "templates" / "result.md").resolve(),
         )
 
     def test_unsupported_json_schema_keyword_is_rejected_at_load(self) -> None:
-        schema = self.fixture.root / "config" / "result.schema.json"
+        schema = self.fixture.root / "workflow/config" / "result.schema.json"
         schema.write_text('{"type":"string","minLength":1}', encoding="utf-8")
         phase = PHASE.replace(
             'validator = "file"',
@@ -425,7 +584,7 @@ class ConfigTests(unittest.TestCase):
         self.assertEqual(raised.exception.diagnostic_code, "invalid-repository-root")
         self.assertEqual(raised.exception.details["value"], str(missing.resolve()))
         with self.assertRaises(PipelineConfigError) as raised:
-            load_pipeline(path, root / ".agents")
+            load_pipeline(path, root / "workflow/skills")
         self.assertEqual(raised.exception.diagnostic_code, "pipeline-outside-repository")
         (root / ".git").rmdir()
         with self.assertRaises(PipelineConfigError) as raised:
@@ -454,10 +613,10 @@ class ConfigTests(unittest.TestCase):
             (document(PHASE.replace('id = "compose"', 'id = "Bad"')),
              document(PHASE.replace('id = "compose"', 'id = "Bad"\nextra = true')),
              "invalid-identifier", "id"),
-            (document(PHASE.replace('skill = "compose"', 'skill = "missing"')),
-             document(PHASE.replace('skill = "compose"', 'skill = "missing"')
+            (document(PHASE.replace("workflow/skills/compose/", "workflow/skills/missing/")),
+             document(PHASE.replace("workflow/skills/compose/", "workflow/skills/missing/")
                       .replace('inputs = ["request"]', 'inputs = false')),
-             "missing-file", "skill"),
+             "missing-file", "skill_source"),
             (document(PHASE.replace('validator = "file"', 'validator = "unknown"')),
              document(PHASE.replace('validator = "file"', 'validator = "unknown"\ncommands = false')),
              "invalid-validator", "validator"),
@@ -474,7 +633,7 @@ class ConfigTests(unittest.TestCase):
                 self.assertEqual(actual.as_dict(), expected.as_dict())
 
     def test_schema_paths_and_dependencies_are_resolved_on_every_load(self) -> None:
-        schema = self.fixture.root / "shared.schema.json"
+        schema = self.fixture.root / "workflow/shared.schema.json"
         schema.write_text('{"type":"string"}', encoding="utf-8")
         phase = PHASE.replace(
             'validator = "file"',

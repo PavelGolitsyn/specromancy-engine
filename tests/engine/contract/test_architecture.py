@@ -44,7 +44,7 @@ assert not unexpected, unexpected
             "_runs.run_persistence", "_runs.visit_transitions", "_runs.visit_preparation",
             "_engine.engine_errors", "_engine.provenance", "_engine.validation_service", "_engine.responses",
             "_engine.approvals", "_engine.command_decisions", "_engine.approval_service",
-            "_cli.cli_commands", "_adapters.adapter_contracts", "_adapters.adapter_sources",
+            "_cli.cli_commands", "_adapters.adapter_config", "_adapters.adapter_contracts", "_adapters.adapter_sources",
             "_adapters.adapter_rendering", "_adapters.adapter_ownership",
         )
         qualified = {path.rsplit(".", 1)[-1]: path for path in module_paths}
@@ -125,7 +125,7 @@ assert not unexpected, unexpected
             "tools",
         }
         for path in sorted(
-            (WORKFLOW_FIXTURE / ".agents" / "skills").glob("*/SKILL.md")
+            (WORKFLOW_FIXTURE / "workflow" / "skills").glob("*/SKILL.md")
         ):
             lines = path.read_text(encoding="utf-8").splitlines()
             closing = lines.index("---", 1)
@@ -139,7 +139,7 @@ assert not unexpected, unexpected
 
     def test_instructions_never_direct_agents_to_edit_runtime_state(self) -> None:
         paths = [
-            *sorted((WORKFLOW_FIXTURE / ".agents" / "skills").glob("*/SKILL.md")),
+            *sorted((WORKFLOW_FIXTURE / "workflow" / "skills").glob("*/SKILL.md")),
             *sorted((ROOT / "docs" / "reference").glob("*.md")),
             *sorted((ROOT / "docs" / "guides").glob("*.md")),
         ]
@@ -186,10 +186,11 @@ assert not unexpected, unexpected
             (ROOT / "tests" / "engine" / "fixtures").glob("**/*.toml")
         )
         for path in paths:
-            if path.name == "pipelines.toml":
+            if path.name in {"pipelines.toml", "adapters.toml"}:
                 continue
             with self.subTest(path=path.relative_to(ROOT)):
-                pipeline = load_pipeline(path, path.parents[2] if path.parent.name == "pipelines" else path.parent)
+                workflow = next(parent for parent in path.parents if parent.name == "workflow")
+                pipeline = load_pipeline(path, workflow.parent)
                 self.assertTrue(pipeline.phase_ids)
 
 

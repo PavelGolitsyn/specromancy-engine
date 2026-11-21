@@ -68,22 +68,29 @@ are not loaded for an existing-run command.
 
 ```bash
 specromancy request-approval RUN_ID --reason REASON --details TEXT
-specromancy approve RUN_ID PHASE
+specromancy approve RUN_ID PHASE --request N
+specromancy decline RUN_ID PHASE --request N
 specromancy block RUN_ID --reason REASON --details TEXT
 ```
 
-Only reasons declared by the current phase are accepted. `--reason` may be
-omitted when exactly one relevant reason is configured. An approval request
-validates the current artifact and binds its hash, pipeline hash, visit, and
-selected outcome. `approve` rechecks those bindings before transition. `block`
-records a declared stop condition; loop-limit blocks are created mechanically.
+The phase must declare the requested reason. You can omit `--reason` when the
+two approval lists contain one reason in total. For an action, give the exact
+proposed change in nonblank `--details` and omit `--outcome`. The request
+returns exit 7 and shows its number and decision commands. A grant or decline
+returns exit 8 with the same active visit's action packet. Run the packet's
+final validation command after completing the work.
 
-Overlapping identical requests reuse the saved pending request. An overlapping
-`approve` resumes a saved grant, or reports `approval was already recorded` if
-that exact request's visit has completed, without advancing its successor.
-If another operation replaces the request or changes its visit binding, the
-overtaken command returns `approval-state-changed` (5) without changing the
-winner's state. Inspect `status RUN_ID` before deciding what to do next.
+A transition request validates the output and commands and binds the output hash
+and selected outcome. Supply `--outcome` for multiple successful outcomes.
+Granting the request rechecks the binding, validates again, and follows the
+saved transition. The unnumbered `approve RUN_ID PHASE` form remains available
+for transition approvals. `decline` applies only to actions.
+
+Run and visit state, exact details, and request number identify the decision.
+An exact pending retry returns the same record. A competing request, a decision
+for a different record while one is pending, or a reversed decision returns
+exit 5 without changing state. After a decision, `phase RUN_ID PHASE` shows
+the visit's recorded action decisions. `block` records a declared stop reason.
 Lock contention remains exit code 10 without automatic retries. Full binding,
 retry, and audit rules are in the [approval consistency contract](contracts.md#approval-consistency).
 
@@ -94,10 +101,19 @@ specromancy adapters generate
 specromancy adapters generate --check
 ```
 
-Generation processes all registered pipelines; `--pipeline` is rejected here.
-It produces a `specromancy-<id>` skill per registration and updates only
-manifest-owned adapter paths. `--check` writes nothing
-and reports missing, modified, extra, or source-stale generated files.
+Both commands require `workflow/adapters.toml` with `schema_version = 1` and
+a `harnesses` array. A missing or invalid choice returns configuration error 3.
+An empty array reconciles to zero harness files. For a nonempty selection,
+generation reads `workflow/instructions.md`, the registry and every registered
+graph, including declared phase procedures, templates and validators. Both
+commands guard the registry location before parsing it. Use explicit `skill_source`
+declarations and consistent skill bindings across registrations. Runtime commands
+validate the selected graph independently. Generation rejects `--pipeline`.
+
+The selected harnesses determine which instruction files, wrappers, and launch
+skills are required. The generator-v4, schema-2 manifest records each output
+once with its selected consumers. `--check` reports missing, modified, unexpected or source-stale files
+without writing. See [Adapter generation](contracts.md#adapter-generation).
 
 ## JSON and exit codes
 

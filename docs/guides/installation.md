@@ -127,17 +127,18 @@ executes both phases through completion using the CLI and a deterministic agent.
 ## Supply consumer configuration explicitly
 
 Copy the complete [release-documentation example](../../examples/release-documentation/README.md)
-into a new directory, including hidden `.agents/` and `.gitignore`, or author
+into a new directory, including `.gitignore`, or author
 the following resources in your existing project:
 
 | Resource | Your responsibility |
 | --- | --- |
-| `AGENTS.md` | Preserve existing user instructions; merge applicable constraints |
+| `workflow/adapters.toml` | Save the harnesses this project uses before generating or checking adapters |
+| `workflow/instructions.md` | Preserve and merge the repository instructions here |
 | `workflow/pipelines.toml` | Merge an explicit unique registration; there is no default |
 | `workflow/pipelines/<id>.toml` | Own phases, policies, outcomes, and input selectors |
 | `workflow/templates/` | Supply every template referenced by your graph |
-| `.agents/skills/pipeline/SKILL.md` | Explicitly copy/review the generic orchestrator |
-| `.agents/skills/<phase-skill>/SKILL.md` | Own the phase procedures and portable frontmatter |
+| Referenced validator schemas | Place graph-relative dependencies under `workflow/` |
+| `workflow/skills/<skill>/SKILL.md` | Declare each procedure with `skill_source` and match its frontmatter name to `skill` |
 | `.gitignore` | Ignore `.specromancy/`, local environments, and development outputs |
 
 Use a real Git repository for this example. Specify `--root /absolute/consumer`
@@ -155,9 +156,30 @@ with its generated files. Resolve conflicts using the
 existing instructions before regeneration. Do not manufacture ownership by
 editing the manifest.
 
-The producer's top-level `workflow/` and `.agents/skills/` configure development
-of this repository. They remain in place and are not customer defaults. The
-example's own corresponding directories configure release documentation.
+The package supplies the harness templates and generic orchestrator. The example
+selects Claude and OpenCode. Edit its `workflow/adapters.toml` for your project,
+or set `harnesses = []` for CLI-only use. Runs and pipeline configuration
+validation work without this file. Adapter generation and check require it.
+
+## Upgrade an existing consumer
+
+Finish unfinished runs with their original graph and recorded resource bytes,
+or keep the original checkout for those runs and migrate a separate checkout.
+Adding `skill_source` changes the graph hash. Replacing the old procedure with a
+wrapper changes the prepared visit's recorded skill hash.
+
+When upgrading from an all-target manifest, first save the desired harness list.
+Selecting all five preserves the previous output set. A smaller selection retires
+unchanged owned files that the project no longer needs.
+
+Before generation, move hand-written root instructions to
+`workflow/instructions.md` and phase procedures into `workflow/skills/`.
+Update relative references, add the source declarations, and bring referenced
+templates and validators inside `workflow/`. Preserve any custom instructions
+from the former generic launch skill in the authored workflow before relocating
+that file. Keep the previous adapter manifest. The generator validates it using
+its original ownership rules and reports conflicts at occupied unowned paths,
+even if their contents match. Review the resulting manifest and run check mode.
 
 ## Contributor environment
 

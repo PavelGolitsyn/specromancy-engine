@@ -21,26 +21,31 @@ def build_approval_record(
     visit_number: int,
     reason: str,
     details: str | None,
-    artifact_sha256: str,
+    kind: str = "transition",
+    artifact_sha256: str | None = None,
     pipeline_sha256: str,
-    outcome: str,
+    outcome: str | None = None,
     requested_at: str,
 ) -> ApprovalRecord:
-    return {
+    record: ApprovalRecord = {
         "run_id": run_id,
         "phase_id": phase_id,
         "visit_number": visit_number,
         "reason": reason,
         "details": details,
-        "artifact_sha256": artifact_sha256,
+        "kind": kind,
         "pipeline_sha256": pipeline_sha256,
-        "outcome": outcome,
         "status": "pending",
         "decision": None,
         "actor": None,
         "requested_at": requested_at,
         "decided_at": None,
     }
+    if kind == "transition":
+        if artifact_sha256 is None or outcome is None:
+            raise ValueError("transition approval needs an artifact hash and outcome")
+        record.update(artifact_sha256=artifact_sha256, outcome=outcome)
+    return record
 
 
 def approval_integrity_errors(
@@ -49,7 +54,7 @@ def approval_integrity_errors(
     """Return stable mismatch labels for an approval's bound inputs."""
 
     errors: list[str] = []
-    if approval.get("artifact_sha256") != artifact_sha256:
+    if approval.get("kind") != "action" and approval.get("artifact_sha256") != artifact_sha256:
         errors.append("artifact")
     if approval.get("pipeline_sha256") != pipeline_sha256:
         errors.append("pipeline")
@@ -61,7 +66,9 @@ def pending_approval(manifest: RunRecord, visit_number: int) -> ApprovalRecord |
 
 
 def approved_record(manifest: RunRecord, visit_number: int) -> ApprovalRecord | None:
-    return latest_approval(manifest, "approved", visit_number=visit_number)
+    return next((a for a in reversed(manifest["approvals"])
+                 if a.get("visit_number") == visit_number and a.get("status") == "approved"
+                 and a.get("kind") == "transition"), None)
 
 
 def approved_for_phase(manifest: RunRecord, phase_id: str) -> ApprovalRecord | None:
@@ -70,6 +77,7 @@ def approved_for_phase(manifest: RunRecord, phase_id: str) -> ApprovalRecord | N
             item
             for item in reversed(manifest["approvals"])
             if item.get("phase_id") == phase_id and item.get("status") == "approved"
+            and item.get("kind") == "transition"
         ),
         None,
     )
@@ -89,18 +97,20 @@ def requested_state(
     current = current_visit(updated)
     assert current is not None
     current["status"] = "awaiting-approval"
-    current["validation_checks"] = copy.deepcopy(validation_checks)
-    current["mutation_result"] = copy.deepcopy(mutation_result)
-    current["command_results"] = copy.deepcopy(command_results)
+    if approval.get("kind") != "action":
+        current["validation_checks"] = copy.deepcopy(validation_checks)
+        current["mutation_result"] = copy.deepcopy(mutation_result)
+        current["command_results"] = copy.deepcopy(command_results)
     updated["status"] = "awaiting-approval"
     updated["approvals"].append(copy.deepcopy(approval))
     return updated
 
 
-IDENTITY_FIELDS = (
+COMMON_FIELDS = (
     "run_id", "visit_number", "phase_id", "reason", "details", "requested_at",
-    "outcome", "pipeline_sha256", "artifact_sha256",
+    "pipeline_sha256",
 )
+IDENTITY_FIELDS = COMMON_FIELDS + ("outcome", "artifact_sha256")
 
 
 @dataclass
@@ -113,6 +123,14 @@ class ApprovalDecision:
     event_type: str | None = None
     visit_number: int | None = None
     payload: dict[str, Any] = field(default_factory=dict)
+
+
+def stale_error(approval: ApprovalRecord, mismatches: list[str]) -> EngineError:
+    return EngineError(
+        ExitCode.APPROVAL_REQUIRED, "approval request is stale because its artifact or pipeline changed",
+        "stale-approval", phase=approval["phase_id"], visit_number=approval["visit_number"],
+        mismatches=mismatches,
+    )
 
 
 def conflict(observed: ApprovalRecord) -> EngineError:
@@ -128,12 +146,20 @@ def conflict(observed: ApprovalRecord) -> EngineError:
 def require_binding(manifest: RunRecord, observed: ApprovalRecord) -> VisitRecord:
     """Reject incomplete identities or a mismatched containing run/visit."""
 
-    if any(key not in observed for key in IDENTITY_FIELDS):
+    kind = observed.get("kind")
+    fields = COMMON_FIELDS if kind == "action" else IDENTITY_FIELDS
+    if (kind not in {"transition", "action"} or any(key not in observed for key in fields)
+            or manifest["pipeline"]["sha256"] != observed["pipeline_sha256"]):
         raise conflict(observed)
     visits = [v for v in manifest["visits"]
               if v["ordinal"] == observed["visit_number"]]
     if (manifest["run_id"] != observed["run_id"] or len(visits) != 1
             or visits[0]["phase_id"] != observed["phase_id"]):
+        raise conflict(observed)
+    if kind == "action" and (
+        not isinstance(observed["details"], str) or not observed["details"].strip()
+        or "artifact_sha256" in observed or "outcome" in observed
+    ):
         raise conflict(observed)
     return visits[0]
 
@@ -141,74 +167,118 @@ def require_binding(manifest: RunRecord, observed: ApprovalRecord) -> VisitRecor
 def _matches(
     record: ApprovalRecord, observed: ApprovalRecord, *, creation: bool = False,
 ) -> bool:
+    if record.get("kind") != observed.get("kind"):
+        return False
+    fields = COMMON_FIELDS if observed.get("kind") == "action" else IDENTITY_FIELDS
     return all(key in record and record[key] == observed[key]
-               for key in IDENTITY_FIELDS if not (creation and key == "requested_at"))
+               for key in fields if not (creation and key == "requested_at"))
 
 
 def _eligible(
     manifest: RunRecord, visit: VisitRecord, *, creation: bool = False,
 ) -> bool:
     statuses = ("active", "awaiting-approval") if creation else ("awaiting-approval",)
-    return (manifest["current_visit"] == visit["ordinal"]
-            and manifest["status"] in statuses and visit["status"] in statuses)
+    return (
+        manifest["current_visit"] == visit["ordinal"]
+        and manifest["status"] == visit["status"]
+        and visit["status"] in statuses
+    )
 
 
 def request_decision(
     manifest: RunRecord, approval: ApprovalRecord, *,
     validation_checks: list[dict[str, Any]], command_results: list[dict[str, Any]],
-    mutation_result: dict[str, Any] | None,
+    mutation_result: dict[str, Any] | None, expected_revision: int | None = None,
 ) -> ApprovalDecision:
-    """Create once, or reuse the winning pending request without new evidence."""
+    """Resolve pending requests before considering a replay or a new request."""
 
     visit = require_binding(manifest, approval)
     if not _eligible(manifest, visit, creation=True):
         raise conflict(approval)
-    records = [a for a in manifest["approvals"]
-               if a.get("visit_number") == visit["ordinal"]
-               and a.get("status") in ("pending", "approved")]
-    if records:
-        if (len(records) != 1 or records[0].get("status") != "pending"
-                or any(key not in records[0] for key in IDENTITY_FIELDS)
-                or not _matches(records[0], approval, creation=True)):
+    pending = pending_approval(manifest, visit["ordinal"])
+    if pending is not None:
+        if not _matches(pending, approval, creation=True):
             raise conflict(approval)
-        return ApprovalDecision(copy.deepcopy(manifest), copy.deepcopy(records[0]), "pending")
+        return ApprovalDecision(manifest, pending, "pending")
+
+    is_action = approval.get("kind") == "action"
+    if is_action:
+        if visit["status"] != "active":
+            raise conflict(approval)
+        for record in reversed(manifest["approvals"]):
+            if (_matches(record, approval, creation=True)
+                    and record.get("status") in {"approved", "declined"}):
+                return ApprovalDecision(manifest, record, "decided")
+    elif (approved_record(manifest, visit["ordinal"]) is not None
+          or expected_revision is not None and manifest["revision"] != expected_revision):
+        raise conflict(approval)
+
     updated = requested_state(
         manifest, approval, validation_checks=validation_checks,
         command_results=command_results, mutation_result=mutation_result,
     )
+    payload = {"reason": approval["reason"]}
+    if is_action:
+        payload["request_number"] = len(updated["approvals"])
+    else:
+        payload["outcome"] = approval["outcome"]
     return ApprovalDecision(
-        updated, copy.deepcopy(approval), "requested", "approval-requested",
-        visit["ordinal"], {"reason": approval["reason"], "outcome": approval["outcome"]},
+        updated, updated["approvals"][-1], "requested", "approval-requested",
+        visit["ordinal"], payload,
     )
 
 
 def _identified(
-    manifest: RunRecord, observed: ApprovalRecord,
+    manifest: RunRecord, observed: ApprovalRecord, request_number: int | None = None,
 ) -> tuple[VisitRecord, ApprovalRecord]:
     visit = require_binding(manifest, observed)
-    records = [a for a in manifest["approvals"] if _matches(a, observed)]
-    # A replacement on the same visit must not inherit an earlier decision.
-    competing = [a for a in manifest["approvals"]
-                 if a.get("visit_number") == visit["ordinal"]
-                 and a.get("status") in ("pending", "approved")
-                 and not _matches(a, observed)]
-    if len(records) != 1 or competing:
-        raise conflict(observed)
-    record = records[0]
-    if any(a.get("visit_number") == visit["ordinal"]
-           for a in manifest["approvals"][manifest["approvals"].index(record) + 1:]):
+    pending = latest_approval(manifest, "pending", visit_number=manifest["current_visit"])
+    records = manifest["approvals"]
+    if request_number is None:
+        matches = [a for a in records if _matches(a, observed)]
+        if len(matches) != 1:
+            raise conflict(observed)
+        record = matches[0]
+    else:
+        if not 1 <= request_number <= len(records):
+            raise conflict(observed)
+        record = records[request_number - 1]
+        if not _matches(record, observed):
+            raise conflict(observed)
+    if pending is not None and record is not pending:
         raise conflict(observed)
     return visit, record
 
 
+def action_decision(
+    manifest: RunRecord, observed: ApprovalRecord, request_number: int, *,
+    status: str, decided_at: str,
+) -> ApprovalDecision:
+    updated = copy.deepcopy(manifest)
+    visit, record = _identified(updated, observed, request_number)
+    if updated["current_visit"] != visit["ordinal"] or record.get("kind") != "action":
+        raise conflict(observed)
+    if record["status"] == status and updated["status"] == visit["status"] == "active":
+        return ApprovalDecision(updated, record, "decided")
+    if record["status"] != "pending" or not _eligible(updated, visit):
+        raise conflict(observed)
+    record.update(status=status, decision=status, actor="user", decided_at=decided_at)
+    updated["status"] = visit["status"] = "active"
+    event = "approval-granted" if status == "approved" else "approval-declined"
+    return ApprovalDecision(updated, record, "decided", event, visit["ordinal"],
+                            {"request_number": request_number, "actor": "user"})
+
+
 def grant_decision(
     manifest: RunRecord, observed: ApprovalRecord, *,
-    transition_target: str | None, decided_at: str | None,
+    transition_target: str | None, decided_at: str | None, request_number: int | None = None,
 ) -> ApprovalDecision:
     """Grant exactly the observed request; None permits only existing grants."""
 
     updated = copy.deepcopy(manifest)
-    visit, record = _identified(updated, observed)
+    visit, record = _identified(updated, observed, request_number)
+    if record.get("kind") == "action":
+        raise conflict(observed)
     if record.get("status") == "approved" and visit["status"] == "completed":
         if (visit["chosen_outcome"] != record["outcome"]
                 or visit["transition_target"] != transition_target):
@@ -229,20 +299,28 @@ def grant_decision(
 
 def invalidate_decision(
     manifest: RunRecord, observed: ApprovalRecord, *, decided_at: str,
-    mismatches: list[str],
+    mismatches: list[str], request_number: int | None = None,
 ) -> ApprovalDecision:
     """Invalidate only the eligible observed request, including stale retries."""
 
     updated = copy.deepcopy(manifest)
-    visit, record = _identified(updated, observed)
+    visit, record = _identified(updated, observed, request_number)
+    if record.get("status") == "stale" and record.get("decision") == "invalidated":
+        later = updated["approvals"][updated["approvals"].index(record) + 1:]
+        if (_eligible(updated, visit, creation=True)
+                and not any(a.get("visit_number") == visit["ordinal"] for a in later)):
+            return ApprovalDecision(updated, copy.deepcopy(record), "stale")
+        raise conflict(observed)
     if not _eligible(updated, visit):
         raise conflict(observed)
-    if record.get("status") == "stale" and record.get("decision") == "invalidated":
-        return ApprovalDecision(updated, copy.deepcopy(record), "stale")
     if record.get("status") not in ("pending", "approved"):
         raise conflict(observed)
     record.update(status="stale", decision="invalidated", actor="system", decided_at=decided_at)
+    payload = {"mismatches": list(mismatches)}
+    if record.get("kind") == "action":
+        updated["status"] = visit["status"] = "active"
+        payload["request_number"] = updated["approvals"].index(record) + 1
     return ApprovalDecision(
         updated, copy.deepcopy(record), "stale", "approval-invalidated",
-        visit["ordinal"], {"mismatches": list(mismatches)},
+        visit["ordinal"], payload,
     )

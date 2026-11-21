@@ -14,15 +14,16 @@ from ._engine.command_decisions import (
 )
 from .artifacts import ArtifactError, verify_manifest_artifacts
 from ._config.config_models import PhaseConfig, PipelineConfig
+from ._config.skill_sources import check_workflow_paths
 from ._engine.engine_errors import EngineError
 from .errors import UsageError
 from .exit_codes import ExitCode
 from .git import GitError, capture_repository_snapshot
-from ._engine.provenance import observe_provenance, pipeline_identity, pipeline_matches
+from ._engine.provenance import observe_provenance, pipeline_identity, pipeline_matches, require_provenance
 from ._engine.responses import RESPONSE_SCHEMA_VERSION  # Backward-compatible re-export.
 from .run_store import RunStore, format_timestamp, utc_now
 from ._runs.run_records import (
-    ApprovalRecord, RunRecord, VisitRecord, current_visit,
+    ApprovalRecord, RunRecord, VisitRecord, current_visit, require_visit_revision,
 )
 from ._engine.validation_service import ValidationResult, perform_validation
 
@@ -171,6 +172,7 @@ class Engine:
             run_id,
             self.pipeline,
             visit["ordinal"],
+            expected_revision=manifest["revision"],
             outcome=selected,
             transition_target=transition.target,
             terminal_result={
@@ -197,8 +199,13 @@ class Engine:
             manifest, reason=reason, details=details, outcome=outcome
         )
 
-    def approve(self, run_id: str, phase_id: str) -> dict[str, Any]:
-        return self._approval_service().approve(run_id, phase_id)
+    def approve(self, run_id: str, phase_id: str, *, request_number: int | None = None) -> dict[str, Any]:
+        check_workflow_paths(self.pipeline)
+        return self._approval_service().decide(run_id, phase_id, request_number, "approved")
+
+    def decline(self, run_id: str, phase_id: str, *, request_number: int) -> dict[str, Any]:
+        check_workflow_paths(self.pipeline)
+        return self._approval_service().decide(run_id, phase_id, request_number, "declined")
 
     def block(
         self,
@@ -235,6 +242,7 @@ class Engine:
         }
 
         def change(value: RunRecord) -> None:
+            require_visit_revision(value, manifest["revision"], visit["ordinal"], "active")
             current = self._current_visit(value)
             assert current is not None
             current["status"] = "blocked"
@@ -251,6 +259,7 @@ class Engine:
         return responses.blocked_response(self.pipeline, manifest, "run is blocked")
 
     def status(self, run_id: str) -> dict[str, Any]:
+        check_workflow_paths(self.pipeline)
         manifest = self.store.load(run_id, verify_artifacts=False)
         warnings: list[dict[str, Any]] = []
         if not pipeline_matches(self.pipeline, manifest):
@@ -315,6 +324,7 @@ class Engine:
         return self._approval_service().advance_approved(manifest, visit, approval)
 
     def _load(self, run_id: str) -> RunRecord:
+        check_workflow_paths(self.pipeline)
         manifest = self.store.load(run_id)
         if not pipeline_matches(self.pipeline, manifest):
             raise EngineError(
@@ -324,15 +334,7 @@ class Engine:
                 expected=manifest["pipeline"],
                 actual=pipeline_identity(self.pipeline),
             )
-        provenance_warnings = observe_provenance(self.pipeline, manifest)
-        if provenance_warnings:
-            warning = provenance_warnings[0]
-            raise EngineError(
-                ExitCode.INTERNAL_ERROR,
-                warning["message"],
-                warning["code"],
-                **warning.get("details", {}),
-            )
+        require_provenance(self.pipeline, manifest)
         return manifest
 
     def _perform_validation(
@@ -353,6 +355,8 @@ class Engine:
             self.store.record_validation_attempt(
                 manifest["run_id"],
                 visit["ordinal"],
+                expected_revision=manifest["revision"],
+                expected_status=visit["status"],
                 validation_checks=result.checks,
                 command_results=result.command_results,
                 mutation_result=result.mutation_result,

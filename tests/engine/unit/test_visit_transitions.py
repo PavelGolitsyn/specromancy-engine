@@ -56,12 +56,12 @@ def pipeline(*, max_visits=None, max_traversals=None):
         inputs=("request",), output_name="output.md", output_template=None,
         output_template_path=None, mutation="read-only", allowlist=(),
         completion_criteria=("Write.",), validator=ValidatorConfig("file"),
-        commands=(), approval_conditions=(), stop_conditions=(),
+        commands=(), transition_approval_conditions=(), action_approval_conditions=(), stop_conditions=(),
         transitions=(TransitionConfig("again", "compose", max_traversals),),
         max_visits=max_visits,
     )
     return PipelineConfig(
-        schema_version=1, id="fixture", version=1, start="compose",
+        schema_version=2, id="fixture", version=1, start="compose",
         terminal_outcomes=("done",), artifact_pattern="artifacts/{visit}.md",
         allow_non_git=True, phases=(phase,), path=Path("/unused/pipeline.toml"),
         repository_root=Path("/unused"), canonical_json="{}", config_hash=HASH,

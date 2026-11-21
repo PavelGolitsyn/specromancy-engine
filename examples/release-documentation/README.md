@@ -149,7 +149,7 @@ adapter drift (11) need configuration/ownership repair. See the
 [complete exit table](../../docs/reference/cli.md#json-and-exit-codes).
 
 For real work, replace the sample request and let your harness follow the
-canonical pipeline skill and phase packets. The Markdown validators check
+generated launch skill and the phase procedure in each action packet. The Markdown validators check
 headings and repository mutation, not whether prose is true. Each phase has only
 one successful outcome, selected automatically; passing `--outcome` would be an
 error. A reviewer stops with `specromancy block RUN_ID --reason
@@ -165,10 +165,13 @@ and the executable is `specromancy`. The
 [public API example](../../docs/guides/installation.md#python-project-dependency)
 uses this registry with `Engine`, `RunStore`, and `load_registry`.
 
-The generic `.agents/skills/pipeline/SKILL.md` is an exact copy of the producer's
-canonical orchestrator. When that procedure changes, maintainers must update
-this copy in the same change. A shipped-configuration consistency test enforces
-byte equality and portable frontmatter for these example skills. Release-specific
-procedures and templates remain example-owned; test-owned workflow fixtures are
-independent. Examples are repository assets, kept outside the wheel; source
-distribution inclusion is checked by the [distribution verifier](../../docs/guides/distribution-verification.md).
+The example selects Claude and OpenCode in `workflow/adapters.toml`. Edit that
+list to select your own harnesses. OpenCode uses the shared root instructions
+and `.agents` skills. Claude's entry points live under `.claude`. An empty list
+keeps the CLI workflow and retires unchanged manifest-owned adapters.
+
+Edit `workflow/instructions.md`, the registered graph, or its declared
+`workflow/skills/` procedures and artifact templates. Run
+`specromancy adapters generate` and `specromancy adapters generate --check`
+before invoking your harness. Generation embeds the installed orchestrator in each selected launch skill. The example ships only its
+authored sources and sample request in the source distribution.

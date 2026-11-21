@@ -1,4 +1,4 @@
-schema_version = 1
+schema_version = 2
 id = "implementation"
 version = 1
 start = "research"
@@ -9,6 +9,7 @@ allow_non_git = false
 [[phases]]
 id = "research"
 skill = "research"
+skill_source = "workflow/skills/research/SKILL.md"
 inputs = ["request"]
 output_name = "{visit:03}-research.md"
 output_template = "../templates/research.md"
@@ -16,7 +17,8 @@ mutation = "read-only"
 completion_criteria = ["Record repository evidence and unresolved questions."]
 validator = "markdown"
 required_headings = ["Summary", "Evidence", "Open Questions"]
-approval_conditions = []
+transition_approval_conditions = []
+action_approval_conditions = []
 stop_conditions = ["insufficient-information"]
 max_visits = 1
 
@@ -30,6 +32,7 @@ outcome = "blocked"
 [[phases]]
 id = "plan"
 skill = "plan"
+skill_source = "workflow/skills/plan/SKILL.md"
 inputs = ["request", "latest:research"]
 output_name = "{visit:03}-plan.md"
 output_template = "../templates/plan.md"
@@ -37,7 +40,8 @@ mutation = "read-only"
 completion_criteria = ["Map requirements to files, tests, verification, and risks."]
 validator = "markdown"
 required_headings = ["Scope", "Requirement Mapping", "Intended Files", "Tests", "Verification", "Risks and Approvals"]
-approval_conditions = ["material-scope-change"]
+transition_approval_conditions = ["material-scope-change"]
+action_approval_conditions = []
 stop_conditions = ["insufficient-information"]
 max_visits = 1
 
@@ -52,6 +56,7 @@ outcome = "blocked"
 [[phases]]
 id = "implement"
 skill = "implement"
+skill_source = "workflow/skills/implement/SKILL.md"
 inputs = ["request", "latest:plan"]
 output_name = "{visit:03}-implementation.md"
 output_template = "../templates/implementation.md"
@@ -59,7 +64,8 @@ mutation = "repository-write"
 completion_criteria = ["Implement the plan and record changes, deviations, and verification."]
 validator = "markdown"
 required_headings = ["Changes", "Deviations", "Verification"]
-approval_conditions = ["destructive-action", "external-side-effect", "material-scope-change", "new-production-dependency"]
+transition_approval_conditions = []
+action_approval_conditions = ["destructive-action", "external-side-effect", "material-scope-change", "new-production-dependency"]
 stop_conditions = ["insufficient-information"]
 
 [[phases.commands]]
@@ -77,6 +83,7 @@ outcome = "blocked"
 [[phases]]
 id = "review"
 skill = "review"
+skill_source = "workflow/skills/review/SKILL.md"
 inputs = ["request", "latest:plan", "latest:implement"]
 output_name = "{visit:03}-review.md"
 output_template = "../templates/review.md"
@@ -84,7 +91,8 @@ mutation = "read-only"
 completion_criteria = ["Record a verdict and actionable findings."]
 validator = "markdown"
 required_headings = ["Verdict", "Findings", "Verification"]
-approval_conditions = []
+transition_approval_conditions = []
+action_approval_conditions = []
 stop_conditions = ["insufficient-information"]
 
 [[phases.transitions]]

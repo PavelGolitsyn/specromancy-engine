@@ -75,7 +75,14 @@ def build_action_packet(
                 for command in phase.validation_commands
             ],
         },
-        "approval_conditions": list(phase.approval_conditions),
+        "action_approval_conditions": list(phase.action_approval_conditions),
+        "transition_approval_conditions": list(phase.transition_approval_conditions),
+        "action_decisions": [
+            {**record, "request_number": number}
+            for number, record in enumerate(manifest["approvals"], 1)
+            if record.get("kind") == "action" and record.get("visit_number") == visit["ordinal"]
+            and record.get("status") in {"approved", "declined"}
+        ],
         "stop_conditions": list(phase.stop_conditions),
         "outcomes": [transition.outcome for transition in phase.transitions],
         "final_validation_command": validate_command,
@@ -96,6 +103,11 @@ def render_action_packet(packet: dict[str, Any]) -> str:
     allowlist = packet["mutation"]["allowlist"]
     if allowlist:
         mutation += f" ({', '.join(allowlist)})"
+    approval_reasons = []
+    for kind in ("action", "transition"):
+        reasons = packet[f"{kind}_approval_conditions"]
+        if reasons:
+            approval_reasons.append(f"{kind.capitalize()} approval reasons: {', '.join(reasons)}")
     return "\n".join(
         (
             f"Run: {packet['run_id']}",
@@ -106,6 +118,9 @@ def render_action_packet(packet: dict[str, Any]) -> str:
             inputs or "- none",
             f"Output: {packet['output']['absolute_path']}",
             f"Mutation: {mutation}",
+            *approval_reasons,
+            *(f"Action {a['request_number']} ({a['status']}, {a['reason']}): {a['details']}"
+              for a in packet["action_decisions"]),
             "Completion criteria:",
             criteria or "- none",
             "Validate: "

@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import os
 import re
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any, NoReturn
 
@@ -16,7 +17,10 @@ IDENTIFIER_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 class FieldContext:
     """Source and repository authority shared by configuration parsers."""
 
-    def __init__(self, path: Path, repository_root: Path) -> None:
+    def __init__(
+        self, path: Path, repository_root: Path, *, read_bytes: Callable[[Path], bytes] = Path.read_bytes,
+    ) -> None:
+        self.read_bytes = read_bytes
         self.path = path
         self.repository_root = repository_root
 
@@ -193,6 +197,47 @@ class FieldContext:
                 remediation="create the referenced file or correct the path",
             )
         return candidate
+
+    def workflow_path(
+        self, declared: str, field: str, *, phase: str | None = None,
+        base: Path | None = None, allow_parent: bool = False,
+    ) -> Path:
+        """Check the lexical location and the symlink target before any source read."""
+        boundary = self.repository_root / "workflow"
+        location = (base or self.repository_root) / declared
+        try:
+            if (not _safe_declared_path(declared, allow_parent=allow_parent)
+                    or any(ord(char) < 32 for char in declared)
+                    or boundary.is_symlink()
+                    or not Path(os.path.normpath(location)).is_relative_to(boundary)):
+                raise ValueError("invalid declared workflow location")
+            # Resolve the original path: collapsing '..' before following a
+            # symlink can change which file the filesystem actually opens.
+            resolved = location.resolve()
+            if not resolved.is_relative_to(boundary):
+                raise ValueError("resolved location escapes workflow/")
+            exists = resolved.is_file()
+        except (OSError, ValueError, RuntimeError) as exc:
+            self.fail(
+                "unsafe-path", f"unsafe {field} source {declared!r}: {exc}",
+                field=field, phase=phase, value=declared,
+                remediation="use a relative path inside a non-symlinked workflow/ directory",
+            )
+        if not exists:
+            self.fail(
+                "missing-file", f"{field} source is not a regular file: {declared}",
+                field=field, phase=phase, value=declared,
+                remediation="create the referenced workflow file or correct its declaration",
+            )
+        return resolved
+
+    def phase_dependency(
+        self, declared: str, field: str, *, phase: str, workflow_owned: bool,
+    ) -> Path:
+        if workflow_owned:
+            return self.workflow_path(declared, field, phase=phase,
+                                      base=self.path.parent, allow_parent=True)
+        return self.existing_path(declared, field, phase=phase)
 
     def check_unknown(
         self,

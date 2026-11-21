@@ -1,6 +1,8 @@
 # Harness compatibility
 
-Specromancy keeps workflow ownership in `AGENTS.md`, `workflow/pipelines.toml`, `workflow/pipelines/`, and `.agents/skills/*/SKILL.md`. Harness adapters are generated discovery and invocation aids; they do not define phases, transitions, validation, or approval rules.
+Consumers author repository instructions, registered pipelines and phase procedures
+under `workflow/`. List the selected harnesses in `workflow/adapters.toml`.
+Generation supplies the union of their discovery and invocation files.
 
 Generate adapters after changing any canonical source:
 
@@ -14,9 +16,8 @@ CI and local verification can detect missing, modified, extra, or source-stale a
 specromancy adapters generate --check
 ```
 
-The ownership record is `adapters/manifest.json`, schema version 1. Generator
-version 2 emits the installed `specromancy` command, including regeneration
-instructions, and derives provenance comments from that version. Generation
+The ownership record is `adapters/manifest.json`, schema version 2. Generator
+version 4 records every selected consumer of a shared path in one ownership entry. Generation
 uses normalized UTF-8 input, stable ordering and newlines, no timestamps or
 absolute paths, and atomic per-file replacement with the manifest written last.
 It is not a transaction across all generated files. A file may be removed as
@@ -25,24 +26,24 @@ matches. Unowned and edited stale files are preserved and reported as conflicts.
 Generation restores current manifest-owned output even if edited; `--check`
 reports those edits without writing. Preserve intentional edits before
 regenerating and incorporate their intended changes into canonical sources.
-An unchanged version-1 owned adapter tree can be upgraded by normal generation.
+During migration, first relocate hand-written instructions and phase skills.
+Older manifests retain the ownership limits of their own versions.
 
 All harnesses need the installed command on their process's `PATH`; terminal
 activation does not update an already-running GUI harness. See
-[Harness usage](../guides/harnesses.md) for environment setup and explicit
-copying of the required project-owned generic pipeline procedure. Installation
-does not supply consumer skills. Deterministic wrapper/argv tests cover the
-adapter contract; they do not prove behavior in a hosted harness.
+[Harness usage](../guides/harnesses.md) for environment setup. The packaged templates supply generic orchestration.
+The test suite verifies generated Markdown and CLI argument handling. Live-host
+discovery and invocation depend on each harness and its trust settings.
 
 ## Harness matrix
 
 | Harness | Discovery | Invocation | Adapter mode |
 | --- | --- | --- | --- |
-| Codex | Reads `AGENTS.md` and `.agents/skills` directly | Use `$specromancy-<id>` for a new run or `$pipeline` with an explicit ID, or invoke the canonical phase skill named by an action packet | Native discovery of shared generated launch skills |
+| Codex | Reads `AGENTS.md` and `.agents/skills` directly | Use `$specromancy-<id>` for a new run or `$pipeline` with an explicit ID, or invoke the canonical phase skill named by an action packet | Native discovery of shared generated skills |
 | Claude Code | Reads `.claude/CLAUDE.md`, `.claude/skills`, and `.claude/commands/specromancy` | Use the generated init, resume, status, or phase command | Generated mirrors and thin commands |
 | GitHub Copilot | Reads `.github/copilot-instructions.md`, repository `.agents/skills`, and `.github/prompts` | Run a generated `specromancy-*` prompt | Generated instructions and thin prompts |
 | OpenCode | Reads `AGENTS.md`, `.agents/skills`, and `.opencode/commands` | Run a generated `specromancy-*` command | Generated thin commands |
-| Hermes | Reads `AGENTS.md` and project `.agents/skills` after trust is granted | Invoke a generated pipeline launch skill or the canonical orchestrator/phase skill | Native discovery of shared generated launch skills |
+| Hermes | Reads `AGENTS.md` and project `.agents/skills` after trust is granted | Invoke a generated pipeline launch skill or the generic launch skill or phase wrapper | Native discovery of shared generated skills |
 
 ## Persisted-state workflow
 
@@ -60,4 +61,8 @@ Review and accept the repository skills when prompted. Specromancy does not modi
 
 ## Generated-file policy
 
-Do not edit generated files. Change `AGENTS.md`, the registry, registered pipeline graphs and referenced templates/schemas, canonical `.agents/skills` content, or CLI command/help metadata, then regenerate. Generation creates a `specromancy-<id>` skill per registration under `.agents/skills/` and a Claude mirror, delegating to the canonical pipeline orchestrator. These launch skills are generated outputs, excluded from canonical source hashing. Codex and Hermes consume the shared `.agents` files natively; their `discovery_paths` are recorded in the manifest. Other canonical skills remain user-owned. The generated skill prefix is reserved.
+Edit the registered workflow sources and regenerate. Codex and Hermes discover the
+same generated `.agents/skills/` files. When both are selected, the manifest lists these paths for both
+targets and records each file's hash once. Phase wrappers load the declared
+canonical procedure, while generic and per-pipeline launch skills embed release
+orchestration. See the [adapter contract](contracts.md#adapter-generation).

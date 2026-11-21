@@ -17,10 +17,13 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from contextlib import chdir
+from importlib.metadata import version
 from importlib.resources import files
 from pathlib import Path
 
 from specromancy_engine import Engine, EngineError, ExitCode, RunStore, load_pipeline, load_registry
+from specromancy_engine._adapters.adapter_sources import capture_release_inputs
 from specromancy_engine.cli import main
 from specromancy_engine.schema_validation import load_json_schema
 
@@ -44,20 +47,24 @@ def snapshot(root: Path, *, exclude_runs: bool = False) -> dict:
 
 
 def write_consumer(root: Path, phase: str, *, allow_non_git: bool = False) -> None:
+    skill = "workflow/skills/compose/SKILL.md"
+    source_field = f'skill_source = "{skill}"\n'
     resources = {
+        "workflow/adapters.toml": 'schema_version = 1\nharnesses = ["claude", "codex", "copilot", "hermes", "opencode"]\n',
+        "workflow/instructions.md": "# Consumer instructions\n",
         "workflow/pipelines.toml": 'schema_version = 1\n[[pipelines]]\nid = "shared"\npath = "pipelines/flow.toml"\n',
         "workflow/pipelines/flow.toml": (
-            f'schema_version = 1\nid = "shared"\nversion = 1\nstart = "{phase}"\n'
+            f'schema_version = 2\nid = "shared"\nversion = 1\nstart = "{phase}"\n'
             'terminal_outcomes = ["done"]\nartifact_pattern = "artifacts/{visit:03}-{phase}.json"\n'
             f'allow_non_git = {str(allow_non_git).lower()}\n'
-            f'[[phases]]\nid = "{phase}"\nskill = "compose"\ninputs = ["request"]\n'
+            f'[[phases]]\nid = "{phase}"\nskill = "compose"\n{source_field}inputs = ["request"]\n'
             'output_name = "result.json"\noutput_template = "../templates/result.json"\n'
             'mutation = "read-only"\ncompletion_criteria = ["Record the consumer result."]\n'
             'validator = {type = "json", path = "../schemas/result.json"}\n'
-            'approval_conditions = []\nstop_conditions = []\n'
+            'transition_approval_conditions = []\naction_approval_conditions = []\nstop_conditions = []\n'
             '[[phases.transitions]]\noutcome = "done"\n'
         ),
-        ".agents/skills/compose/SKILL.md": f"---\nname: compose\ndescription: Record {phase}.\n---\nUse {phase} resources.\n",
+        skill: f"---\nname: compose\ndescription: Record {phase}.\n---\nUse {phase} resources.\n",
         "workflow/templates/result.json": json.dumps({"consumer": phase}) + "\n",
         "workflow/schemas/result.json": json.dumps({
             "type": "object", "required": ["consumer"],
@@ -119,7 +126,7 @@ class ConsumerRootTests(unittest.TestCase):
 
     def assert_action(self, action: dict, root: Path, phase: str) -> None:
         self.assertEqual(action["phase"], phase)
-        self.assertEqual(Path(action["skill"]["absolute_path"]), root / ".agents/skills/compose/SKILL.md")
+        self.assertEqual(Path(action["skill"]["absolute_path"]), root / "workflow/skills/compose/SKILL.md")
         self.assertIn(f"Use {phase} resources.", Path(action["skill"]["absolute_path"]).read_text())
         self.assertEqual(Path(action["template"]["absolute_path"]), root / "workflow/templates/result.json")
         self.assertEqual(json.loads(Path(action["template"]["absolute_path"]).read_text()), {"consumer": phase})
@@ -127,6 +134,29 @@ class ConsumerRootTests(unittest.TestCase):
         run_root = root / ".specromancy/runs" / action["run_id"]
         self.assertTrue(Path(action["output"]["absolute_path"]).is_relative_to(run_root))
         self.assertEqual(action["final_validation_command"][:3], ["specromancy", "--root", str(root)])
+
+    def test_installed_cli_uses_explicit_workflow_resources_from_an_unrelated_directory(self) -> None:
+        root = self.base / "workflow-only"
+        write_consumer(root, "publish", allow_non_git=True)
+        (root / "workflow/adapters.toml").unlink()
+        self.assertEqual(load_registry(root).load("shared").start, "publish")
+        before = snapshot(root)
+        for args in ((), ("--check",)):
+            error = self.command(self.outside, "--root", str(root), "adapters", "generate", *args, expected=3)
+            self.assertIn("workflow/adapters.toml", error["message"])
+            self.assertIn('harnesses = ["claude"]', error["message"])
+            self.assertEqual(snapshot(root), before)
+        (root / "workflow/templates/result.json").write_text('{"consumer": "pending"}\n')
+        prefix = ("--root", str(root))
+        action = self.command(self.outside, *prefix, "init", "Publish", "--pipeline", "shared", expected=8)["action"]
+        self.assertEqual(Path(action["skill"]["absolute_path"]), root / "workflow/skills/compose/SKILL.md")
+        run = action["run_id"]
+        self.command(self.outside, *prefix, "phase", run, "publish", expected=8)
+        Path(action["output"]["absolute_path"]).write_text('{"consumer": "publish"}\n')
+        self.command(self.outside, *prefix, "validate", run)
+        final = self.command(self.outside, *prefix, "resume", run)
+        self.assertEqual(final["status"]["terminal_result"]["outcome"], "done")
+        self.assertEqual({path.name for path in root.iterdir()}, {"workflow", "request.md", ".specromancy", "nested"})
 
     def test_cli_discovers_both_git_markers_and_keeps_consumers_isolated(self) -> None:
         self.assertTrue((self.first / ".git").is_dir())
@@ -248,15 +278,42 @@ class ConsumerRootTests(unittest.TestCase):
         self.assertEqual(snapshot(self.base), before)
 
 
+    def test_selection_preserves_run_bytes_and_respects_active_mutation_policy(self) -> None:
+        for root, phase, policy in ((self.first, "amber", "read-only"), (self.second, "blue", "allowlist")):
+            with self.subTest(policy=policy):
+                graph = root / "workflow/pipelines/flow.toml"
+                config = root / "workflow/adapters.toml"
+                source = graph.read_text().replace('transition_approval_conditions = []', 'transition_approval_conditions = ["accept"]')
+                if policy == "allowlist":
+                    source = source.replace('mutation = "read-only"', 'mutation = "allowlist"\nallowlist = ["workflow/adapters.toml"]')
+                graph.write_text(source)
+                self.command(root, "adapters", "generate")
+                self.git("-C", str(root), "add", "workflow", "AGENTS.md", "adapters", ".agents", ".claude", ".opencode", ".github")
+                pipeline = load_registry(root).load("shared")
+                skill = pipeline.phase(phase).skill_path
+                skill_hash = hashlib.sha256(skill.read_bytes()).digest()
+                run = self.command(root, "init", "Check policy", "--pipeline", "shared", expected=8)["action"]["run_id"]
+                action = self.command(root, "phase", run, phase, expected=8)["action"]
+                Path(action["output"]["absolute_path"]).write_text(json.dumps({"consumer": phase}))
+                if policy == "read-only":
+                    self.command(root, "request-approval", run, "--reason", "accept", expected=7)
+
+                run_root = root / ".specromancy/runs" / run
+                before = snapshot(run_root)
+                config.write_text('schema_version = 1\nharnesses = ["claude"]\n')
+                self.command(root, "adapters", "generate")
+                self.assertEqual(snapshot(run_root), before)
+                self.assertEqual(load_registry(root).load("shared").canonical_json, pipeline.canonical_json)
+                self.assertEqual(hashlib.sha256(skill.read_bytes()).digest(), skill_hash)
+                command = "approve" if policy == "read-only" else "validate"
+                refused = self.command(root, command, run, phase, expected=6)
+                self.assertEqual(refused["details"]["error_code"], "mutation-policy-violation")
+                violations = RunStore(root).load(run)["visits"][0]["mutation_result"]["violations"]
+                self.assertIn("AGENTS.md", violations)
+                self.assertEqual("workflow/adapters.toml" in violations, policy == "read-only")
+
     def prepare_adapters(self) -> dict:
         root = self.first
-        (root / "AGENTS.md").write_text("# Consumer instructions\nKeep procedures canonical.\n")
-        orchestrator = root / ".agents/skills/pipeline/SKILL.md"
-        orchestrator.parent.mkdir(parents=True)
-        orchestrator.write_text(
-            "---\nname: pipeline\ndescription: Follow configured phases.\n---\n"
-            "Run `specromancy status RUN_ID --json` and follow persisted action packets.\n"
-        )
         self.assertFalse((root / "bin/specromancy").exists())
         self.assertFalse((root / "src").exists())
         self.command(root, "adapters", "generate")
@@ -266,15 +323,14 @@ class ConsumerRootTests(unittest.TestCase):
         self.assertEqual(snapshot(root), before)
         manifest = json.loads((root / "adapters/manifest.json").read_text())
         self.assertEqual(manifest["generator"], {
-            "name": "specromancy", "version": 2, "command": "specromancy adapters generate",
+            "name": "specromancy", "version": 4, "command": "specromancy adapters generate",
         })
-        self.assertEqual(manifest["schema_version"], 1)
+        self.assertEqual(manifest["schema_version"], 2)
         for entry in manifest["generated"]:
             content = (root / entry["path"]).read_bytes()
             self.assertEqual(hashlib.sha256(content).hexdigest(), entry["sha256"])
         mirror = (root / ".claude/skills/pipeline/SKILL.md").read_text()
-        self.assertEqual("\n".join(line for line in mirror.splitlines()
-                                  if not line.startswith("# ")) + "\n", orchestrator.read_text())
+        self.assertIn("specromancy resume RUN_ID --json", mirror)
         return manifest
 
     def run_rendered(self, argv: list[str], *, cwd: Path, expected: int = 8) -> dict:
@@ -287,6 +343,16 @@ class ConsumerRootTests(unittest.TestCase):
     def test_consumer_executes_every_wrapper_and_launch_skill(self) -> None:
         manifest = self.prepare_adapters()
         root = self.first
+        manifest_path = root / "adapters/manifest.json"
+        original_manifest = manifest_path.read_bytes()
+        shutil.rmtree(root / ".agents")
+        (root / "AGENTS.md").unlink()
+        missing = {entry["path"] for entry in manifest["generated"]
+                   if entry["path"] == "AGENTS.md" or entry["path"].startswith(".agents/")}
+        before = snapshot(root)
+        drift = self.command(root, "adapters", "generate", "--check", expected=ExitCode.ADAPTER_DRIFT)
+        self.assertEqual(set(drift["details"]["missing"]), missing)
+        self.assertEqual(snapshot(root), before)
         description = 'A request with spaces, "quotes", $HOME, $(echo never), and café'
         conventions = {
             "claude": (".claude/commands/specromancy/{name}.md", {
@@ -312,7 +378,7 @@ class ConsumerRootTests(unittest.TestCase):
                 with self.subTest(harness=harness, command=name):
                     text = (root / pattern.format(name=name)).read_text()
                     self.assertNotIn("bin/specromancy", text)
-                    invocations = re.findall(r"`(specromancy [^`]+)`", text)
+                    invocations = re.findall(r"`(specromancy (?:init|phase|status|resume) [^`]+)`", text)
                     self.assertEqual(invocations, [f"specromancy {name} {commands[name]} --json"])
                     values = (["shared", description] if name == "init" else
                               [run_id, "amber"] if name == "phase" else [run_id])
@@ -332,11 +398,21 @@ class ConsumerRootTests(unittest.TestCase):
                         action = result["action"]
                         run_id = action["run_id"]
                         self.assertIn(description, Path(action["inputs"][0]["absolute_path"]).read_text())
+                    if name in ("init", "resume", "phase"):
+                        source = Path(result["action"]["skill"]["absolute_path"])
+                        self.assertEqual(source, root / "workflow/skills/compose/SKILL.md")
+                        self.assertIn("Use amber resources.", source.read_text())
             # Status argv uses cwd; validation argv independently carries the root.
             status = self.command(root, "status", run_id)["status"]
             self.assertEqual(status["next_command"], ["specromancy", "validate", run_id, "amber"])
             Path(action["output"]["absolute_path"]).write_text('{"consumer":"amber"}\n')
             self.run_rendered([*status["next_command"], "--json"], cwd=root / "nested/deeper", expected=0)
+
+        self.command(root, "adapters", "generate")
+        self.command(root, "adapters", "generate", "--check")
+        self.assertEqual(manifest_path.read_bytes(), original_manifest)
+        for entry in manifest["generated"]:
+            self.assertEqual(hashlib.sha256((root / entry["path"]).read_bytes()).hexdigest(), entry["sha256"])
 
         launches = [entry["path"] for entry in manifest["generated"]
                     if entry["path"].endswith("skills/specromancy-shared/SKILL.md")]
@@ -345,7 +421,7 @@ class ConsumerRootTests(unittest.TestCase):
         for relative in launches:
             with self.subTest(launch=relative):
                 text = (root / relative).read_text()
-                invocations = re.findall(r"`(specromancy [^`]+)`", text)
+                invocations = re.findall(r"`(specromancy init [^`]+)`", text)
                 self.assertEqual(invocations, ["specromancy init DESCRIPTION --pipeline shared --json"])
                 argv = [description if token == "DESCRIPTION" else token for token in shlex.split(invocations[0])]
                 action = self.run_rendered(argv, cwd=root)["action"]
@@ -360,16 +436,49 @@ class ConsumerRootTests(unittest.TestCase):
                                         env=self.env, capture_output=True, text=True)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
-    def test_adapter_generation_requires_project_owned_orchestrator(self) -> None:
+    def test_adapter_generation_protects_existing_project_owned_instructions(self) -> None:
         root = self.first
         (root / "AGENTS.md").write_text("# Consumer instructions\n")
+        wrapper = root / ".agents/skills/compose/SKILL.md"
+        wrapper.parent.mkdir(parents=True)
+        source = root / "workflow/skills/compose/SKILL.md"
+        wrapper.write_bytes(source.read_bytes() + b"Additional consumer procedure.\n")
         before = snapshot(root)
         result = self.command(root, "adapters", "generate", expected=ExitCode.ADAPTER_DRIFT)
-        self.assertEqual(result["message"], "canonical pipeline orchestrator skill is missing")
+        self.assertEqual(result["details"]["unowned"], [".agents/skills/compose/SKILL.md", "AGENTS.md"])
         self.assertEqual(snapshot(root), before)
+        # Relocate the consumer's originals to their declared workflow locations.
+        wrapper.replace(source)
+        (root / "AGENTS.md").replace(root / "workflow/instructions.md")
+        self.command(root, "adapters", "generate")
+        self.command(root, "adapters", "generate", "--check")
+        self.assertIn("Additional consumer procedure.", source.read_text())
+        self.assertIn("# Consumer instructions", (root / "AGENTS.md").read_text())
 
 
 class PackageResourceTests(unittest.TestCase):
+    def test_release_inputs_are_available_outside_a_producer_or_consumer_checkout(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary, chdir(temporary):
+            captured = capture_release_inputs()
+            identity, *templates = captured
+            self.assertEqual(identity.path, "@package/specromancy_engine/version")
+            self.assertEqual(identity.content.decode(), version("specromancy-engine"))
+            resources = files("specromancy_engine").joinpath("resources", "adapters")
+            self.assertEqual({source.path for source in templates}, {
+                "@package/specromancy_engine/resources/adapters/" + entry.name
+                for entry in resources.iterdir() if entry.is_file()
+            })
+            for source in templates:
+                self.assertEqual(source.content, resources.joinpath(source.path.rsplit("/", 1)[1]).read_bytes())
+
+            # Consumer files at lookalike paths cannot override any release input.
+            for name in ("AGENTS.md", ".agents/skills/pipeline/SKILL.md",
+                         "resources/adapters/launch.md", templates[0].path):
+                path = Path(name)
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("consumer override")
+            self.assertEqual(capture_release_inputs(), captured)
+
     def test_all_four_published_schemas_are_readable_json(self) -> None:
         resources = files("specromancy_engine").joinpath("schemas")
         self.assertEqual({item.name for item in resources.iterdir() if item.name.endswith(".json")}, SCHEMAS)

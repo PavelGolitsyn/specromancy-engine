@@ -53,7 +53,7 @@ class DefaultExamplePipelineTests(unittest.TestCase):
         self.assertEqual(phases["implement"].mutation, "repository-write")
         self.assertEqual(phases["review"].mutation, "read-only")
         self.assertEqual(
-            phases["plan"].approval_conditions, ("material-scope-change",)
+            phases["plan"].transition_approval_conditions, ("material-scope-change",)
         )
         repair = next(
             item

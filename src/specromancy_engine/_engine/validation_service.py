@@ -77,19 +77,7 @@ def perform_validation(
     )
     command_failure = first_required_failure(command_results)
     try:
-        baseline = visit.get("mutation_baseline")
-        if not isinstance(baseline, dict):
-            raise GitError(
-                "missing-mutation-baseline",
-                "the visit has no repository mutation baseline",
-            )
-        current = capture_repository_snapshot(
-            pipeline.repository_root,
-            allow_non_git=pipeline.allow_non_git,
-        )
-        mutation_result = enforce_mutation_policy(
-            baseline, current, phase.mutation, phase.allowlist
-        )
+        mutation_result = check_visit_mutation(pipeline, visit, phase)
     except GitError as exc:
         return ValidationResult(
             checks, command_results, exc.details.get("mutation_result"),
@@ -110,3 +98,21 @@ def perform_validation(
             ),
         )
     return ValidationResult(checks, command_results, mutation_result)
+
+
+def check_visit_mutation(
+    pipeline: PipelineConfig, visit: VisitRecord, phase: PhaseConfig,
+) -> dict[str, Any]:
+    baseline = visit.get("mutation_baseline")
+    if not isinstance(baseline, dict):
+        raise GitError(
+            "missing-mutation-baseline",
+            "the visit has no repository mutation baseline",
+        )
+    current = capture_repository_snapshot(
+        pipeline.repository_root,
+        allow_non_git=pipeline.allow_non_git,
+    )
+    return enforce_mutation_policy(
+        baseline, current, phase.mutation, phase.allowlist
+    )

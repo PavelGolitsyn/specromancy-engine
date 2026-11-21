@@ -1,8 +1,8 @@
 # Specromancy Engine public contracts
 
-These contracts describe Specromancy Engine.
-Breaking stored representation changes require a schema-version change and updated fixtures;
-additive fields with backward-compatible defaults may extend the current version.
+Before v1.0.0, Specromancy supports only the current contracts and schemas.
+Breaking changes may ship in any pre-1.0.0 release. Update the schema version
+and fixtures when changing a stored representation incompatibly.
 
 ## Python import surface
 
@@ -39,12 +39,10 @@ validation commands execute the argv declared in their pipeline.
 
 ## Installed resources and consumer roots
 
-Installation does not create or overwrite consumer `AGENTS.md`, a registry,
-skills, templates, or harness files. Consumers explicitly author or copy those
-resources, preserving existing instructions, and separately invoke adapter
-generation under its manifest ownership rules. Examples remain outside the
-wheel. See [installation](../guides/installation.md) for CLI and dependency
-routes.
+Installation supplies the engine and release templates and creates no consumer
+repository files. Author repository instructions, graphs, phase skills and
+their referenced resources under `workflow/`, then generate harness outputs.
+The source distribution includes the [consumer example](../../examples/release-documentation/README.md).
 
 The installed engine has no implicit pipeline or producer-checkout fallback.
 CLI discovery starts at the working directory and walks upward to a `.git`
@@ -60,12 +58,13 @@ Each root owns its registry, graphs, skills, templates, validator schemas, and
 `.specromancy/runs/`. Graph and resource resolution is scoped to that root on
 each load; identical pipeline IDs in different projects do not share state.
 Skills resolve from the root; templates and validator schemas resolve from the
-graph's directory, with repository containment checks. No installed command
+graph's directory. Explicit workflow sources use the containment rules below.
+No installed command
 requires writes to the package, the producer checkout, or home-directory
 configuration. Python bytecode caching can be disabled independently with
 `PYTHONDONTWRITEBYTECODE=1` when testing a read-only installation.
 
-The four published package resources are `pipeline.schema.json` (graph),
+The four published schemas are `pipeline.schema.json` (graph),
 `pipelines.schema.json` (registry), `run.schema.json` (manifest), and
 `event.schema.json` (event). Read them using Python 3.11-compatible resource APIs:
 
@@ -88,6 +87,22 @@ passed to its loader as an availability check. No schema subset is expanded by
 packaging. When an external tool needs a filesystem path to a package resource,
 use `importlib.resources.as_file(resource)` only for the duration of its context;
 never persist the temporary path in run records.
+
+The release also ships seven UTF-8 Markdown templates under
+`specromancy_engine/resources/adapters/`. These supply the repository
+instruction envelope, phase discovery wrapper, orchestration procedure,
+pipeline launch skill, and Claude, Copilot, and OpenCode command wrappers.
+The phase wrapper points to its canonical workflow file and resolves support
+references from that file's directory. The launch skill embeds the entire
+orchestration procedure together with the registered pipeline ID.
+
+Internal capture reads these templates from the installed package and identifies
+each by a logical ID such as `@package/specromancy_engine/resources/adapters/launch.md`.
+It preserves the exact bytes for SHA-256 hashing and captures the package
+version under `@package/specromancy_engine/version`. Both identifiers are
+independent of the install location. Rendering substitutes named fields once
+and emits LF text with one trailing newline. Braces and dollar signs in
+consumer Markdown and command arguments remain literal.
 
 For Python embedding, use the existing public facades and explicit consumer
 roots; see the [executable examples](../guides/authoring-pipelines.md#embed-the-installed-engine).
@@ -113,7 +128,8 @@ init DESCRIPTION --pipeline ID
 phase RUN_ID PHASE
 <dynamic-phase> RUN_ID
 validate RUN_ID [PHASE] [--outcome OUTCOME]
-approve RUN_ID PHASE
+approve RUN_ID PHASE [--request N]
+decline RUN_ID PHASE --request N
 request-approval RUN_ID [--reason CODE] [--details TEXT] [--outcome OUTCOME]
 block RUN_ID [--reason CODE] [--details TEXT]
 status RUN_ID
@@ -122,10 +138,10 @@ run RUN_ID
 adapters generate [--check]
 ```
 
-Workflow commands accept `--root PATH`, `--pipeline ID`, `--json`, and `--quiet`. Built-in commands are resolved before dynamic phase aliases; pipeline phase names therefore cannot shadow a reserved command.
+Workflow commands accept `--root PATH`, `--pipeline ID`, `--json`, and `--quiet`. Built-in commands are resolved before dynamic phase aliases; pipeline phase names must avoid reserved commands.
 
 `--reason` may be omitted only when the current phase declares exactly one
-reason of the relevant kind. `validate --outcome` is required when a phase has
+approval reason across both lists, or one stop reason for `block`. `validate --outcome` is required when a phase has
 multiple non-blocking outcomes and is rejected when there is only one.
 
 The installed `specromancy` command, diagnostic `python -m specromancy_engine`
@@ -138,27 +154,18 @@ root for fixtures and non-Git directories. Status `next_command` argv relies on
 the consumer cwd (or an added `--root`); action `final_validation_command` argv
 already carries the absolute consumer root.
 
-`adapters generate` deterministically renders harness-native adapters from
-`AGENTS.md`, the mandatory registry, every validated registered graph and its
-referenced templates/schemas, canonical `.agents/skills`,
-and CLI command/help metadata. Generation is registry-wide and rejects
-`--pipeline`. It generates `.agents/skills/specromancy-<id>/SKILL.md` and Claude
-launch-skill mirrors. These delegate to the canonical pipeline procedure and
-contain no graph policy. Generated launch skills are excluded from canonical
-source hashing. Their prefix is reserved; canonical skills outside that namespace
-are never owned or removed by the generator. `--check` performs no writes and exits with
-`ADAPTER_DRIFT` when the manifest or managed tree differs from the expected
-rendering.
+### Adapter generation
 
-The canonical `.agents/skills/pipeline/SKILL.md` is required, project-owned,
-and never created by package installation or adapter generation. Onboarding
-explicitly copies the [generic procedure](../../.agents/skills/pipeline/SKILL.md)
-into the consumer; it assumes no phase names or order. The adapter generator
-uses version 2, manifest schema version 1, and generator name `specromancy`. These identifiers are independent of the package version.
-Unchanged owned version-1 output is accepted by normal generation. Generation
-restores current manifest-owned output even if edited; check mode reports those edits without writing. Unowned paths
-and edited stale paths remain conflicts. Save any intentional edits before
-regenerating and move their intended changes into canonical sources.
+Generation and check require the user-owned `workflow/adapters.toml`, guarded
+before parsing by the same declared/resolved workflow boundary as graph inputs.
+Its only keys are integer `schema_version = 1` and `harnesses`, an array of
+unique supported identifiers. Missing configuration reports the supported names
+and an example. Both commands are non-interactive and reject `--pipeline`.
+For nonempty selection generation validates every registration. With an empty
+selection it checks prior ownership and reconciles to zero generated files.
+Generator version 4 writes schema 2 and carries the generator name `specromancy`.
+`--check` compares expected output and ownership without writing. It reports
+drift when the generated tree or manifest differs.
 
 The Python `cli.adapter_command_metadata` facade shares explicit descriptions
 with parser construction and returns the same sorted command metadata without
@@ -168,6 +175,50 @@ explicit metadata; when omitted, metadata is derived from that invocation's
 validated graphs. Generation reuses captured source text and bytes for rendering
 and source hashes, without a cross-invocation cache. Adapter constants and
 `AdapterError` remain available from `specromancy_engine.adapters`.
+
+For selected outputs, generation and rendering use a registry snapshot and capture
+`workflow/instructions.md`, every registered graph, and its explicitly declared
+workflow procedures and dependencies. Both facades check the registry root,
+registry path, and registration locations before consuming the snapshot. A caller that
+needs this guarantee from the first registry read uses
+`load_adapter_registry(root)`. Earlier reads made by the caller are outside
+the capture guarantee. Adapter CLI commands use that loader before parsing TOML.
+Render-only validates the same locations and graph definitions, including
+validator schemas. Reading artifact-template contents
+for hashing and inspecting ownership or drift are generation/check operations.
+
+Instructions and complete canonical procedures use UTF-8, LF, and one trailing
+newline for adapter provenance. The manifest also hashes validated configuration,
+dependency bytes, CLI metadata for command wrappers, package version, and exact
+bytes of required release templates. The canonical selection input identifies
+`workflow/adapters.toml` and hashes canonical JSON containing `schema_version`
+and the sorted `harnesses` array. TOML comments and list order do not affect it.
+For an empty selection this is the only manifest input.
+A procedure-body edit can change only the manifest. Metadata and path edits can
+also change phase wrapper bytes. Regenerate and check after either kind of edit.
+Phase wrappers retain the validated frontmatter and load the declared procedure from the consumer root.
+An action packet identifies the authoritative file. A missing file or a mismatch
+stops the visit. Relative references inside the procedure use its own directory.
+
+In generator v4 each output has one `path`, one `sha256`, and a sorted
+`targets` list of its selected consumers. Each selected target lists all its required paths. Root `AGENTS.md`
+serves Codex, Hermes, and OpenCode. Shared `.agents/skills` serve those three
+and Copilot. Claude has its own instructions, skills, and commands. Copilot
+also requires its instructions and prompts, and OpenCode its commands. Codex
+and Hermes list the shared skills in `discovery_paths`. Each launch embeds the
+coordination procedure with the registered pipeline ID.
+
+Generation and check validate the previous manifest's generator identity and
+ownership records. Schema 1 generators 1 and 2 use their original single-target
+mapping. Under `.agents` they own only recorded `skills/specromancy-*/SKILL.md`
+outputs. Their Claude mirrors retain the original `.claude/skills/*/SKILL.md`
+grammar. Generator 3 requires the original all-target mapping. Generator 4
+validates attribution against its recorded selection. Both schema-2 versions
+check the consuming targets in both directions. Unrelated
+skills beside expected outputs are ignored. An existing expected file requires
+valid prior ownership even when its bytes match. Regeneration restores edited
+current outputs and removes stale owned outputs only while their recorded hashes
+match.
 
 ## Pipeline registry and selection
 
@@ -203,9 +254,39 @@ original files exist. Registry ordering and unrelated graph edits do not alter
 another pipeline's run. Every workflow command requires a valid registry;
 help remains available without one.
 
-Skills are shared by repository-root skill name. Templates and validator paths
-resolve relative to each graph and may reference shared repository files through
-parent segments when containment is preserved.
+### Workflow-owned procedures (pipeline schema 2)
+
+A phase may declare `skill_source = "workflow/skills/compose/SKILL.md"` alongside
+`skill = "compose"`. The identifier remains lowercase kebab-case. The source
+is a repository-relative POSIX file path with no parent segments. The parser
+normalizes redundant separators and current-directory segments, stores this
+declared path as `PhaseConfig.skill_source`, and includes it in canonical JSON.
+`PhaseConfig.skill_path` holds the resolved regular file. Both the declared
+location and the symlink target of each procedure, output template, and validator
+must be inside a non-symlinked `workflow/` directory. Templates and validators
+retain their graph-relative bases, including safe `../templates/` references.
+
+Each explicit skill has portable UTF-8 frontmatter with a matching `name` and a
+nonempty `description`. See [authoring pipelines](../guides/authoring-pipelines.md#skills-and-templates)
+for the supported fields. Each identifier binds to one normalized declaration
+and one resolved file. A file can serve multiple phases under the same identifier.
+Runtime validation checks the selected graph. The guarded adapter preparation
+path checks bindings across the registry and requires explicit sources in every phase.
+`registry.load_adapter_registry(root)` validates source locations before parsing
+the registry. Its `load_adapter_pipelines(root)` method rechecks the supplied
+registry and registration paths before loading graphs and reuses the parsed registry.
+
+When the field is omitted, the engine resolves the procedure at
+`.agents/skills/<skill>/SKILL.md` and checks that templates and validators
+stay inside the repository. Adding the field changes pipeline identity. Keep the original checkout,
+graph and recorded resource bytes available to finish an existing run.
+Prepared visits seal the raw bytes at the resolved procedure path and return
+that path and digest in `action.skill`. A missing declared source is an error,
+even when a same-named discovery file exists. A retained Python configuration
+rechecks its resource locations before run operations. If a descendant symlink
+in the same graph comes to identify a different workflow file for a prepared
+procedure or template, continuation with the reloaded graph reports
+`provenance-path-mismatch` before reading the old recorded location.
 
 ## Filesystem ownership
 
@@ -220,15 +301,23 @@ The CLI never deletes, resets, stages, or commits repository work. Cleanup is li
 `adapters/manifest.json` is the schema-versioned ownership boundary. It records
 the generator version and regeneration command, canonical source records and
 aggregate hash, every generated adapter path and content hash, and generated or
-native mode for every supported harness. Native Codex and Hermes targets
-record shared launch-skill `discovery_paths`; native `.agents` outputs have a
-single ownership record under the Codex target. The manifest omits its own hash to
+native mode for every selected harness. Native Codex and Hermes targets
+record shared skill `discovery_paths`. Each generated file has a single
+ownership record listing all selected consuming targets. The manifest omits its own hash to
 avoid self-reference and contains no timestamps or absolute paths.
 
 Generation preflights ownership conflicts before writing, rechecks stale owned
 file hashes before removal, replaces each output atomically, and writes the
-manifest last. This is not a transaction across all generated files. Check mode
-compares expected bytes directly and creates no temporary output files.
+manifest last. An interruption between replacements can leave some new outputs
+alongside the previous manifest. Preserve any user edits and resolve unowned
+collisions before retrying. Check mode validates previous ownership, compares
+expected bytes, and creates no temporary output files. Both modes ignore foreign
+files exclusive to unselected harnesses, including names in reserved command
+directories. Previously owned files that lose their last consumer remain subject
+to stale-file checks. Resolve modified stale files before retrying.
+Selection and generation preserve pipeline and skill identities and do not write
+run records, approvals, or visit artifacts. Repository mutation checks still see
+edits to configuration and generated paths under the active visit's baseline.
 
 ## Configuration and state handling
 
@@ -361,7 +450,8 @@ contain `status`.
 An action packet uses schema version 1 and contains stable keys for `run_id`,
 `visit_id`, `visit_attempt`, `visit_status`, `phase`, `skill`, `inputs`,
 `output`, `template`, `mutation`, `completion_criteria`, `validation`,
-`approval_conditions`, `stop_conditions`, `outcomes`, and
+`action_approval_conditions`, `transition_approval_conditions`, `action_decisions`,
+`stop_conditions`, `outcomes`, and
 `final_validation_command`. Literal artifact records retain repository- or
 run-relative paths and add `absolute_path` for direct harness use.
 
@@ -395,44 +485,36 @@ the visit remains retriable.
 
 ## Approval consistency
 
-Approval records bind the run, phase, visit, reason, output hash, pipeline hash,
-outcome, actor, decision, and timestamps. Artifact or pipeline drift marks the
-record stale and leaves the visit awaiting a fresh approval. Phase-visit and
-transition-edge limits are checked atomically before a successor visit is
-created; exceeding a limit blocks the run without resetting its counters.
+The ordered `approvals` array gives each request a one-based number. Every
+record stores `kind` as `action` or `transition`. Both kinds bind the run, visit, phase, pipeline hash, reason,
+exact details, and request timestamp. A transition also binds the validated
+artifact hash and outcome. A visit can have one pending request across both kinds.
 
-Approval grant and advancement are separate durable operations. After an
-interruption following grant, `approve` can resume advancement and revalidation;
-failed revalidation retains the approval record and its audit history. Pending
-or granted approval drift is recorded as stale before `approve` returns the
-stale-approval error. Ordinary commands reject pipeline or prepared resource
-drift; `status` instead reports warnings and remains readable when artifact
-hashes drift.
+Action requests require nonblank details and preserve the visit's original
+mutation baseline and completion evidence. Request and grant check sealed
+inputs, procedure provenance, and mutation policy. They can run before the
+output exists. Grant and decline record the user's decision and restore the
+same visit to active in one revision. Action events carry `payload.request_number`
+for `approval-requested`, `approval-granted`, `approval-declined`, and
+`approval-invalidated`. A pending action with a changed graph becomes stale
+and returns the visit to active. Restoring the graph permits a fresh request.
 
-Approval requests, grants, and invalidations decide against current persisted
-state while holding the run lock. The observed request identity is `run_id`,
-`visit_number`, `phase_id`, `reason`, `details`, `requested_at`, `outcome`,
-`pipeline_sha256`, and `artifact_sha256`; the containing run and referenced visit
-must also agree. Decision fields (`status`, `decision`, `actor`, `decided_at`) are
-mutable and excluded from identity. No persisted request ID is required.
+Under the run lock, a pending request takes priority over a replay. An exact
+pending request returns exit 7. A different request or a decision aimed at
+another record conflicts (5). On the active visit, an exact decided action or
+matching decision returns the recorded result (8). An opposite decision
+conflicts. Replays and conflicts leave the revision and event log intact.
 
-Overlapping request creators compare that identity except `requested_at`. An
-identical pending request returns the winner's record and evidence with
-`approval is already pending` (7), without changing its timestamp or adding a
-revision/event. A new request adds one `approval-requested` revision/event.
-Conflicting bindings or an overtaken visit cannot attach evidence to a successor,
-even if it reuses the same phase ID.
+Transition approval and advancement remain separate durable operations.
+After an interruption, only a granted transition can resume advancement.
+Revalidation failure records evidence and retains the grant. A matching
+continuation of a completed transition leaves the successor untouched.
 
-An exact pending request on the current awaiting-approval visit is granted once.
-An already granted request on that visit resumes revalidation using its saved
-outcome, without another grant event. If its visit already completed with that
-outcome and the configured target, an in-flight approve returns the existing
-`approval was already recorded` response family for current state and never
-advances the successor. Each successful continuation adds one `visit-transitioned`
-event (or `loop-limit-exceeded`); an exact transition retry adds none. Each
-expected validation failure adds one `validation-failed` event and retains the
-grant; interruption before evidence recording adds none. Duplicate continuations
-may still execute validation commands more than once.
+Validation commands execute outside the lock. A validation result, transition
+request, or block observed on an active visit may commit only at the observed
+revision with the same active visit. This also excludes observations from before
+an intervening action grant or decline. A failed validation that commits first
+leaves the visit eligible for an action request.
 
 A stale observation invalidates only its exact eligible pending or granted
 request, adding one `approval-invalidated` revision/event before returning
@@ -446,19 +528,15 @@ outcome/target fails with `EngineError`, `ILLEGAL_TRANSITION` (5), diagnostic
 `approval-state-changed`, and message `approval state changed before the command
 could be applied`. Details contain `error_code`, `run_id`, observed `phase`, and
 observed `visit_number`. The conflict creates no revision/event and preserves the
-winner. Fresh sequential commands finding a different pending request, or finding
-no pending request after invalidation, retain `illegal-transition`.
+winner.
 
 Lock contention still returns `LOCK_HELD` (10) without implicit retries. General
 `RunStore.mutate` still commits an unchanged callback; only explicit decision
 no-ops skip commits. Approval decisions use the existing persistence protocol:
 interruption after manifest replacement but before event append is repaired on
 load with one `recovery` event at the same revision, without synthesizing the
-missing approval event. Schemas and existing stored records remain compatible.
+missing approval event.
 External artifact edits are not made atomic with validation by this lock.
 
 The [integration evidence](../implementation-history/refactoring/15-follow-on-integration.md#intentional-behavior-corrections)
 maps approval overlap outcomes and malformed-status diagnostics to their tests.
-Those are the only intended behavior corrections in the follow-on refactoring;
-sequential version-1 captures, public imports, schema versions, command metadata,
-and generated adapter bytes remain unchanged.

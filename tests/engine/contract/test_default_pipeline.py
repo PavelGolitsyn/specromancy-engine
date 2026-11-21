@@ -67,7 +67,7 @@ class DefaultPipelineContractTests(unittest.TestCase):
         self.assertEqual(requested.returncode, ExitCode.APPROVAL_REQUIRED)
         status = self.repo.payload(self.repo.command("status", run_id))["status"]
         self.assertEqual(status["status"], "awaiting-approval")
-        self.assertEqual(status["next_command"], ["specromancy", "approve", run_id, "plan"])
+        self.assertEqual(status["next_command"], ["specromancy", "approve", run_id, "plan", "--request", "1"])
 
         approved = self.repo.command("approve", run_id, "plan")
         self.assertEqual(approved.returncode, ExitCode.RUN_PAUSED)

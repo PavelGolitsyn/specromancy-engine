@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import tempfile
 import textwrap
@@ -9,7 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from specromancy_engine.artifacts import ArtifactError, resolve_input_reference
-from specromancy_engine.config import load_pipeline
+from specromancy_engine.config import PipelineConfigError, load_pipeline
 from specromancy_engine.hashing import sha256_json
 from specromancy_engine.locking import LockHeldError
 from specromancy_engine.run_store import (
@@ -20,13 +21,14 @@ from specromancy_engine.run_store import (
     validate_run_id,
 )
 from specromancy_engine._runs.visit_preparation import collect_resources
+from tests.engine.support import write_workflow_skill
 
 
 RUN_ID = "20260925T120000Z-01020304"
 
 
 PIPELINE = """
-schema_version = 1
+schema_version = 2
 id = "fixture"
 version = 1
 start = "compose"
@@ -36,12 +38,14 @@ artifact_pattern = "artifacts/{visit:03}-{phase}.md"
 [[phases]]
 id = "compose"
 skill = "compose"
+skill_source = "workflow/skills/compose/SKILL.md"
 inputs = ["request"]
 output_name = "{visit:03}-result.md"
 mutation = "read-only"
 completion_criteria = ["Write a result."]
 validator = "file"
-approval_conditions = []
+transition_approval_conditions = []
+action_approval_conditions = []
 stop_conditions = []
 max_visits = 2
 
@@ -55,13 +59,13 @@ class StoreFixture:
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name)
         (self.root / ".git").mkdir()
-        skill = self.root / ".agents" / "skills" / "compose" / "SKILL.md"
+        skill = self.root / "workflow" / "skills" / "compose" / "SKILL.md"
         skill.parent.mkdir(parents=True)
         skill.write_text(
             "---\nname: compose\ndescription: Test skill.\n---\n",
             encoding="utf-8",
         )
-        self.pipeline_path = self.root / "pipeline.toml"
+        self.pipeline_path = self.root / "workflow/pipeline.toml"
         self.pipeline_path.write_text(textwrap.dedent(PIPELINE), encoding="utf-8")
         self.pipeline = load_pipeline(self.pipeline_path, self.root)
 
@@ -167,6 +171,40 @@ class RunStoreTests(unittest.TestCase):
             with self.assertRaises(LockHeldError) as raised:
                 RunStore(self.fixture.root).load(RUN_ID)
         self.assertIn("remove the lock file manually", raised.exception.details["remediation"])
+
+    def test_prepared_visit_seals_raw_workflow_source_bytes(self) -> None:
+        skill = write_workflow_skill(self.fixture.root)
+        raw = skill.read_bytes().replace(b"\n", b"\r\n")
+        skill.write_bytes(raw)
+        source = skill.relative_to(self.fixture.root).as_posix()
+        self.create()
+        expected = {"path": source, "sha256": hashlib.sha256(raw).hexdigest()}
+        visit = self.store.prepare_visit(RUN_ID, self.fixture.pipeline, "compose")
+        self.assertEqual(visit["skill"], expected)
+        self.assertEqual(self.store.load(RUN_ID)["visits"][0]["skill"], expected)
+
+    def test_retained_graph_rechecks_source_boundary_before_store_writes(self) -> None:
+        skill = write_workflow_skill(self.fixture.root)
+        original = skill.read_bytes()
+        wrapper = self.fixture.root / ".agents/skills/compose/SKILL.md"
+        wrapper.parent.mkdir(parents=True)
+        wrapper.write_bytes(original)
+        skill.unlink()
+        skill.symlink_to(wrapper)
+        with self.assertRaises(PipelineConfigError) as caught:
+            self.create()
+        self.assertEqual(caught.exception.diagnostic_code, "unsafe-path")
+        self.assertFalse(self.store.runs_root.exists())
+        skill.unlink()
+        skill.write_bytes(original)
+        manifest = self.create()
+        events = self.store.read_events(RUN_ID)
+        skill.unlink()
+        skill.symlink_to(wrapper)
+        with self.assertRaises(PipelineConfigError):
+            self.store.prepare_visit(RUN_ID, self.fixture.pipeline, "compose")
+        self.assertEqual(self.store.load(RUN_ID), manifest)
+        self.assertEqual(self.store.read_events(RUN_ID), events)
 
     def test_resource_collection_borrows_state_and_returns_detached_inputs(self) -> None:
         manifest = self.create()

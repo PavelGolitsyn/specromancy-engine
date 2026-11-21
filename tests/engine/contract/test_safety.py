@@ -24,12 +24,14 @@ def phase(name: str, *, target: str | None = None, extra: str = "") -> str:
         [[phases]]
         id = "{name}"
         skill = "{name}"
+        skill_source = "workflow/skills/{name}/SKILL.md"
         inputs = ["request"]
         output_name = "{{visit:03}}-{name}.md"
         mutation = "read-only"
         completion_criteria = ["Complete safely."]
         validator = "file"
-        approval_conditions = []
+        transition_approval_conditions = []
+        action_approval_conditions = []
         stop_conditions = []
         {extra}
         [[phases.transitions]]
@@ -48,14 +50,14 @@ class SafetyFixture:
             if line.strip().startswith("id ="):
                 names.append(line.split('"')[1])
         for name in names:
-            skill = self.root / ".agents" / "skills" / name / "SKILL.md"
+            skill = self.root / "workflow" / "skills" / name / "SKILL.md"
             skill.parent.mkdir(parents=True, exist_ok=True)
             skill.write_text(f"---\nname: {name}\ndescription: Test.\n---\n")
-        self.pipeline_path = self.root / "pipeline.toml"
+        self.pipeline_path = self.root / "workflow/pipeline.toml"
         self.pipeline_path.write_text(
             textwrap.dedent(
                 f"""
-                schema_version = 1
+                schema_version = 2
                 id = "safety"
                 version = 1
                 start = "{names[0]}"
@@ -254,7 +256,7 @@ class SafetyContractTests(unittest.TestCase):
 
     def test_artifact_edit_invalidates_pending_approval(self) -> None:
         configured = phase("publish").replace(
-            "approval_conditions = []", 'approval_conditions = ["external-side-effect"]'
+            "transition_approval_conditions = []", 'transition_approval_conditions = ["external-side-effect"]'
         )
         fixture = SafetyFixture(configured)
         try:
@@ -273,7 +275,7 @@ class SafetyContractTests(unittest.TestCase):
 
     def test_pipeline_edit_invalidates_pending_approval(self) -> None:
         configured = phase("publish").replace(
-            "approval_conditions = []", 'approval_conditions = ["external-side-effect"]'
+            "transition_approval_conditions = []", 'transition_approval_conditions = ["external-side-effect"]'
         )
         fixture = SafetyFixture(configured)
         try:

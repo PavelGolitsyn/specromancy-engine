@@ -4,6 +4,7 @@ from __future__ import annotations
 import importlib.util
 import io
 from pathlib import Path
+import shutil
 import tarfile
 import tempfile
 import tomllib
@@ -62,10 +63,20 @@ class DistributionContractTests(unittest.TestCase):
         with self.assertRaisesRegex(verifier.VerificationError, "unexpected=.*specromancy/__init__.py"):
             verifier.inspect_wheel(self.wheel(extra={"specromancy/__init__.py": b""}), ROOT)
 
+    def test_release_templates_are_required_byte_for_byte_in_both_archives(self):
+        launch = "specromancy_engine/resources/adapters/launch.md"
+        with self.assertRaisesRegex(verifier.VerificationError, "missing=.*launch.md"):
+            verifier.inspect_wheel(self.wheel(omit={launch}), ROOT)
+        with self.assertRaisesRegex(verifier.VerificationError, "wheel runtime differs.*launch.md"):
+            verifier.inspect_wheel(self.wheel(extra={launch: b"changed"}), ROOT)
+        with self.assertRaisesRegex(verifier.VerificationError, "missing=.*launch.md"):
+            verifier.extract_sdist(self.sdist(omit={"src/" + launch}), self.root / "bad", ROOT)
+
     def test_runtime_dependency_and_consumer_files_are_rejected(self):
         with self.assertRaisesRegex(verifier.VerificationError, "runtime dependencies"):
             verifier.inspect_wheel(self.wheel(dependency=True), ROOT)
-        for name in ("workflow/pipelines.toml", "tests/fixture.py", ".agents/skills/a/SKILL.md",
+        for name in ("workflow/pipelines.toml", "workflow/adapters.toml", "tests/fixture.py", ".agents/skills/a/SKILL.md",
+                     "AGENTS.md", "specromancy_engine/resources/adapters/producer-policy.md",
                      "bin/specromancy", "specromancy_engine/__pycache__/cli.pyc",
                      "game-of-life/README.md", ".specromancy/runs/run.json"):
             with self.subTest(name=name), self.assertRaisesRegex(verifier.VerificationError, "unexpected="):
@@ -109,12 +120,31 @@ class DistributionContractTests(unittest.TestCase):
                 archive.addfile(special)
         return path
 
-    def test_sdist_preserves_hidden_example_skills_and_rejects_missing_files(self):
-        skill = "examples/release-documentation/.agents/skills/pipeline/SKILL.md"
+    def test_sdist_preserves_canonical_example_skills_and_rejects_missing_files(self):
+        skill = "examples/release-documentation/workflow/skills/draft-release-notes/SKILL.md"
         source = verifier.extract_sdist(self.sdist(), self.root / "extract", ROOT)
         self.assertEqual((source / skill).read_bytes(), (ROOT / skill).read_bytes())
-        with self.assertRaisesRegex(verifier.VerificationError, "missing=.*SKILL.md"):
-            verifier.extract_sdist(self.sdist(omit={skill}), self.root / "bad", ROOT)
+        for name in (skill, "examples/release-documentation/workflow/adapters.toml"):
+            with self.subTest(name=name), self.assertRaisesRegex(verifier.VerificationError, "missing=.*" + name):
+                verifier.extract_sdist(self.sdist(omit={name}), self.root / "bad", ROOT)
+
+    def test_consumer_bundle_copies_only_the_source_example_inputs(self):
+        source = self.root / "source"
+        shutil.copytree(ROOT / verifier.EXAMPLE, source / verifier.EXAMPLE)
+        guide = Path("docs/guides/installation.md")
+        (source / guide.parent).mkdir(parents=True)
+        shutil.copyfile(ROOT / guide, source / guide)
+        for name in ("AGENTS.md", ".agents/skills/foreign/SKILL.md", "adapters/manifest.json"):
+            foreign = source / verifier.EXAMPLE / name
+            foreign.parent.mkdir(parents=True, exist_ok=True)
+            foreign.write_text("local generation")
+        runner = self.root / "runner"
+        verifier.copy_bundle(runner, source)
+        example = runner / verifier.EXAMPLE
+        self.assertEqual({p.relative_to(example).as_posix() for p in example.rglob("*") if p.is_file()},
+                         set(verifier.EXAMPLE_FILES))
+        for name in verifier.EXAMPLE_FILES:
+            self.assertEqual((example / name).read_bytes(), (source / verifier.EXAMPLE / name).read_bytes())
 
     def test_sdist_rejects_traversal_links_and_duplicate_members_before_writing(self):
         for name, kind in (("../escaped", tarfile.REGTYPE),

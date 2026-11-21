@@ -5,11 +5,14 @@ import json
 import tempfile
 import textwrap
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
 from specromancy_engine._adapters import adapter_ownership
 from specromancy_engine._adapters import adapter_sources
+from specromancy_engine._adapters.adapter_rendering import render_release_launch, render_release_template
+from specromancy_engine._adapters.adapter_sources import load_release_template
 from specromancy_engine.adapters import (
     MANIFEST_PATH,
     AdapterError,
@@ -17,10 +20,108 @@ from specromancy_engine.adapters import (
     render_adapters,
 )
 from specromancy_engine.cli import adapter_command_metadata, main
-from specromancy_engine.config import load_pipeline
+from specromancy_engine.config import PipelineConfigError, load_pipeline
 from specromancy_engine.registry import PipelineRegistry, load_registry
 from specromancy_engine.exit_codes import ExitCode
 from specromancy_engine.hashing import sha256_bytes
+from tests.engine.support import select_harnesses
+
+
+class ReleaseTemplateTests(unittest.TestCase):
+    def test_release_inputs_omit_producer_phase_names_and_harness_source_paths(self) -> None:
+        for source in adapter_sources.capture_release_inputs():
+            with self.subTest(source=source.path):
+                self.assertNotRegex(source.content, rb"\b(research|plan|implement|review)\b")
+                self.assertNotIn(b".agents/skills/", source.content)
+
+    def test_only_allowlisted_resource_names_reach_package_lookup(self) -> None:
+        with patch.object(adapter_sources, "files") as lookup:
+            for name in ("AGENTS.md", ".agents/skills/pipeline/SKILL.md", "../launch.md",
+                         "/tmp/launch.md", "resources/adapters/launch.md", "extra.md"):
+                with self.subTest(name=name), self.assertRaisesRegex(AdapterError, "unknown"):
+                    load_release_template(name)
+            lookup.assert_not_called()
+
+    def test_missing_and_unreadable_resources_report_logical_id(self) -> None:
+        with patch.object(adapter_sources, "files") as lookup:
+            read = lookup.return_value.joinpath.return_value.read_bytes
+            for error in (FileNotFoundError(), PermissionError()):
+                read.side_effect = error
+                with self.subTest(error=error), self.assertRaises(AdapterError) as caught:
+                    load_release_template("launch.md")
+                self.assertEqual(caught.exception.details, {
+                    "path": "@package/specromancy_engine/resources/adapters/launch.md",
+                })
+
+    def test_hash_uses_raw_bytes_while_render_normalizes_and_substitutes_once(self) -> None:
+        packaged = load_release_template("instructions.md")
+        raw = packaged.content.replace(b"\n", b"\r\n") + b"\r\n"
+        with patch.object(adapter_sources, "files") as lookup:
+            lookup.return_value.joinpath.return_value.read_bytes.return_value = raw
+            source = load_release_template("instructions.md")
+        body = "Keep {phase}, %{instructions}, 50%, $0, $1, $2, and $ARGUMENTS.\r\n\r\n"
+        self.assertEqual(source.record()["sha256"], sha256_bytes(raw))
+        self.assertNotEqual(source.record(), packaged.record())
+        rendered = render_release_template(source, template_id=source.path, instructions=body)
+        self.assertEqual(rendered, render_release_template(
+            packaged, template_id=packaged.path, instructions=body,
+        ))
+        self.assertTrue(rendered.endswith("\n\n" + body.rstrip("\r\n") + "\n"))
+
+    def test_missing_unknown_and_malformed_template_fields_are_controlled(self) -> None:
+        source = load_release_template("instructions.md")
+        with self.assertRaises(AdapterError) as caught:
+            render_release_template(source, template_id=source.path, typo="unused")
+        self.assertEqual(caught.exception.details, {
+            "path": source.path, "missing": ["instructions"], "unknown": ["typo"],
+        })
+        for content in (b"%{unclosed", b"\xff"):
+            with self.subTest(content=content), self.assertRaises(AdapterError) as caught:
+                render_release_template(replace(source, content=content))
+            self.assertEqual(caught.exception.details["path"], source.path)
+
+    def test_phase_wrapper_exposes_only_metadata_and_canonical_reference(self) -> None:
+        phase = load_release_template("phase.md")
+        path = "workflow/skills/compose/SKILL.md"
+        metadata = "name: compose\ndescription: Compose the result."
+        wrapper = render_release_template(phase, template_id=phase.path,
+                                          skill_source=path, validated_metadata=metadata)
+        self.assertIn(metadata + "\n---\n", wrapper)
+        self.assertIn(f"Load `{path}` from the consumer repository root", wrapper)
+        self.assertIn("directory containing the canonical file", wrapper)
+        self.assertIn(phase.path, wrapper)
+        with self.assertRaises(AdapterError) as caught:
+            render_release_template(phase, template_id=phase.path, skill_source=path,
+                                    validated_metadata=metadata, body="private phase procedure")
+        self.assertEqual(caught.exception.details["unknown"], ["body"])
+
+    def test_launch_embeds_the_whole_orchestrator_and_bound_identity(self) -> None:
+        orchestrator = load_release_template("orchestrator.md")
+        launch = render_release_launch("example", load_release_template("launch.md"), orchestrator)
+        self.assertIn(render_release_template(orchestrator, pipeline_id="example"), launch)
+        self.assertIn("specromancy init DESCRIPTION --pipeline example --json", launch)
+        self.assertIn("specromancy status RUN_ID --json", launch)
+        self.assertIn("pause, approval, block, validation failure,", launch)
+        self.assertIn("specromancy resume RUN_ID --json", launch)
+        self.assertNotIn(".agents/", launch)
+
+    def test_command_variants_preserve_the_supplied_invocation(self) -> None:
+        for harness, invocation in (
+            ("claude", 'specromancy init "$1" --pipeline "$0" --json'),
+            ("copilot", "specromancy init DESCRIPTION --pipeline PIPELINE_ID --json"),
+            ("opencode", 'specromancy init "$2" --pipeline "$1" --json'),
+        ):
+            with self.subTest(harness=harness):
+                source = load_release_template(f"command-{harness}.md")
+                values = {"description": "Start a run.", "follow": "Retain $ARGUMENTS.",
+                          "invocation": invocation, "template_id": source.path}
+                if harness != "opencode":
+                    values["arguments"] = "PIPELINE_ID DESCRIPTION"
+                wrapper = render_release_template(source, **values)
+                self.assertIn(f"`{invocation}`", wrapper)
+                self.assertIn("Retain $ARGUMENTS.", wrapper)
+                self.assertEqual("argument-hint:" in wrapper, harness != "opencode")
+                self.assertEqual("agent: agent" in wrapper, harness == "copilot")
 
 
 class AdapterFixture:
@@ -28,12 +129,13 @@ class AdapterFixture:
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name)
         (self.root / ".git").mkdir()
-        (self.root / "AGENTS.md").write_text(
+        (self.root / "workflow").mkdir()
+        (self.root / "workflow/instructions.md").write_text(
             "# Repository instructions\n\n- Keep workflow logic canonical.\n",
             encoding="utf-8",
         )
+        select_harnesses(self.root, "claude", "codex", "copilot", "hermes", "opencode")
         self.write_skill("compose")
-        self.write_skill("pipeline")
         self.pipeline_path = self.root / "workflow/pipelines/adapter-fixture.toml"
         self.pipeline_path.parent.mkdir(parents=True)
         (self.root / "workflow/pipelines.toml").write_text(
@@ -42,7 +144,7 @@ class AdapterFixture:
         self.pipeline_path.write_text(
             textwrap.dedent(
                 """
-                schema_version = 1
+                schema_version = 2
                 id = "adapter-fixture"
                 version = 1
                 start = "compose"
@@ -52,12 +154,14 @@ class AdapterFixture:
                 [[phases]]
                 id = "compose"
                 skill = "compose"
+                skill_source = "workflow/skills/compose/SKILL.md"
                 inputs = ["request"]
                 output_name = "{visit:03}-result.md"
                 mutation = "read-only"
                 completion_criteria = ["Write a result."]
                 validator = "file"
-                approval_conditions = []
+                transition_approval_conditions = []
+                action_approval_conditions = []
                 stop_conditions = []
                 max_visits = 1
                 [[phases.transitions]]
@@ -67,11 +171,21 @@ class AdapterFixture:
             encoding="utf-8",
         )
 
+    def generate_with_extra_skill(self) -> None:
+        self.write_skill("extra")
+        original = self.pipeline_path.read_text()
+        self.pipeline_path.write_text(original.replace('skill = "compose"', 'skill = "extra"')
+                                     .replace("skills/compose/", "skills/extra/"))
+        try:
+            self.generate()
+        finally:
+            self.pipeline_path.write_text(original)
+
     def close(self) -> None:
         self.temporary.cleanup()
 
     def write_skill(self, name: str) -> Path:
-        path = self.root / ".agents" / "skills" / name / "SKILL.md"
+        path = self.root / "workflow" / "skills" / name / "SKILL.md"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(
             textwrap.dedent(
@@ -80,7 +194,7 @@ class AdapterFixture:
                 name: {name}
                 description: Use when the fixture needs {name}.
                 license: MIT
-                compatibility: Specromancy pipeline schema version 1.
+                compatibility: Specromancy pipeline schema version 2.
                 metadata:
                   role: phase
                 ---
@@ -128,13 +242,35 @@ class AdapterGenerationTests(unittest.TestCase):
         self.assertEqual(self.fixture.snapshot(), first)
         self.fixture.generate(check=True)
 
+    def test_adapter_text_normalization_preserves_outputs_and_source_hashes(self) -> None:
+        self.fixture.generate()
+        expected = self.fixture.snapshot()
+        paths = [self.fixture.root / "workflow/instructions.md",
+                 self.fixture.root / "workflow/skills/compose/SKILL.md"]
+        originals = {path: path.read_bytes().rstrip(b"\n") for path in paths}
+        for newline, trailing in ((b"\r\n", 3), (b"\r", 2), (b"\n", 0)):
+            with self.subTest(newline=newline, trailing=trailing):
+                for path, content in originals.items():
+                    path.write_bytes(content.replace(b"\n", newline) + newline * trailing)
+                self.fixture.generate(check=True)
+                self.fixture.generate()
+                self.assertEqual(self.fixture.snapshot(), expected)
+
+    def test_missing_workflow_instructions_are_a_controlled_source_error(self) -> None:
+        (self.fixture.root / "workflow/instructions.md").unlink()
+        with self.assertRaises(PipelineConfigError) as caught:
+            self.fixture.generate()
+        self.assertEqual(caught.exception.diagnostic_code, "missing-file")
+        self.assertEqual(caught.exception.details["value"], "workflow/instructions.md")
+        self.assertFalse((self.fixture.root / MANIFEST_PATH).exists())
+
     def test_cli_captures_graphs_and_canonical_text_once_per_invocation(self) -> None:
-        original_load = PipelineRegistry.load_all
-        original_text = adapter_sources._normalized_text
+        original_load = PipelineRegistry.load_adapter_pipelines
+        original_text = adapter_sources._workflow_text
         for _ in range(2):
             with (
-                patch.object(PipelineRegistry, "load_all", autospec=True, side_effect=original_load) as graphs,
-                patch.object(adapter_sources, "_normalized_text", wraps=original_text) as texts,
+                patch.object(PipelineRegistry, "load_adapter_pipelines", autospec=True, side_effect=original_load) as graphs,
+                patch.object(adapter_sources, "_workflow_text", wraps=original_text) as texts,
             ):
                 output, errors = io.StringIO(), io.StringIO()
                 code = main(
@@ -145,7 +281,7 @@ class AdapterGenerationTests(unittest.TestCase):
                 self.assertEqual(graphs.call_count, 1)
                 self.assertEqual(
                     [call.args[1] for call in texts.call_args_list],
-                    ["AGENTS.md", ".agents/skills/compose/SKILL.md", ".agents/skills/pipeline/SKILL.md"],
+                    ["workflow/instructions.md", "workflow/skills/compose/SKILL.md"],
                 )
 
     def test_check_creates_no_temporary_files_and_preserves_tree_metadata(self) -> None:
@@ -164,12 +300,10 @@ class AdapterGenerationTests(unittest.TestCase):
         self.assertEqual(snapshot(), before)
 
     def test_stale_file_changed_after_preflight_is_not_deleted(self) -> None:
-        extra = self.fixture.write_skill("extra")
-        self.fixture.generate()
-        extra.unlink()
+        self.fixture.generate_with_extra_skill()
         stale = self.fixture.root / ".claude/skills/extra/SKILL.md"
         manifest = (self.fixture.root / MANIFEST_PATH).read_bytes()
-        (self.fixture.root / "AGENTS.md").write_text("New instructions\n")
+        (self.fixture.root / "workflow/instructions.md").write_text("New instructions\n")
         original_write = adapter_ownership._atomic_write
 
         def overlapping_write(root, relative, content):
@@ -186,12 +320,10 @@ class AdapterGenerationTests(unittest.TestCase):
     def test_public_render_facade_preserves_source_diagnostics(self) -> None:
         registry = load_registry(self.fixture.root)
         metadata = adapter_command_metadata(["compose"])
-        path = self.fixture.root / ".agents/skills/pipeline/SKILL.md"
-        path.unlink()
-        with self.assertRaises(AdapterError) as caught:
+        (self.fixture.root / "workflow/skills/compose/SKILL.md").unlink()
+        with self.assertRaises(PipelineConfigError) as caught:
             render_adapters(self.fixture.root, registry, metadata)
-        self.assertEqual(caught.exception.message, "canonical pipeline orchestrator skill is missing")
-        self.assertEqual(caught.exception.details, {"path": ".agents/skills/pipeline/SKILL.md"})
+        self.assertEqual(caught.exception.diagnostic_code, "missing-file")
 
     def test_check_detects_changes_without_writing_generated_output(self) -> None:
         cases = ("modified", "missing", "unexpected", "canonical", "no-manifest")
@@ -212,7 +344,7 @@ class AdapterGenerationTests(unittest.TestCase):
                     elif case == "no-manifest":
                         (fixture.root / MANIFEST_PATH).unlink()
                     else:
-                        with (fixture.root / "AGENTS.md").open("a", encoding="utf-8") as stream:
+                        with (fixture.root / "workflow/instructions.md").open("a", encoding="utf-8") as stream:
                             stream.write("- A new canonical rule.\n")
                     changed_before_check = {
                         path: (fixture.root / path).read_bytes()
@@ -262,22 +394,34 @@ class AdapterGenerationTests(unittest.TestCase):
         self.assertEqual(path.read_text(encoding="utf-8"), "user owned\n")
         self.assertFalse((self.fixture.root / MANIFEST_PATH).exists())
 
+    def test_identical_unowned_output_is_not_adopted(self) -> None:
+        relative = ".claude/CLAUDE.md"
+        expected = render_adapters(
+            self.fixture.root, load_registry(self.fixture.root),
+            adapter_command_metadata(["compose"]),
+        )[relative]
+        path = self.fixture.root / relative
+        path.parent.mkdir(parents=True)
+        path.write_bytes(expected)
+        with patch.object(adapter_ownership, "_atomic_write", side_effect=AssertionError("write")):
+            with self.assertRaises(AdapterError) as caught:
+                self.fixture.generate()
+        self.assertEqual(caught.exception.details["unowned"], [relative])
+        self.assertEqual(path.read_bytes(), expected)
+        self.assertFalse((self.fixture.root / MANIFEST_PATH).exists())
+
     def test_stale_unchanged_file_is_removed(self) -> None:
-        extra = self.fixture.write_skill("extra")
-        self.fixture.generate()
+        self.fixture.generate_with_extra_skill()
         generated = self.fixture.root / ".claude" / "skills" / "extra" / "SKILL.md"
         self.assertTrue(generated.is_file())
-        extra.unlink()
         result = self.fixture.generate()
         self.assertFalse(generated.exists())
-        self.assertEqual(result["adapters"]["removed"], [".claude/skills/extra/SKILL.md"])
+        self.assertEqual(result["adapters"]["removed"], [".agents/skills/extra/SKILL.md", ".claude/skills/extra/SKILL.md"])
 
     def test_stale_modified_file_is_preserved_with_an_error(self) -> None:
-        extra = self.fixture.write_skill("extra")
-        self.fixture.generate()
+        self.fixture.generate_with_extra_skill()
         generated = self.fixture.root / ".claude" / "skills" / "extra" / "SKILL.md"
         generated.write_text("user change\n", encoding="utf-8")
-        extra.unlink()
         with self.assertRaises(AdapterError) as caught:
             self.fixture.generate()
         self.assertEqual(
@@ -291,9 +435,9 @@ class AdapterGenerationTests(unittest.TestCase):
         manifest = json.loads(
             (self.fixture.root / MANIFEST_PATH).read_text(encoding="utf-8")
         )
-        self.assertEqual(manifest["schema_version"], 1)
+        self.assertEqual(manifest["schema_version"], 2)
         self.assertEqual(manifest["generator"], {
-            "name": "specromancy", "version": 2,
+            "name": "specromancy", "version": 4,
             "command": "specromancy adapters generate",
         })
         modes = {entry["name"]: entry["mode"] for entry in manifest["targets"]}
@@ -309,7 +453,7 @@ class AdapterGenerationTests(unittest.TestCase):
         )
         for target in manifest["targets"]:
             if target["mode"] == "native":
-                self.assertEqual(target["discovery_paths"], [".agents/skills/specromancy-adapter-fixture/SKILL.md"])
+                self.assertEqual(target["discovery_paths"], [f".agents/skills/{name}/SKILL.md" for name in ("compose", "pipeline", "specromancy-adapter-fixture")])
         for entry in manifest["generated"]:
             path = entry["path"]
             self.assertFalse(Path(path).is_absolute())

@@ -21,15 +21,15 @@ class InterruptionFixture:
         self.temporary = tempfile.TemporaryDirectory()
         self.root = Path(self.temporary.name)
         (self.root / ".git").mkdir()
-        skill = self.root / ".agents" / "skills" / "compose" / "SKILL.md"
+        skill = self.root / "workflow" / "skills" / "compose" / "SKILL.md"
         skill.parent.mkdir(parents=True)
         skill.write_text("---\nname: compose\ndescription: Fixture.\n---\n", encoding="utf-8")
-        self.pipeline_path = self.root / "pipeline.toml"
+        self.pipeline_path = self.root / "workflow/pipeline.toml"
         command = json.dumps([sys.executable, "-c", "print('captured')"])
         self.pipeline_path.write_text(
             textwrap.dedent(
                 f"""
-                schema_version = 1
+                schema_version = 2
                 id = "interruptions"
                 version = 1
                 start = "compose"
@@ -39,12 +39,14 @@ class InterruptionFixture:
                 [[phases]]
                 id = "compose"
                 skill = "compose"
+                skill_source = "workflow/skills/compose/SKILL.md"
                 inputs = ["request"]
                 output_name = "{{visit:03}}-result.md"
                 mutation = "read-only"
                 completion_criteria = ["Write a result."]
                 validator = "file"
-                approval_conditions = []
+                transition_approval_conditions = []
+                action_approval_conditions = []
                 stop_conditions = []
                 max_visits = 1
                 [[phases.commands]]

@@ -45,10 +45,20 @@ COMMANDS = (
     ),
     CommandDefinition(
         'approve',
-        'approve a phase artifact',
+        'grant an approval request',
         [
             (('run_id',), {'metavar': 'RUN_ID'}),
             (('phase',), {'metavar': 'PHASE'}),
+            (('--request',), {'metavar': 'N', 'type': int}),
+        ],
+    ),
+    CommandDefinition(
+        'decline',
+        'decline a requested action',
+        [
+            (('run_id',), {'metavar': 'RUN_ID'}),
+            (('phase',), {'metavar': 'PHASE'}),
+            (('--request',), {'metavar': 'N', 'type': int, 'required': True}),
         ],
     ),
     CommandDefinition(

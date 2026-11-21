@@ -54,6 +54,7 @@ class GitRecord(TypedDict):
 
 
 class ApprovalRecord(TypedDict, total=False):
+    kind: str
     run_id: str
     phase_id: str
     visit_number: int
@@ -157,3 +158,15 @@ def visit_by_number(manifest: RunRecord, visit_number: int) -> VisitRecord:
         details={"visit_number": visit_number},
         code=ExitCode.NOT_FOUND,
     )
+
+
+def require_visit_revision(manifest: RunRecord, revision: int, ordinal: int, status: str) -> None:
+    visit = current_visit(manifest)
+    if (manifest["revision"] != revision or manifest["status"] != status
+            or visit is None or visit["ordinal"] != ordinal or visit["status"] != status):
+        raise RunStoreError(
+            "visit changed before the command could be applied",
+            diagnostic_code="visit-state-changed", code=ExitCode.ILLEGAL_TRANSITION,
+            details={"visit_number": ordinal, "expected_revision": revision,
+                     "revision": manifest["revision"]},
+        )

@@ -19,6 +19,7 @@ from .artifacts import (
     write_artifact_atomic,
 )
 from ._config.config_models import PipelineConfig
+from ._config.skill_sources import check_workflow_paths
 from .exit_codes import ExitCode
 from .hashing import (
     relative_path,
@@ -36,7 +37,7 @@ from ._runs.run_identity import (
 )
 from ._runs.run_records import (
     EVENT_SCHEMA_VERSION, EVENT_TYPE_PATTERN, RUN_SCHEMA_VERSION,
-    RUN_STATUSES, VISIT_STATUSES, EventRecord, RunRecord, VisitRecord, visit_by_number,
+    RUN_STATUSES, VISIT_STATUSES, ApprovalRecord, EventRecord, RunRecord, VisitRecord, require_visit_revision, visit_by_number,
 )
 
 
@@ -113,6 +114,7 @@ class RunStore:
                     "store_root": str(self.repository_root),
                 },
             )
+        check_workflow_paths(pipeline)
         chosen_id = self.new_run_id() if run_id is None else validate_run_id(run_id)
         self._prepare_runs_root()
         directory = self.runs_root / chosen_id
@@ -298,10 +300,14 @@ class RunStore:
         command_results: list[Any] | None = None,
         mutation_result: Any = None,
         diagnostic: Mapping[str, Any] | None = None,
+        expected_revision: int | None = None,
+        expected_status: str = "active",
     ) -> RunRecord:
         """Persist resumable validation evidence without completing a visit."""
 
         def change(manifest: RunRecord) -> None:
+            if expected_revision is not None:
+                require_visit_revision(manifest, expected_revision, visit_number, expected_status)
             visit = self._visit(manifest, visit_number)
             if visit["status"] not in {"active", "awaiting-approval"}:
                 raise RunStoreError(
@@ -363,6 +369,9 @@ class RunStore:
         outcome: str,
         transition_target: str | None,
         terminal_result: Any = None,
+        expected_revision: int | None = None,
+        expected_status: str = "active",
+        approval: ApprovalRecord | None = None,
         validation_checks: list[Any] | None = None,
         command_results: list[Any] | None = None,
         mutation_result: Any = None,
@@ -379,8 +388,22 @@ class RunStore:
                     directory, manifest, events,
                     visit_transitions.Decision(copy.deepcopy(manifest)),
                 )
+            if expected_revision is not None:
+                require_visit_revision(manifest, expected_revision, visit_number, expected_status)
             existing = self._visit(manifest, visit_number)
-            output = artifact_record(directory, existing["output"]["path"])
+            try:
+                output = artifact_record(directory, existing["output"]["path"])
+            except (ArtifactError, OSError):
+                if approval is None:
+                    raise
+                output = None
+            if approval is not None and (output is None or output["sha256"] != approval["artifact_sha256"]):
+                decision = approvals.invalidate_decision(
+                    manifest, approval, decided_at=self._timestamp(), mismatches=["artifact"],
+                )
+                self._apply_decision_locked(directory, manifest, events, decision)
+                raise approvals.stale_error(approval, ["artifact"])
+            assert output is not None
             transition = next(
                 item
                 for item in pipeline.phase(existing["phase_id"]).transitions
@@ -597,6 +620,8 @@ class RunStore:
                 },
                 code=ExitCode.INVALID_PIPELINE,
             )
+
+        check_workflow_paths(pipeline)
 
     _visit = staticmethod(visit_by_number)
 

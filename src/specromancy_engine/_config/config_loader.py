@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import tomllib
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -28,10 +28,11 @@ from .config_phase_parser import (
     parse_validator,
 )
 from .config_serialization import _canonical_document, _encode_canonical_document
+from .skill_sources import SkillBindings
 from ..graph import validate_graph
 
 
-SUPPORTED_SCHEMA_VERSION = 1
+SUPPORTED_SCHEMA_VERSION = 2
 
 
 def _discover_root(path: Path) -> Path | None:
@@ -44,7 +45,7 @@ def _discover_root(path: Path) -> Path | None:
 class _Loader(FieldContext):
     """Pipeline assembly with inherited field helpers and legacy parser delegates."""
 
-    def parse(self, raw: Mapping[str, Any]) -> PipelineConfig:
+    def parse(self, raw: Mapping[str, Any], *, adapter_bindings: SkillBindings | None = None) -> PipelineConfig:
         allowed_top = {
             "schema_version",
             "id",
@@ -101,6 +102,10 @@ class _Loader(FieldContext):
                 remediation="declare one or more [[phases]] tables",
             )
         phases = tuple(self.parse_phase(item) for item in raw_phases)
+        bindings = adapter_bindings if adapter_bindings is not None else SkillBindings()
+        bindings.bind_graph(self, phases)
+        if adapter_bindings is None:
+            bindings.validate_metadata(self, phases)
         for phase in phases:
             if phase.id in terminal_outcomes:
                 self.fail(
@@ -224,10 +229,16 @@ def load_pipeline(
             value=str(source),
             remediation="place the pipeline inside the repository",
         )
+    return _Loader(source, resolved_root).parse(read_pipeline_document(source))
+
+
+def read_pipeline_document(
+    source: Path, *, read_bytes: Callable[[Path], bytes] = Path.read_bytes,
+) -> dict[str, Any]:
+    """Read graph declarations once, before resolving any phase dependencies."""
     try:
-        with source.open("rb") as stream:
-            raw = tomllib.load(stream)
-    except tomllib.TOMLDecodeError as exc:
+        return tomllib.loads(read_bytes(source).decode("utf-8"))
+    except (tomllib.TOMLDecodeError, UnicodeDecodeError) as exc:
         raise PipelineConfigError(
             "invalid-toml",
             f"pipeline configuration is not valid TOML: {exc}",
@@ -243,4 +254,3 @@ def load_pipeline(
             field="pipeline",
             remediation="make the file readable and try again",
         ) from exc
-    return _Loader(source, resolved_root).parse(raw)

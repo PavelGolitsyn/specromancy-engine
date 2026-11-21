@@ -30,7 +30,7 @@ class EngineOrchestrationContractTests(unittest.TestCase):
         ])
         configured = phase("publish", extra=f"[[phases.commands]]\nargv = {command}\n")
         configured = configured.replace(
-            "approval_conditions = []", 'approval_conditions = ["accept"]'
+            "transition_approval_conditions = []", 'transition_approval_conditions = ["accept"]'
         )
         for continuation in ("approve", "run", "request"):
             with self.subTest(continuation=continuation):
@@ -91,14 +91,10 @@ class EngineOrchestrationContractTests(unittest.TestCase):
                     self.assertEqual(repeated["message"], "approval was already recorded")
                     self.assertEqual(fixture.store.load(run_id), completed)
                 observed = [json.loads(line) for line in trace.read_text().splitlines()]
-                # Request-after-grant historically validates before selecting the
-                # grant and again on continuation. Other retries validate once.
                 self.assertEqual(observed, [
                     ["active", []],
-                    ["awaiting-approval", ["pending"]],
-                    *([["awaiting-approval", ["approved"]]] * (
-                        3 if continuation == "request" else 2
-                    )),
+                    ["awaiting-approval", ["approved"]],
+                    ["awaiting-approval", ["approved"]],
                 ])
 
     def test_validation_hook_replaced_after_grant_is_resolved_at_revalidation(self) -> None:
@@ -138,8 +134,7 @@ class EngineOrchestrationContractTests(unittest.TestCase):
         visit = before["visits"][0]
         output = fixture.store.run_directory(RUN_ID) / visit["output"]["path"]
         output.unlink()
-        # Reason and outcome selection precede validation; validation precedes
-        # even the duplicate-pending decision and records its failure once.
+        # A pending retry must match the binding before it can observe the output.
         for reason, outcome, diagnostic in (
             ("undeclared", "undeclared", "undeclared-approval-reason"),
             (before["approvals"][0]["reason"], "undeclared", "undeclared-outcome"),
@@ -147,16 +142,16 @@ class EngineOrchestrationContractTests(unittest.TestCase):
             with self.subTest(diagnostic=diagnostic):
                 snapshot = fixture.snapshot()
                 with self.assertRaises(EngineError) as raised:
-                    fixture.engine.request_approval(RUN_ID, reason=reason, outcome=outcome)
+                    fixture.engine.request_approval(RUN_ID, reason=reason, outcome=outcome,
+                                                    details=before["approvals"][0]["details"])
                 self.assertEqual(raised.exception.diagnostic_code, diagnostic)
                 self.assertEqual(fixture.snapshot(), snapshot)
         with self.assertRaises(EngineError):
             fixture.engine.request_approval(RUN_ID, reason=before["approvals"][0]["reason"],
                                             outcome=before["approvals"][0]["outcome"])
         after = fixture.store.load(RUN_ID)
-        self.assertEqual(after["revision"], before["revision"] + 1)
-        self.assertEqual(after["approvals"], before["approvals"])
-        self.assertEqual(fixture.store.read_events(RUN_ID)[-1]["type"], "validation-failed")
+        self.assertEqual(after, before)
+        self.assertEqual(fixture.store.read_events(RUN_ID)[-1]["type"], "approval-requested")
 
         # approve must audit artifact/pipeline staleness before skill provenance
         # rejection, even when all three fail simultaneously.
@@ -242,7 +237,7 @@ class EngineOrchestrationContractTests(unittest.TestCase):
         ])
         configured = phase("publish", extra=f"[[phases.commands]]\nargv = {command}\n")
         configured = configured.replace(
-            "approval_conditions = []", 'approval_conditions = ["accept"]'
+            "transition_approval_conditions = []", 'transition_approval_conditions = ["accept"]'
         )
         fixture = SafetyFixture(configured)
         self.addCleanup(fixture.close)
@@ -351,7 +346,7 @@ class EngineOrchestrationContractTests(unittest.TestCase):
     def test_template_drift_warns_and_rejects_activation_without_rewriting_state(self) -> None:
         fixture = SafetyFixture(phase("inspect"))
         self.addCleanup(fixture.close)
-        template = fixture.root / "template.md"
+        template = fixture.pipeline_path.with_name("template.md")
         template.write_text("Original template.\n")
         fixture.pipeline_path.write_text(fixture.pipeline_path.read_text().replace(
             'validator = "file"', 'validator = "file"\noutput_template = "template.md"'

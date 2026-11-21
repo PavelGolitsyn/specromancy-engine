@@ -65,11 +65,10 @@ Adapters generate a `specromancy-<id>` launch skill for each registration.
 The editable graphs and shared artifact templates live in [`workflow/`][workflow-directory].
 These top-level resources configure this repository's own development workflow;
 they are not automatically installed consumer defaults.
-Phase procedures live in [`.agents/skills/`][skills-directory] for native harness
-discovery, and repository-wide agent constraints live in [`AGENTS.md`][agent-instructions].
-The Python package under `src/specromancy_engine/` is the generic engine, not a workflow
-customization surface. Start with the
-[`workflow/README.md`][workflow-guide] customization map.
+Author phase procedures in [`workflow/skills/`][skills-directory] and repository
+constraints in [`workflow/instructions.md`][agent-instructions]. Choose your harnesses in `workflow/adapters.toml`, then run
+`specromancy adapters generate` to create their discovery files.
+See the [workflow customization map][workflow-guide] for the authoring layout.
 
 ## Documentation
 
@@ -93,8 +92,8 @@ the complete limitations and safety boundary.
 [consumer-example]: examples/release-documentation/README.md
 [contracts]: docs/reference/contracts.md
 [workflow-directory]: workflow/
-[skills-directory]: .agents/skills/
-[agent-instructions]: AGENTS.md
+[skills-directory]: workflow/skills/
+[agent-instructions]: workflow/instructions.md
 [workflow-guide]: workflow/README.md
 [documentation]: docs/README.md
 [distribution-verification]: docs/guides/distribution-verification.md

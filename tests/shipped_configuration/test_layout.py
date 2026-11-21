@@ -34,7 +34,8 @@ class ShippedLayoutTests(unittest.TestCase):
             "workflow/pipelines.toml",
             "workflow/pipelines/",
             "workflow/templates/",
-            ".agents/skills/",
+            "workflow/instructions.md",
+            "workflow/skills/",
             "AGENTS.md",
             "src/specromancy_engine/",
         ):

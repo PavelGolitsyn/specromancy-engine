@@ -9,7 +9,7 @@ from .approvals import pending_approval
 from .._config.config_models import PipelineConfig
 from ..exit_codes import ExitCode
 from .._runs.run_records import ApprovalRecord, RunRecord, VisitRecord, current_visit
-from ..status import build_status
+from ..status import build_status, describe_approval
 
 
 RESPONSE_SCHEMA_VERSION = 1
@@ -84,7 +84,7 @@ def approval_response(
         "kind": "approval",
         "code": int(ExitCode.APPROVAL_REQUIRED),
         "message": message,
-        "approval": approval,
+        "approval": describe_approval(manifest, approval) if approval else None,
         "status": build_status(manifest, pipeline),
     }
 

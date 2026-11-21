@@ -18,8 +18,8 @@ their designated run outputs, which are sealed on completion.
 
 | Concern | Authoritative source |
 | --- | --- |
-| Always-on repository constraints | `AGENTS.md` |
-| Phase procedure | `.agents/skills/<skill>/SKILL.md` |
+| Always-on repository constraints | `workflow/instructions.md` |
+| Phase procedure | `workflow/skills/<skill>/SKILL.md` |
 | Pipeline registrations | `workflow/pipelines.toml` |
 | Graph, policies, gates, and validators | `workflow/pipelines/<id>.toml` |
 | State transitions and persistence | `src/specromancy_engine/` Python package |
@@ -27,11 +27,8 @@ their designated run outputs, which are sealed on completion.
 | Audit history | `.specromancy/runs/<run-id>/events.jsonl` |
 | Harness discovery surfaces | generated adapters recorded in `adapters/manifest.json` |
 
-The editable workflow surface is intentionally outside the Python package:
-start in `workflow/` for the graph and templates, then use `.agents/skills/`
-for phase procedures or `AGENTS.md` for always-on constraints. Files under
-`src/specromancy_engine/` implement the generic runtime and are not changed to add,
-remove, reorder, or tune phases.
+A consumer edits repository policy, graphs, templates and phase procedures under
+`workflow/`. The installed package supplies the generic runtime and harness templates.
 
 The engine is generic. Phase identifiers such as the configured pipeline's names
 belong only in configuration, skills, templates, tests, and examples.
@@ -40,8 +37,8 @@ The CLI loads the mandatory registry and requires a registered ID for init.
 Existing runs resolve their graph from persisted provenance, so unrelated graphs
 and registry ordering do not change their execution. Graph loading, transitions
 and run storage remain generic. Adapter generation validates every registered
-graph and projects each registration into a launch skill delegating to the
-canonical orchestrator.
+graph and projects each registration into a launch skill embedding the
+packaged orchestrator.
 
 ## Runtime dependency map
 
@@ -145,8 +142,8 @@ The loader owns TOML/root loading, repository discovery, pipeline assembly, and
 graph validation orchestration. `config_fields.FieldContext` carries the source
 path and repository root, emits diagnostics, checks scalar/list values and unknown
 keys, and resolves existing resource paths with repository containment checks.
-Shared resources may use parent traversal within the repository; registry path
-rules remain separate. `config_phase_parser` consumes that context explicitly for
+Graph-relative templates and validators may use parent segments within `workflow/`.
+Legacy phases retain their repository-wide resource boundary. `config_phase_parser` consumes that context explicitly for
 phase, validator, command, transition, input, and output-pattern parsing. Validator
 parsing reads schema files through `schema_validation` in the existing check order.
 
@@ -288,9 +285,10 @@ verification. Creation and first-visit preparation are separate commits, so
 interrupted initialization can leave a partial run; no automatic cleanup occurs.
 
 Request and completed output artifacts are hash-bound. Visits also record the
-hashes of their skill and template. Approval binds the run, visit, selected
-outcome, pipeline hash, and artifact hash; changing the artifact or pipeline
-makes the approval stale.
+hashes of their skill and template. Action approval binds the proposed details to
+the run, visit, phase, reason, and pipeline hash. Grant or decline returns the same visit to active. Transition
+approval additionally binds the selected outcome and artifact hash, and has a
+separate recoverable advancement step.
 
 ## Transition and mutation safety
 
@@ -305,13 +303,11 @@ bounded, secret-redacted summaries are recorded in the manifest.
 
 ## Canonical and generated content
 
-`AGENTS.md`, `workflow/pipelines.toml`, `workflow/pipelines/`, canonical
-`.agents/skills/` procedures and `workflow/templates/` are editable sources.
-Generated `.agents/skills/specromancy-*/` are manifest-owned launch skills,
-excluded from canonical source hashing. Claude Code, Copilot, and OpenCode
-adapters are deterministic projections. Codex and Hermes consume canonical
-files directly and discover generated per-pipeline launch skills natively. Generated files contain provenance and invocation glue only;
-they contain no phase graph, approval policy, or unique workflow procedure.
+The consumer owns `workflow/adapters.toml`, `workflow/instructions.md`, the registry, registered graphs,
+and declared procedures and dependencies under `workflow/`. The generator owns
+the selected harness files listed in its manifest, including root `AGENTS.md` when required. Codex and Hermes
+discover the same generated phase wrappers and launch skills. Each phase wrapper
+loads its declared workflow file. Each launch embeds generic release orchestration.
 
 `adapter_sources` captures validated graphs, canonical text, dependency bytes,
 and command metadata for one invocation. `adapter_rendering` consumes that capture

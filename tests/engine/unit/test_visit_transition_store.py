@@ -9,7 +9,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from specromancy_engine.artifacts import ArtifactError
-from specromancy_engine.config import load_pipeline
+from specromancy_engine.config import PipelineConfigError, load_pipeline
 from specromancy_engine.engine import Engine, EngineError
 from specromancy_engine.exit_codes import ExitCode
 from specromancy_engine._engine import approvals
@@ -42,10 +42,10 @@ class VisitStoreBoundaryTests(unittest.TestCase):
                 else:
                     output.parent.mkdir(parents=True, exist_ok=True)
                     output.write_text("pre-existing output")
-                pipeline.phase("compose").skill_path.unlink()
                 before = {p.relative_to(directory): p.read_bytes()
                           for p in directory.rglob("*") if p.is_file()}
-                with self.assertRaises(ArtifactError) as raised:
+                with patch("specromancy_engine._runs.visit_preparation.sha256_file",
+                           side_effect=AssertionError("collision must precede resource reads")), self.assertRaises(ArtifactError) as raised:
                     store.prepare_visit(RUN_ID, pipeline, "compose")
                 self.assertEqual(raised.exception.diagnostic_code, "artifact-path-collision")
                 self.assertEqual({p.relative_to(directory): p.read_bytes()
@@ -56,7 +56,7 @@ class VisitStoreBoundaryTests(unittest.TestCase):
             with self.subTest(active=active):
                 fixture = StoreFixture()
                 self.addCleanup(fixture.close)
-                template = fixture.root / "template.md"
+                template = fixture.pipeline_path.with_name("template.md")
                 template.write_text("template at preparation")
                 fixture.pipeline_path.write_text(PIPELINE.replace(
                     'mutation = "read-only"', 'output_template = "template.md"\nmutation = "read-only"',
@@ -103,9 +103,10 @@ class VisitStoreBoundaryTests(unittest.TestCase):
         directory = fixture.store.run_directory(run_id)
         before = tuple((directory / name).read_bytes() for name in ("run.json", "events.jsonl"))
         fixture.pipeline.phase("publish").skill_path.unlink()
-        with self.assertRaises(FileNotFoundError):
+        with self.assertRaises(PipelineConfigError) as raised:
             fixture.store.transition_visit(run_id, fixture.pipeline, 1,
                                            outcome="continue", transition_target="publish")
+        self.assertEqual(raised.exception.diagnostic_code, "missing-file")
         self.assertEqual(before, tuple((directory / name).read_bytes()
                                       for name in ("run.json", "events.jsonl")))
         visit = fixture.store.load(run_id)["visits"][0]
@@ -151,10 +152,11 @@ class VisitStoreBoundaryTests(unittest.TestCase):
         self.assertIsNone(successor["started_at"])
         directory = store.run_directory(RUN_ID)
         snapshot = tuple((directory / name).read_bytes() for name in ("run.json", "events.jsonl"))
-        skill.unlink()
-        self.assertEqual(store.transition_visit(
-            RUN_ID, pipeline, 1, outcome="continue", transition_target="publish",
-        ), result)
+        with patch("specromancy_engine._runs.visit_preparation.sha256_file",
+                   side_effect=AssertionError("retry must reuse captured resources")):
+            self.assertEqual(store.transition_visit(
+                RUN_ID, pipeline, 1, outcome="continue", transition_target="publish",
+            ), result)
         self.assertEqual(snapshot, tuple((directory / name).read_bytes()
                                         for name in ("run.json", "events.jsonl")))
 
@@ -220,7 +222,7 @@ class VisitStoreBoundaryTests(unittest.TestCase):
     def test_pending_captures_provenance_once_and_complete_retains_its_guard(self):
         fixture = StoreFixture()
         self.addCleanup(fixture.close)
-        template = fixture.root / "template.md"
+        template = fixture.pipeline_path.with_name("template.md")
         template.write_text("original template")
         fixture.pipeline_path.write_text(PIPELINE.replace('mutation = "read-only"',
                                                           'output_template = "template.md"\nmutation = "read-only"'))

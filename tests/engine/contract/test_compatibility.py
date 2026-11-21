@@ -112,28 +112,53 @@ class CompatibilityContractTests(unittest.TestCase):
         self.assertEqual(hashing.canonical_json_bytes({"text": "café 日本語"}),
                          '{"text":"café 日本語"}'.encode("utf-8"))
 
-    def test_current_responses_change_only_the_three_command_prefixes(self) -> None:
-        original = read_record("responses.json")
-        expected = read_record("responses-current.json")
-        for name in ("action-pending", "action-active", "resumed"):
-            with self.subTest(response=name):
-                old = original[name]["action"]["final_validation_command"]
-                new = expected[name]["action"]["final_validation_command"]
-                self.assertEqual(old[:3], ["<PYTHON>", "-m", "specromancy"])
-                self.assertEqual(new, ["specromancy", *old[3:]])
-                original[name]["action"]["final_validation_command"] = new
-        self.assertEqual(expected, original)
-
     def test_response_envelopes_and_persisted_bytes_match_baseline(self) -> None:
         states, responses = capture_lifecycle()
         self.assertEqual(responses, read_record("responses-current.json"))
-        expected = read_record("states.json")
-        self.assertEqual(set(states), set(expected))
-        for state, files in states.items():
-            with self.subTest(state=state):
-                self.assertEqual(files, expected[state])
+        self.assertEqual(states, read_record("states.json"))
 
-    def test_version_one_records_replay_and_recovery_is_exactly_once(self) -> None:
+    def test_visit_provenance_hashes_raw_skill_bytes_and_preserves_old_records(self) -> None:
+        fixture = CompatibilityFixture()
+        self.addCleanup(fixture.close)
+        skill = fixture.pipeline.phase("compose").skill_path
+        normalized = skill.read_bytes()
+        raw = normalized.replace(b"\n", b"\r\n") + b"\r\n"
+        skill.write_bytes(raw)
+        action = fixture.engine.initialize("Capture raw procedure bytes.")["action"]
+        expected = {"path": ".agents/skills/compose/SKILL.md",
+                    "sha256": hashlib.sha256(raw).hexdigest()}
+        self.assertEqual(fixture.store.load(RUN_ID)["visits"][0]["skill"], expected)
+        self.assertEqual(action["skill"]["path"], expected["path"])
+        self.assertEqual(action["skill"]["sha256"], expected["sha256"])
+        before = fixture.snapshot()
+        skill.write_bytes(normalized)
+        self.assertEqual(config.load_pipeline(fixture.path, fixture.root).config_hash,
+                         fixture.pipeline.config_hash)
+        with self.assertRaises(engine.EngineError) as caught:
+            fixture.engine.start_phase(RUN_ID, "compose")
+        self.assertEqual(caught.exception.diagnostic_code, "provenance-hash-mismatch")
+        self.assertEqual(fixture.snapshot(), before)
+
+    def test_adding_skill_source_refuses_a_saved_legacy_run_without_rewriting_it(self) -> None:
+        fixture = CompatibilityFixture()
+        self.addCleanup(fixture.close)
+        fixture.engine.initialize("Preserve the original run")
+        before = fixture.snapshot()
+        legacy = fixture.root / ".agents/skills/compose/SKILL.md"
+        source = "workflow/skills/compose/SKILL.md"
+        canonical = fixture.root / source
+        canonical.parent.mkdir(parents=True)
+        canonical.write_bytes(legacy.read_bytes())
+        fixture.path.write_text(fixture.path.read_text().replace(
+            'skill = "compose"', f'skill = "compose"\nskill_source = "{source}"'))
+        migrated = config.load_pipeline(fixture.path, fixture.root)
+        self.assertNotEqual(migrated.config_hash, read_record("canonical.json")["absent"]["sha256"])
+        with self.assertRaises(engine.EngineError) as caught:
+            Engine(migrated, fixture.store).resume(RUN_ID)
+        self.assertEqual(caught.exception.diagnostic_code, "pipeline-hash-mismatch")
+        self.assertEqual(fixture.snapshot(), before)
+
+    def test_persisted_records_replay_and_recovery_is_exactly_once(self) -> None:
         states = read_record("states.json")
         responses = read_record("responses-current.json")
         for name, files in states.items():
@@ -226,17 +251,21 @@ class CompatibilityContractTests(unittest.TestCase):
     def test_exact_error_envelopes_locations_and_cli_streams(self) -> None:
         self.assertEqual(capture_diagnostics(), read_record("diagnostics.json"))
 
+    @patch("specromancy_engine._adapters.adapter_sources.get_version", lambda: "0.1.3")
     def test_generated_adapter_bytes_and_hashes_match_baseline(self) -> None:
         fixture = AdapterFixture()
         try:
             fixture.generate()
-            expected = read_record("adapters-generator-v2.json")
+            expected = read_record("adapters-generator-v3.json")
             actual = fixture.snapshot()
             self.assertEqual(set(actual), set(expected))
+            manifest = actual.pop("adapters/manifest.json")
+            self.assertEqual(hashlib.sha256(manifest).hexdigest(),
+                             "b3159d3fa3f3f1335c161adc56ee13bd0739499d83b44f92f3fcf6bf9080e7b8")
             for path, content in actual.items():
                 with self.subTest(path=path):
-                    self.assertEqual(content, expected[path]["text"].encode("utf-8"))
-                    self.assertEqual(hashlib.sha256(content).hexdigest(), expected[path]["sha256"])
+                    text = expected[path]["text"].replace("pipeline schema version 1.", "pipeline schema version 2.")
+                    self.assertEqual(content, text.encode("utf-8"))
         finally:
             fixture.close()
 
@@ -257,9 +286,10 @@ class CompatibilityContractTests(unittest.TestCase):
             entry["sha256"] = expected[entry["path"]]["sha256"]
         self.assertEqual(json.loads(expected[manifest_path]["text"]), old_manifest)
 
+    @patch("specromancy_engine._adapters.adapter_sources.get_version", lambda: "0.1.3")
     def test_original_owned_adapters_upgrade_with_existing_ownership_rules(self) -> None:
         original = read_record("adapters.json")
-        expected = read_record("adapters-generator-v2.json")
+        expected = read_record("adapters-generator-v3.json")
         for edited in (False, True):
             with self.subTest(edited=edited):
                 fixture = AdapterFixture()
@@ -280,7 +310,11 @@ class CompatibilityContractTests(unittest.TestCase):
                 # edited stale paths and unowned paths remain protected separately.
                 fixture.generate()
                 upgraded = fixture.snapshot()
-                self.assertEqual(upgraded, {p: r["text"].encode() for p, r in expected.items()})
+                self.assertEqual(set(upgraded), set(expected))
+                for path in expected.keys() - {"adapters/manifest.json"}:
+                    text = expected[path]["text"].replace("pipeline schema version 1.", "pipeline schema version 2.")
+                    self.assertEqual(upgraded[path], text.encode())
+                self.assertEqual(json.loads(upgraded["adapters/manifest.json"])["generator"]["version"], 4)
                 fixture.generate()
                 fixture.generate(check=True)
                 self.assertEqual(fixture.snapshot(), upgraded)

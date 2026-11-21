@@ -1,4 +1,4 @@
-"""Keep user-facing example procedures portable and the orchestrator in sync."""
+"""Check the source-only consumer example and its portable procedures."""
 
 from pathlib import Path
 import unittest
@@ -11,13 +11,14 @@ EXAMPLE = ROOT / "examples/release-documentation"
 
 
 class ConsumerExampleSourcesTests(unittest.TestCase):
-    def test_generic_orchestrator_matches_canonical_procedure(self) -> None:
-        relative = ".agents/skills/pipeline/SKILL.md"
-        self.assertEqual((EXAMPLE / relative).read_bytes(), (ROOT / relative).read_bytes())
+    def test_example_ships_only_authored_sources(self) -> None:
+        for relative in ("AGENTS.md", ".agents", ".claude", ".github", ".opencode", "adapters"):
+            self.assertFalse((EXAMPLE / relative).exists(), relative)
+        self.assertTrue((EXAMPLE / "workflow/instructions.md").is_file())
 
     def test_example_skills_have_portable_frontmatter(self) -> None:
-        skills = sorted((EXAMPLE / ".agents/skills").glob("*/SKILL.md"))
-        self.assertEqual(len(skills), 3)
+        skills = sorted((EXAMPLE / "workflow/skills").glob("*/SKILL.md"))
+        self.assertEqual(len(skills), 2)
         for path in skills:
             with self.subTest(skill=path.parent.name):
                 fields, metadata = parse_frontmatter(path)
