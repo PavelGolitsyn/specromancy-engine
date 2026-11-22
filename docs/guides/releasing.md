@@ -58,11 +58,32 @@ and [manual workflow triggers](https://docs.github.com/en/actions/how-tos/write-
 
 ## Prepare the release commit
 
+For every 0.x release, including a patch, compare the candidate with **both**
+the last released tag and the development baseline for the change. Record both
+revisions in the release review. Check the documented contracts, actual reads
+and writes, and consumers such as harnesses and the installed test bundle.
+
+- For each affected surface, record its old and new version or the reason it
+  stays compatible, the fixture and test proving current behavior, and the
+  action a consumer must take. Apply the same review to versioned CLI output.
+  For an unversioned command or Python API, name the changed interface and
+  show its updated caller.
+- Ship one current representation per surface. Remove superseded readers,
+  writers, compatibility-only aliases, migration paths, and old-format success
+  tests. Verify obsolete inputs are refused before side effects wherever a
+  reader exists. Review inherited exceptions under the same rule and correct
+  current code, tests and guidance. Preserve published packages, tags and
+  revision-specific measurements as historical evidence.
+- Verify current fixtures, focused and full tests, and reproducible generated
+  files. Record how to finish existing work with its producing engine or start
+  new work with the current inputs when an upgrade breaks a contract. See the
+  [classification rules](../reference/contracts.md#changing-a-contract-before-10).
+
 1. Finish the release changes and merge them into the default branch. The
    workflow accepts only a full lowercase 40-character commit SHA in that
    branch's history, not a branch name, short SHA, or pull-request-only commit.
 2. Set `project.version` in [`pyproject.toml`](../../pyproject.toml) to the intended
-   release; this is the only version field to edit. The runtime `__version__`
+   package release. Each format has its own version. The runtime `__version__`
    is derived automatically. Reinstall editable environments with
    `python -m pip install -e .` after a bump to refresh installed metadata.
    Keep general documentation version-neutral; update

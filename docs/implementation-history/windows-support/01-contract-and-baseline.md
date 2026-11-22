@@ -62,7 +62,7 @@ failures are engine defects, tooling assumptions, or platform-specific assertion
 | Locks | Retain exclusive lock files and manual stale-lock remediation. Test actual process contention. |
 | Permissions | Keep POSIX mode assertions on POSIX; Windows inherits filesystem permissions. Do not equate `chmod(0600)` with a Windows ACL. |
 | Commands | Preserve argument lists and `shell=False`. Native Python/executable invocation is the verified baseline. Human Windows validation commands target PowerShell 7. |
-| Compatibility | Preserve original captures. Native mode differences need explicit Windows expectations and same-host replay; active cross-OS run migration is not promised. |
+| Compatibility | Replay the tested revision's current formats on the same host. Record native mode differences and verify obsolete formats are refused without changing files. |
 | Symlinks | No privilege requirement for ordinary use. Privileged link tests are distinct from core tests, with mandatory link coverage on a capable CI runner. |
 | Versioning | No schema change, namespace change, new workflow policy, or automatic package-version bump. |
 

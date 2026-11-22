@@ -1,8 +1,33 @@
 # Specromancy Engine public contracts
 
-Before v1.0.0, Specromancy supports only the current contracts and schemas.
-Breaking changes may ship in any pre-1.0.0 release. Update the schema version
-and fixtures when changing a stored representation incompatibly.
+## Changing a contract before 1.0
+
+Any 0.x release, including a patch, may change a public contract. Each release
+supports one current representation per surface. An older producer's data is
+usable if it satisfies that contract. Apply the rule to inherited behavior too.
+Retire superseded readers, writers, compatibility-only aliases, migration
+paths, and tests that require obsolete inputs to succeed.
+
+Classify a change from the documented reader and writer behavior. Removing a
+required field, narrowing previously supported input, or changing what a stored
+value authorizes is incompatible. For example, a change to which files an
+ownership record permits the generator to replace requires a version change
+even if its keys stay the same. An additive change can keep its version when
+existing conforming inputs and outputs still meet the documented contract.
+
+Advance each affected stored format or explicitly versioned CLI output
+independently, including nested objects and their envelopes when both change.
+Update the schema where published, readers, writers, current fixtures and
+consumer instructions together. Readers must reject an unsupported version
+before recovery or writes. Test the version and shape at the emission point
+for output-only contracts. For unversioned Python APIs and CLI commands,
+document the changed names or behavior and update callers, examples and tests.
+Package releases, project-owned graph revisions and artifact validator schemas
+have independent versions.
+
+The sections below describe the current implementation. The
+[Stage 23 inventory](../implementation-history/refactoring/23-pre-1-contract-policy.md)
+records inherited exceptions and the stages responsible for retiring them.
 
 ## Python import surface
 

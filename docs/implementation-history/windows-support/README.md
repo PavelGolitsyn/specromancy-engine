@@ -18,7 +18,7 @@ execution instructions, not evidence that Windows is already supported.
 | Existing platforms | Retain `ubuntu-24.04` and `macos-15` on the same two interpreter versions |
 | Installed invocation | `specromancy` / generated `specromancy.exe`, and `python -m specromancy_engine` |
 | Checkout invocation | `python bin/specromancy` everywhere; retain direct shebang invocation on POSIX |
-| Data formats | Existing version-1 schemas, canonical JSON, relative POSIX paths, hashes, and CLI exit codes |
+| Data formats | The candidate's current schemas, canonical JSON, relative POSIX paths, hashes, and CLI exit codes |
 | Filesystem semantics | Same-file replacement, exclusive run locks, immutable outputs, recovery, approval invalidation, and ownership enforcement |
 | User documentation | Tested PowerShell installation, development, consumer, and verification instructions |
 
@@ -85,8 +85,8 @@ planning pass. Stage 01 must collect those implementation baselines.
 
 ## Design rules for every stage
 
-1. Keep phase names and workflow policy in `workflow/` and canonical procedures
-   in `.agents/skills/`. No Windows-specific workflow fork or adapter-only logic.
+1. Keep phase names, workflow policy and canonical procedures under `workflow/`.
+   Generate harness discovery files from those sources.
 2. Prefer a few internal functions at existing filesystem/process boundaries.
    Do not introduce a platform service framework, change public imports, or
    reorganize the engine as part of this task.
@@ -98,9 +98,11 @@ planning pass. Stage 01 must collect those implementation baselines.
 5. Preserve CLI ownership: run directories, manifest-owned adapter files, and
    the existing permitted adjacent temporary files. Never add runtime Git
    mutation, permission repair, deletion of user files, or stale-lock expiry.
-6. Preserve version-1 records and Unix behavior. Any deliberate Windows-only
-   rejection or presentation difference must be documented and tested. Do not
-   update original golden records to conceal a regression.
+6. Establish the native baseline against the [current public contracts](../../reference/contracts.md)
+   at the tested revision. Use current-format fixtures for successful reads,
+   recovery and generation. Use obsolete specimens to verify refusal before
+   writes. Keep earlier measurements attributed to their revision. Document
+   and test each deliberate Windows-specific difference.
 7. Use real native Windows processes. Mocks may exercise error branches but
    cannot establish Windows support. Never mark a broken core test as a
    platform skip or use `continue-on-error` to obtain a green support gate.

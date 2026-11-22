@@ -52,6 +52,12 @@ class ShippedAdapterTests(unittest.TestCase):
                 self.assertEqual(targets[name]["mode"], mode)
                 self.assertEqual(targets[name]["paths"], generated_by_target[name])
 
+    def test_generated_instruction_files_include_the_authored_instructions(self) -> None:
+        instructions = (ROOT / "workflow/instructions.md").read_text(encoding="utf-8").strip()
+        for relative in ("AGENTS.md", ".claude/CLAUDE.md", ".github/copilot-instructions.md"):
+            with self.subTest(path=relative):
+                self.assertIn(instructions, (ROOT / relative).read_text(encoding="utf-8"))
+
     def test_generated_files_have_provenance_and_no_embedded_checkout_data(self) -> None:
         absolute = re.compile(r"(?:^|[\s'\"`(])/(?:Users|home|private|tmp)/")
         timestamp = re.compile(r"\b20\d{2}-\d{2}-\d{2}T\d{2}:\d{2}")

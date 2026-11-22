@@ -2,7 +2,7 @@
 
 ## Current plan — current contracts throughout 0.x
 
-**Stages 23–28 are planned.** Baseline `f265780d2afa1782f18e22b990789c2eb7ccd719`,
+**Stage 23 is complete. Stages 24–28 are planned.** Baseline `f265780d2afa1782f18e22b990789c2eb7ccd719`,
 2026-11-21. Apply the [pre-1.0 contract policy](../../reference/contracts.md)
 to behavior inherited from earlier releases and to every future 0.x change,
 including patch releases. A breaking change is permitted when it serves the
