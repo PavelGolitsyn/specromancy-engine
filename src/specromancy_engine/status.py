@@ -13,19 +13,15 @@ STATUS_SCHEMA_VERSION = 1
 
 
 def describe_approval(manifest: RunRecord, approval: ApprovalRecord) -> dict[str, Any]:
-    if not approval.get("phase_id") or not approval.get("reason"):
-        return approval
     number = manifest["approvals"].index(approval) + 1
-    target = [manifest["run_id"], approval.get("phase_id"), "--request", str(number)]
+    target = [manifest["run_id"], approval["phase_id"], "--request", str(number)]
     result = {**approval, "request_number": number, "approve_command": ["specromancy", "approve", *target]}
-    if approval.get("kind") == "action":
+    if approval["kind"] == "action":
         result["decline_command"] = ["specromancy", "decline", *target]
     return result
 
 
 def render_approval(record: dict[str, Any]) -> str:
-    if "request_number" not in record:
-        return f"Approval: {record.get('reason', 'pending')}"
     lines = [f"Request {record['request_number']}: {record['reason']}",
              f"Phase: {record['phase_id']}"]
     if record.get("details") is not None:
@@ -96,9 +92,7 @@ def next_command(manifest: RunRecord) -> list[str] | None:
             manifest, "pending", visit_number=current["ordinal"]
         )
         if pending:
-            return describe_approval(manifest, pending).get(
-                "approve_command", ["specromancy", "approve", run_id, current["phase_id"]]
-            )
+            return describe_approval(manifest, pending)["approve_command"]
         return ["specromancy", "request-approval", run_id]
     if manifest["status"] == "paused":
         return ["specromancy", "resume", run_id]

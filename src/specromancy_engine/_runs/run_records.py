@@ -1,9 +1,4 @@
-"""Version-one dictionary vocabulary and side-effect-free record selectors.
-
-TypedDicts describe stored fields, not runtime validation or constructors with
-defaults. Open payloads stay open. Approval fields describe engine-produced
-records, but are optional because persisted approvals accept arbitrary objects
-(including extra keys). See run_validation for the actual acceptance boundary.
+"""Stored record vocabulary and side-effect-free selectors.
 
 Selectors borrow records from their argument; they neither copy nor mutate.
 RunStore remains responsible for defensive copies at its public boundaries.
@@ -12,14 +7,14 @@ RunStore remains responsible for defensive copies at its public boundaries.
 from __future__ import annotations
 
 import re
-from typing import Any, TypedDict
+from typing import Any, Literal, TypedDict
 
 from ..exit_codes import ExitCode
 from .run_errors import RunStoreError
 
 
-RUN_SCHEMA_VERSION = 1
-EVENT_SCHEMA_VERSION = 1
+RUN_SCHEMA_VERSION = 2
+EVENT_SCHEMA_VERSION = 2
 EVENT_TYPE_PATTERN = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 RUN_STATUSES = frozenset(
     {"active", "awaiting-agent", "awaiting-approval", "paused", "completed", "failed", "blocked"}
@@ -53,21 +48,32 @@ class GitRecord(TypedDict):
     head: Any
 
 
-class ApprovalRecord(TypedDict, total=False):
-    kind: str
+class ApprovalBinding(TypedDict):
     run_id: str
     phase_id: str
     visit_number: int
     reason: str
-    details: str | None
-    artifact_sha256: str
     pipeline_sha256: str
-    outcome: str
-    status: str
-    decision: str | None
-    actor: str | None
+    status: Literal["pending", "approved", "declined", "stale"]
+    decision: Literal["approved", "declined", "invalidated"] | None
+    actor: Literal["user", "system"] | None
     requested_at: str
     decided_at: str | None
+
+
+class ActionApproval(ApprovalBinding):
+    kind: Literal["action"]
+    details: str
+
+
+class TransitionApproval(ApprovalBinding):
+    kind: Literal["transition"]
+    details: str | None
+    artifact_sha256: str
+    outcome: str
+
+
+ApprovalRecord = ActionApproval | TransitionApproval
 
 
 class VisitRecord(TypedDict):

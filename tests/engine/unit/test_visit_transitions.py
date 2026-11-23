@@ -38,7 +38,7 @@ def visit(status="pending", *, ordinal=1, phase="compose"):
 
 def manifest(status="pending", *, run_status="active"):
     value = {
-        "schema_version": 1, "revision": 7, "run_id": "20260925T120000Z-01020304",
+        "schema_version": 2, "revision": 7, "run_id": "20260925T120000Z-01020304",
         "pipeline": {"id": "fixture", "version": 1, "path": "pipeline.toml", "sha256": HASH},
         "status": run_status, "current_visit": 1,
         "request": {"path": "artifacts/request.md", "sha256": HASH},

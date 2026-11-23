@@ -1,9 +1,9 @@
 # 24. Version run approvals and audit events
 
-**Planned after Stage 23.** In the earlier awaiting-approval fixture, the saved
-record has no `kind`. The current loader accepts it and the decision path returns
-`approval-state-changed`. A replay of the earlier recoverable fixture also showed
-that CLI `resume` appended a recovery event before rejecting its graph.
+**Implemented on 2026-11-22 from `1d4fb1c`.** Before this change, the loader
+accepted a version-1 approval without `kind` and the decision path returned
+`approval-state-changed`. CLI `resume` also appended a recovery event before
+rejecting an unsupported saved graph.
 
 ## Work
 
@@ -59,3 +59,50 @@ that CLI `resume` appended a recovery event before rejecting its graph.
 Run the record, persistence and store unit tests and the action approval, CLI,
 interruption, recovery and orchestration contract tests. Include the new
 versioned inputs in installed-wheel verification in Stage 28.
+
+## Execution record
+
+The run and event writers emit independent version-2 tags. A reserved approval
+event carries an explicit `kind` so that an action with a missing request number
+cannot be interpreted as a transition invalidation. The store prepares the
+complete UTF-8 event before manifest replacement. A crash after replacement
+still leaves a single recoverable gap. CLI selection inspects that gap under
+lock and the command reconciles it after loading the selected graph.
+
+### Stage 14 matrix disposition
+
+| Field or operation | Version-2 behavior |
+| --- | --- |
+| Approvals | Closed action and transition records share run, visit, phase, pipeline and reason bindings. The one-based array position identifies the request. Status determines decision, actor and decision time. Each visit permits one pending request. An interrupted transition grant can remain approved while the visit awaits advancement. |
+| Numeric identity | Versions, revisions, counters, ordinals and action event request numbers require positive integer tokens. Booleans, fractions and exponent forms fail. A positive unsupported schema version identifies its surface and both version numbers. |
+| Visits | Require nonblank identifiers and input references, a declared mutation policy, and text or null outcomes/targets. Preserve ordered visits and attempts, sealed outputs, and the low-level distinction between completing a visit and advancing the run. A paused successor may be pending. Timestamp checks validate the UTC calendar value without requiring clocks to advance between operations. |
+| Open metadata | Git base/head, mutation baseline/result, terminal result and block reason accept finite JSON. Check, command and deviation arrays retain arbitrary finite JSON entries. The store preserves these values for inspection. Engine validation gathers fresh evidence. |
+| Events | Request, grant, decline and invalidation payloads have kind-specific fields. Other event names accept finite JSON objects. The store validates every event on reload and checks sequence, revision and final manifest hash before deciding whether recovery is possible. |
+
+The negative fixtures preserve the original file contents of the awaiting-approval
+and recoverable runs in `v0.1.3:tests/engine/fixtures/refactoring-compatibility/states.json`.
+All eight current snapshots were captured again through the deterministic
+lifecycle. Restoration tests compare manifest, audit and artifact bytes before
+and after refusal, and replay current snapshots through interruption and recovery.
+The installed test bundle includes both fixture generations, the recovery tests
+and the action approval contract tests for Stage 28.
+
+Consumer upgrade steps and the reserved event payloads are documented in the
+[public contract](../../reference/contracts.md#run-persistence).
+
+### Verification
+
+The checkout was installed in its dedicated environment with
+`python -m pip install --no-build-isolation -e .`. The final source checks
+used the activated environment on macOS arm64.
+
+| Check | Result |
+| --- | --- |
+| Record, persistence, store and visit-transition unit tests plus action approval, CLI, interruption, recovery, orchestration and compatibility contract tests | 106 passed on Python 3.14.4. The same 106 passed against the installed wheel on Python 3.11.15. |
+| `python -m unittest discover` | 389 passed on Python 3.14.4. |
+| Draft 2020-12 schema check | Both published schemas passed metaschema validation. All eight lifecycle snapshots and their 34 event records validated, along with action decision variants. Checked boolean rejection and integral-float equality separately. |
+| `python -m build --sdist --wheel --no-isolation` and `python tools/verify_distribution.py` | Both installs passed offline on Python 3.14.4, with 102 tests each for the direct wheel and the wheel rebuilt from the source archive. |
+| `specromancy adapters generate --check` and `git diff --check` | Passed. |
+
+The distribution check covers the Stage 24 fixtures on this host. The complete
+release and platform matrix belongs to Stage 28.

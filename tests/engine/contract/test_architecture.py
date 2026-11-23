@@ -40,7 +40,7 @@ assert not unexpected, unexpected
             "_config.config_models", "_config.config_errors", "_config.config_serialization",
             "schema_validation", "_config.config_fields", "_config.config_phase_parser",
             "_config.config_loader", "validation",
-            "_runs.run_records", "_runs.run_validation", "_runs.run_identity", "_runs.run_errors",
+            "_runs.run_records", "_runs.record_fields", "_runs.run_validation", "_runs.run_identity", "_runs.run_errors",
             "_runs.run_persistence", "_runs.visit_transitions", "_runs.visit_preparation",
             "_engine.engine_errors", "_engine.provenance", "_engine.validation_service", "_engine.responses",
             "_engine.approvals", "_engine.command_decisions", "_engine.approval_service",

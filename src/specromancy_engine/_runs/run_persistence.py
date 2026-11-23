@@ -14,7 +14,7 @@ from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from ..hashing import sha256_json
 from ..locking import RunLock
@@ -24,7 +24,7 @@ from . import run_validation
 
 
 class RunPersistence:
-    """Implement schema-version-1 IO without workflow or artifact policies."""
+    """Implement manifest and event IO without workflow or artifact policies."""
 
     def __init__(
         self,
@@ -43,7 +43,7 @@ class RunPersistence:
 
     @contextmanager
     def locked(
-        self, directory: Path, run_id: str, *, recover: bool = True
+        self, directory: Path, run_id: str, *, gap: Literal["recover", "inspect", "reject"] = "recover"
     ) -> Iterator[tuple[RunRecord, list[EventRecord]]]:
         """Hold one lock across loading, reconciliation, and the caller's changes.
 
@@ -54,10 +54,22 @@ class RunPersistence:
         """
         with self.lock(directory):
             manifest = self._read_manifest(directory, run_id)
-            if recover:
-                events = self._ensure_event_consistency(directory, manifest)
-            else:
-                events = self._assert_event_consistency(directory, manifest)
+            events = self._read_events(directory, run_id)
+            if self._needs_recovery(events, manifest):
+                if gap == "reject":
+                    raise RunCorruptionError(
+                        "manifest is newer than its final audit event; recovery is required",
+                        run_id=run_id, details={"recoverable": True},
+                    )
+                if gap == "recover":
+                    event = self._event(
+                        manifest, sequence=len(events) + 1, event_type="recovery",
+                        visit_number=manifest["current_visit"],
+                        payload={"reason": "manifest-event-gap", "previous_sequence": len(events),
+                                 "previous_manifest_revision": len(events)},
+                    )
+                    self._append_event(directory, run_id, run_validation.serialize_event(event, run_id))
+                    events.append(event)
             yield manifest, events
 
     def advance_revision(self, manifest: RunRecord, previous_revision: int) -> None:
@@ -70,7 +82,7 @@ class RunPersistence:
         try:
             raw = path.read_text(encoding="utf-8")
             value = json.loads(raw)
-        except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        except (OSError, ValueError, RecursionError) as exc:
             raise RunCorruptionError(
                 "run manifest is missing, unreadable, or malformed",
                 run_id=run_id,
@@ -113,19 +125,8 @@ class RunPersistence:
         finally:
             temporary.unlink(missing_ok=True)
 
-    def _append_event(self, directory: Path, event: EventRecord) -> None:
-        run_validation.validate_event(event, event["run_id"])
+    def _append_event(self, directory: Path, run_id: str, payload: bytes) -> None:
         path = directory / "events.jsonl"
-        payload = (
-            json.dumps(
-                event,
-                ensure_ascii=False,
-                allow_nan=False,
-                sort_keys=True,
-                separators=(",", ":"),
-            )
-            + "\n"
-        ).encode("utf-8")
         self._fault("before-event-append")
         try:
             with path.open("ab") as stream:
@@ -135,7 +136,7 @@ class RunPersistence:
         except OSError as exc:
             raise RunCorruptionError(
                 "could not append the run audit event",
-                run_id=event["run_id"],
+                run_id=run_id,
                 details={"path": str(path), "error": str(exc)},
             ) from exc
         self._fault("after-event-append")
@@ -143,7 +144,9 @@ class RunPersistence:
     def _read_events(self, directory: Path, run_id: str) -> list[EventRecord]:
         path = directory / "events.jsonl"
         try:
-            lines = path.read_text(encoding="utf-8").splitlines()
+            lines = path.read_text(encoding="utf-8").split("\n")
+            if lines[-1] == "":
+                lines.pop()
         except (OSError, UnicodeError) as exc:
             raise RunCorruptionError(
                 "run event log is missing or unreadable",
@@ -160,7 +163,7 @@ class RunPersistence:
                 )
             try:
                 event = json.loads(line)
-            except json.JSONDecodeError as exc:
+            except (ValueError, RecursionError) as exc:
                 raise RunCorruptionError(
                     "run event log contains malformed JSON",
                     run_id=run_id,
@@ -191,28 +194,14 @@ class RunPersistence:
             events.append(event)
         return events
 
-    def _ensure_event_consistency(
-        self, directory: Path, manifest: RunRecord
-    ) -> list[EventRecord]:
-        events = self._read_events(directory, manifest["run_id"])
-        if self._events_match_manifest(events, manifest):
-            return events
+    @staticmethod
+    def _needs_recovery(events: list[EventRecord], manifest: RunRecord) -> bool:
         last_revision = events[-1]["manifest_revision"] if events else 0
         if last_revision == manifest["revision"] - 1:
-            event = self._event(
-                manifest,
-                sequence=len(events) + 1,
-                event_type="recovery",
-                visit_number=manifest["current_visit"],
-                payload={
-                    "reason": "manifest-event-gap",
-                    "previous_sequence": len(events),
-                    "previous_manifest_revision": last_revision,
-                },
-            )
-            self._append_event(directory, event)
-            events.append(event)
-            return events
+            return True
+        if (last_revision == manifest["revision"]
+                and events[-1]["manifest_hash"] == sha256_json(manifest)):
+            return False
         raise RunCorruptionError(
             "manifest and event log disagree in a way that cannot be recovered",
             run_id=manifest["run_id"],
@@ -220,30 +209,6 @@ class RunPersistence:
                 "manifest_revision": manifest["revision"],
                 "last_event_revision": last_revision,
             },
-        )
-
-    def _assert_event_consistency(
-        self, directory: Path, manifest: RunRecord
-    ) -> list[EventRecord]:
-        events = self._read_events(directory, manifest["run_id"])
-        if not self._events_match_manifest(events, manifest):
-            raise RunCorruptionError(
-                "manifest is newer than its final audit event; recovery is required",
-                run_id=manifest["run_id"],
-                details={"recoverable": True},
-            )
-        return events
-
-    @staticmethod
-    def _events_match_manifest(
-        events: list[EventRecord], manifest: RunRecord
-    ) -> bool:
-        if not events:
-            return False
-        final = events[-1]
-        return (
-            final["manifest_revision"] == manifest["revision"]
-            and final["manifest_hash"] == sha256_json(manifest)
         )
 
     def commit_locked(
@@ -261,9 +226,8 @@ class RunPersistence:
         creation commits revision 1, while mutations stamp at their existing
         clock boundary. A failure after replacement leaves the permitted gap.
         """
-        run_id = manifest["run_id"]
+        run_id = directory.name
         run_validation.validate_manifest(manifest, run_id)
-        self._write_manifest_atomic(directory, manifest)
         event = self._event(
             manifest,
             sequence=len(events) + 1,
@@ -271,7 +235,9 @@ class RunPersistence:
             visit_number=visit_number,
             payload=payload,
         )
-        self._append_event(directory, event)
+        serialized = run_validation.serialize_event(event, run_id)
+        self._write_manifest_atomic(directory, manifest)
+        self._append_event(directory, run_id, serialized)
 
     def _event(
         self,

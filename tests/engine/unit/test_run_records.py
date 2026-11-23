@@ -19,7 +19,6 @@ def manifest_at(state: str = "active") -> dict:
 
 class RecordValidationTests(unittest.TestCase):
     def test_invalid_status_shapes_raise_corruption_without_mutation(self) -> None:
-        # No status value in this table is accepted version-1 data.
         for path, message in ((("status",), "manifest status is invalid"),
                               (("visits", 0, "status"), "visit identity or status is invalid")):
             for invalid in (None, False, True, 0, 1, 1.5, "unknown", [], {}):
@@ -120,7 +119,7 @@ class RecordValidationTests(unittest.TestCase):
         invalid_fields = {"run_id": "20261004T000000Z-01020304", "sequence": 0,
                           "manifest_revision": 0, "manifest_hash": "bad",
                           "payload": [], "visit_number": 0, "type": "Bad_type",
-                          "schema_version": 2, "timestamp": "badZ"}
+                          "schema_version": True, "timestamp": "badZ"}
         cases = []
         for key in event:
             value = dict(event)
@@ -133,35 +132,78 @@ class RecordValidationTests(unittest.TestCase):
                 run_validation.validate_event(value, RUN_ID)
             self.assertEqual(raised.exception.diagnostic_code, "corrupt-run")
 
-    def test_legacy_weak_validation_is_not_silently_tightened(self) -> None:
-        # These are follow-up candidates documented in Stage 03, not guarantees
-        # that malformed nested records are safe to consume in the engine.
-        value = manifest_at()
-        value["revision"] = True
-        value["schema_version"] = 1.0
-        value["pipeline"]["id"] = ""
-        value["pipeline"]["version"] = True
-        value["current_visit"] = True
-        value["approvals"] = [{}, {"status": 42, "unknown": [None]}]
-        visit = value["visits"][0]
-        visit["phase_id"] = ""
-        visit["ordinal"] = 1.0
-        visit["attempt"] = True
-        visit["inputs"][0]["reference"] = ""
-        visit["mutation_policy"] = {"unexpected": True}
-        visit["chosen_outcome"] = []
-        visit["transition_target"] = 7
-        visit["validation_checks"] = [None, 42]
-        visit["command_results"] = ["unstructured"]
-        visit["completed_at"] = visit["started_at"]
-        run_validation.validate_manifest(value, RUN_ID)
-        value["terminal_result"] = float("nan")
-        with self.assertRaisesRegex(run_store.RunCorruptionError, "not JSON serializable"):
-            run_validation.validate_manifest(value, RUN_ID)
+    def test_integer_tokens_required_for_all_counters_and_versions(self):
+        # JSON Schema considers 2.0 integral and booleans distinct from numbers.
+        # The wire format additionally requires integer tokens, even for 2e0.
+        value = manifest_at("awaiting-approval")
+        event = json.loads(read_record("states.json")["active"]["events.jsonl"].splitlines()[-1])
+        for record, validator, paths in (
+            (value, run_validation.validate_manifest,
+             [("schema_version",), ("revision",), ("current_visit",), ("pipeline", "version"),
+              ("visits", 0, "ordinal"), ("visits", 0, "attempt"), ("approvals", 0, "visit_number")]),
+            (event, run_validation.validate_event,
+             [("schema_version",), ("sequence",), ("manifest_revision",), ("visit_number",)]),
+        ):
+            for path in paths:
+                for token in ("true", "false", "1.0", "2e0", "0", "null"):
+                    with self.subTest(path=path, token=token):
+                        if token == "null" and path in (("current_visit",), ("visit_number",)):
+                            continue
+                        candidate = copy.deepcopy(record)
+                        parent = candidate
+                        for key in path[:-1]:
+                            parent = parent[key]
+                        parent[path[-1]] = json.loads(token)
+                        with self.assertRaises(run_store.RunCorruptionError):
+                            validator(candidate, RUN_ID)
+
+    def test_invalid_nested_manifest_fields(self):
+        cases = [(("pipeline", "id"), ""), (("visits", 0, "phase_id"), " "),
+                 (("visits", 0, "inputs", 0, "reference"), ""),
+                 (("visits", 0, "mutation_policy"), {"invalid": True}),
+                 (("visits", 0, "chosen_outcome"), []), (("visits", 0, "transition_target"), 7),
+                 (("terminal_result",), float("nan"))]
+        for path, invalid in cases:
+            with self.subTest(path=path):
+                value = manifest_at()
+                parent = value
+                for key in path[:-1]:
+                    parent = parent[key]
+                parent[path[-1]] = invalid
+                with self.assertRaises(run_store.RunCorruptionError):
+                    run_validation.validate_manifest(value, RUN_ID)
+
+    def test_approval_variants_and_state_bindings(self):
+        value = manifest_at("awaiting-approval")
+        transition = value["approvals"][0]
+        action = {k: v for k, v in transition.items() if k not in ("outcome", "artifact_sha256")}
+        action.update(kind="action")
+        for record in (action, transition):
+            run_validation.validate_manifest({**value, "approvals": [record]}, RUN_ID)
+            bad = [{k: v for k, v in record.items() if k != missing} for missing in record]
+            updates = [{"extra": True}, {"phase_id": "other"}, {"run_id": "other"},
+                       {"pipeline_sha256": "0" * 64}, {"visit_number": 19}, {"reason": ""},
+                       {"requested_at": 10}, {"actor": "user"}, {"decision": "approved"},
+                       {"decided_at": record["requested_at"]}, {"status": "approved"},
+                       {"status": "stale", "decision": "approved", "actor": "system",
+                        "decided_at": record["requested_at"]}]
+            if record["kind"] == "transition":
+                updates += [{"details": []}, {"outcome": ""}, {"artifact_sha256": "bad"},
+                            {"status": "declined", "decision": "declined", "actor": "user",
+                             "decided_at": record["requested_at"]}]
+            else:
+                updates += [{"details": "  "}, {"artifact_sha256": "0" * 64}, {"outcome": "done"}]
+            bad.extend({**record, **change} for change in updates)
+            for candidate in bad:
+                with self.subTest(candidate=candidate), self.assertRaises(run_store.RunCorruptionError):
+                    run_validation.validate_manifest({**value, "approvals": [candidate]}, RUN_ID)
+        with self.assertRaisesRegex(run_store.RunCorruptionError, "multiple pending approvals"):
+            run_validation.validate_manifest({**value, "approvals": [action, transition]}, RUN_ID)
 
     def test_nested_compatibility_matrix_remains_accepted_without_mutation(self) -> None:
         cases = [
-            (("approvals",), [{"visit_number": 999, "status": "pending"}]),
+            (("visits", 0, "validation_checks"), [None, 42]),
+            (("visits", 0, "command_results"), ["unstructured"]),
             (("git",), {"base": [], "head": 42}),
             (("visits", 0, "mutation_baseline"), {"files": []}),
             (("visits", 0, "mutation_result"), [None, 42]),
@@ -194,7 +236,9 @@ class RecordValidationTests(unittest.TestCase):
         ):
             self.assertEqual(record.__required_keys__, set(schema["required"]))
             self.assertEqual(record(), {})
-        self.assertEqual(run_records.ApprovalRecord.__required_keys__, set())
+        common = set(run["$defs"]["approval"]["required"])
+        self.assertEqual(run_records.ActionApproval.__required_keys__, common)
+        self.assertEqual(run_records.TransitionApproval.__required_keys__, common | {"artifact_sha256", "outcome"})
 
 
 class IdentityCompatibilityTests(unittest.TestCase):
@@ -246,18 +290,18 @@ class SelectionOutcomeTests(unittest.TestCase):
         self.assertEqual(Engine._current_visit(value)["status"], "completed")
 
     def test_approval_status_is_global_but_next_command_and_engine_are_per_visit(self) -> None:
-        value = manifest_at("awaiting-approval")
+        value = manifest_at("paused")
         current = value["current_visit"]
-        first = {"status": "pending", "visit_number": current, "reason": "first"}
-        second = {"status": "pending", "visit_number": current, "reason": "second"}
-        approved = {"kind": "transition", "status": "approved", "visit_number": current}
-        other = {"status": "pending", "visit_number": current + 1}
-        value["approvals"] = [{}, first, second, approved, other]
-        self.assertIs(build_status(value, None)["pending_approval"], other)
-        self.assertIs(Engine._pending_approval(value, current), second)
-        self.assertIs(Engine._approved_record(value, current), approved)
-        self.assertEqual(next_command(value)[1], "approve")
-        value["approvals"] = [approved, other]
+        approved = value["approvals"][0]
+        pending = manifest_at("awaiting-approval")["approvals"][0]
+        here = {**pending, "visit_number": current, "phase_id": value["visits"][-1]["phase_id"]}
+        value.update(status="awaiting-approval", approvals=[approved, here, pending])
+        run_validation.validate_manifest(value, RUN_ID)
+        self.assertEqual(build_status(value, None)["pending_approval"]["request_number"], 3)
+        self.assertIs(Engine._pending_approval(value, current), here)
+        self.assertIs(Engine._approved_record(value, approved["visit_number"]), approved)
+        self.assertEqual(next_command(value)[-2:], ["--request", "2"])
+        value["approvals"].remove(here)
         self.assertEqual(next_command(value)[1], "request-approval")
         self.assertIsNone(Engine._pending_approval(value, current))
 

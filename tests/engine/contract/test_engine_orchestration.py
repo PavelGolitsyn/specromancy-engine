@@ -224,7 +224,7 @@ class EngineOrchestrationContractTests(unittest.TestCase):
                         self.assertEqual(after["approvals"][0][key], before["approvals"][0][key])
                     events = fixture.store.read_events(RUN_ID)
                     self.assertEqual(events[-1]["type"], "approval-invalidated")
-                    self.assertEqual(events[-1]["payload"], {"mismatches": mismatches})
+                    self.assertEqual(events[-1]["payload"], {"kind": "transition", "mismatches": mismatches})
                     with self.assertRaises(EngineError):
                         restarted.approve(RUN_ID, "compose")
                     self.assertEqual(fixture.store.load(RUN_ID), after)

@@ -1,47 +1,45 @@
-"""Pure checks for persisted dictionaries, preserving version-one acceptance.
-
-Annotations are not validators. These checks intentionally retain the legacy
-weak nested-field checks; see docs/implementation-history/refactoring/03-persisted-records.md. Event
-sequence/revision continuity and manifest hashes remain store responsibilities.
-"""
+"""Validate current persisted records before reconciliation or publication."""
 
 from __future__ import annotations
 
-import json
-from datetime import datetime
 from typing import Any
 
-from ..hashing import SHA256_PATTERN, normalize_relative_path
-from .run_errors import RunCorruptionError
+from ..hashing import SHA256_PATTERN, canonical_json_bytes, normalize_relative_path
+from .record_fields import nonblank, positive_integer, validate_approval, validate_timestamp
+from .run_errors import RunCorruptionError, RunStoreError
 from .run_identity import is_valid_run_id
 from .run_records import (
     EVENT_SCHEMA_VERSION, EVENT_TYPE_PATTERN, RUN_SCHEMA_VERSION,
-    RUN_STATUSES, VISIT_STATUSES,
+    RUN_STATUSES, VISIT_STATUSES, EventRecord, RunRecord, VisitRecord,
 )
 
 
+def validate_version(record: dict, surface: str, expected: int, run_id: str) -> None:
+    version = record.get("schema_version")
+    if not positive_integer(version):
+        raise RunCorruptionError(f"{surface} schema_version must be a positive integer", run_id=run_id)
+    if version != expected:
+        raise RunStoreError(
+            f"unsupported {surface} schema version {version}, expected {expected}. "
+            "Use the engine that produced the run or start a new run.",
+            diagnostic_code="unsupported-schema-version",
+            details={"run_id": run_id, "surface": surface,
+                     "observed_version": version, "expected_version": expected},
+        )
+
+
+def record_bytes(value: dict, surface: str, run_id: str) -> bytes:
+    try:
+        return canonical_json_bytes(value)
+    except (TypeError, ValueError, RecursionError) as exc:
+        raise RunCorruptionError(f"{surface} is not JSON serializable: {exc}", run_id=run_id) from exc
+
+
 def validate_manifest(value: dict[str, Any], run_id: str) -> None:
-    required = {
-        "schema_version",
-        "revision",
-        "run_id",
-        "pipeline",
-        "status",
-        "current_visit",
-        "request",
-        "git",
-        "created_at",
-        "updated_at",
-        "visits",
-        "approvals",
-        "terminal_result",
-        "block_reason",
-    }
-    if set(value) != required:
+    validate_version(value, "run", RUN_SCHEMA_VERSION, run_id)
+    if value.keys() != RunRecord.__required_keys__:
         invalid_manifest(run_id, "manifest fields do not match the schema")
-    if value["schema_version"] != RUN_SCHEMA_VERSION:
-        invalid_manifest(run_id, "unsupported run schema version")
-    if not isinstance(value["revision"], int) or value["revision"] < 1:
+    if not positive_integer(value["revision"]):
         invalid_manifest(run_id, "manifest revision must be positive")
     if value["run_id"] != run_id or not is_valid_run_id(value["run_id"]):
         invalid_manifest(run_id, "manifest run ID is invalid")
@@ -58,9 +56,8 @@ def validate_manifest(value: dict[str, Any], run_id: str) -> None:
     }:
         invalid_manifest(run_id, "pipeline record is invalid")
     if (
-        not isinstance(pipeline["id"], str)
-        or not isinstance(pipeline["version"], int)
-        or pipeline["version"] < 1
+        not nonblank(pipeline["id"])
+        or not positive_integer(pipeline["version"])
         or not isinstance(pipeline["sha256"], str)
         or not SHA256_PATTERN.fullmatch(pipeline["sha256"])
     ):
@@ -82,52 +79,43 @@ def validate_manifest(value: dict[str, Any], run_id: str) -> None:
             invalid_manifest(run_id, "visit attempt is not ordered")
     current = value["current_visit"]
     if current is not None and (
-        not isinstance(current, int) or current < 1 or current > len(value["visits"])
+        not positive_integer(current) or current > len(value["visits"])
     ):
         invalid_manifest(run_id, "current visit is invalid")
     if not isinstance(value["approvals"], list) or not all(
         isinstance(item, dict) for item in value["approvals"]
     ):
         invalid_manifest(run_id, "approvals must be an ordered object list")
-    try:
-        json.dumps(value, allow_nan=False)
-    except (TypeError, ValueError) as exc:
-        invalid_manifest(run_id, f"manifest is not JSON serializable: {exc}")
+    pending_visits = set()
+    for approval in value["approvals"]:
+        validate_approval(approval, value)
+        if approval["status"] == "pending":
+            ordinal = approval["visit_number"]
+            if ordinal in pending_visits:
+                invalid_manifest(run_id, "visit has multiple pending approvals")
+            pending_visits.add(ordinal)
+    record_bytes(value, "manifest", run_id)
+
 
 def validate_visit(
     visit: dict[str, Any], run_id: str, expected_ordinal: int
 ) -> None:
-    required = {
-        "phase_id",
-        "ordinal",
-        "attempt",
-        "status",
-        "inputs",
-        "output",
-        "mutation_policy",
-        "mutation_baseline",
-        "mutation_result",
-        "validation_checks",
-        "command_results",
-        "chosen_outcome",
-        "transition_target",
-        "skill",
-        "template",
-        "started_at",
-        "completed_at",
-        "deviations",
-    }
-    if set(visit) != required:
+    if visit.keys() != VisitRecord.__required_keys__:
         invalid_manifest(run_id, "visit fields do not match the schema")
     if (
-        not isinstance(visit["phase_id"], str)
+        not nonblank(visit["phase_id"])
+        or not positive_integer(visit["ordinal"])
         or visit["ordinal"] != expected_ordinal
-        or not isinstance(visit["attempt"], int)
-        or visit["attempt"] < 1
+        or not positive_integer(visit["attempt"])
         or not isinstance(visit["status"], str)
         or visit["status"] not in VISIT_STATUSES
     ):
         invalid_manifest(run_id, "visit identity or status is invalid")
+    if visit["mutation_policy"] not in ("read-only", "repository-write", "allowlist"):
+        invalid_manifest(run_id, "visit mutation policy is invalid")
+    for name in ("chosen_outcome", "transition_target"):
+        if visit[name] is not None and not nonblank(visit[name]):
+            invalid_manifest(run_id, f"visit {name} must be null or a nonblank string")
     if not isinstance(visit["inputs"], list):
         invalid_manifest(run_id, "visit inputs must be a list")
     for record in visit["inputs"]:
@@ -156,6 +144,7 @@ def validate_visit(
     if visit["status"] == "completed" and visit["completed_at"] is None:
         invalid_manifest(run_id, "completed visit lacks a completion timestamp")
 
+
 def validate_artifact_record(
     value: Any,
     run_id: str,
@@ -174,8 +163,9 @@ def validate_artifact_record(
         invalid_manifest(run_id, "artifact hash is invalid")
     if not hash_required and digest is not None:
         invalid_manifest(run_id, "artifact hash must be null until sealed")
-    if reference and not isinstance(value["reference"], str):
+    if reference and not nonblank(value["reference"]):
         invalid_manifest(run_id, "artifact reference is invalid")
+
 
 def validate_provenance(value: dict[str, Any], run_id: str) -> None:
     if set(value) != {"path", "sha256"}:
@@ -186,27 +176,20 @@ def validate_provenance(value: dict[str, Any], run_id: str) -> None:
     ):
         invalid_manifest(run_id, "provenance hash is invalid")
 
+
 def validate_event(event: dict[str, Any], run_id: str) -> None:
-    required = {
-        "schema_version",
-        "sequence",
-        "timestamp",
-        "run_id",
-        "visit_number",
-        "type",
-        "payload",
-        "manifest_revision",
-        "manifest_hash",
-    }
-    if set(event) != required:
+    serialize_event(event, run_id)
+
+
+def serialize_event(event: dict[str, Any], run_id: str) -> bytes:
+    validate_version(event, "event", EVENT_SCHEMA_VERSION, run_id)
+    if event.keys() != EventRecord.__required_keys__:
         raise RunCorruptionError("event fields do not match the schema", run_id=run_id)
     if (
-        event["schema_version"] != EVENT_SCHEMA_VERSION
-        or event["run_id"] != run_id
-        or not isinstance(event["sequence"], int)
-        or event["sequence"] < 1
-        or not isinstance(event["manifest_revision"], int)
-        or event["manifest_revision"] < 1
+        event["run_id"] != run_id
+        or not is_valid_run_id(run_id)
+        or not positive_integer(event["sequence"])
+        or not positive_integer(event["manifest_revision"])
         or not isinstance(event["type"], str)
         or not EVENT_TYPE_PATTERN.fullmatch(event["type"])
         or not isinstance(event["payload"], dict)
@@ -215,19 +198,47 @@ def validate_event(event: dict[str, Any], run_id: str) -> None:
     ):
         raise RunCorruptionError("event record is invalid", run_id=run_id)
     visit_number = event["visit_number"]
-    if visit_number is not None and (
-        not isinstance(visit_number, int) or visit_number < 1
-    ):
+    if visit_number is not None and not positive_integer(visit_number):
         raise RunCorruptionError("event visit number is invalid", run_id=run_id)
     validate_timestamp(event["timestamp"], run_id)
+    if event["type"] in ("approval-requested", "approval-granted", "approval-declined",
+                         "approval-invalidated"):
+        if visit_number is None:
+            raise RunCorruptionError("approval event requires a visit number", run_id=run_id)
+        validate_approval_payload(event["type"], event["payload"], run_id)
+    return record_bytes(event, "event", run_id) + b"\n"
 
-def validate_timestamp(value: Any, run_id: str) -> None:
-    if not isinstance(value, str) or not value.endswith("Z"):
-        raise RunCorruptionError("timestamp is invalid", run_id=run_id)
-    try:
-        datetime.fromisoformat(value.removesuffix("Z") + "+00:00")
-    except ValueError as exc:
-        raise RunCorruptionError("timestamp is invalid", run_id=run_id) from exc
+
+def validate_approval_payload(event_type: str, payload: dict, run_id: str) -> None:
+    kind = payload.get("kind")
+    if kind not in ("action", "transition"):
+        raise RunCorruptionError("approval event kind is invalid", run_id=run_id)
+    fields = {"kind"}
+    if kind == "action":
+        fields.add("request_number")
+        if not positive_integer(payload.get("request_number")):
+            raise RunCorruptionError("action event requires a positive request number", run_id=run_id)
+    if event_type == "approval-requested":
+        fields.add("reason")
+        valid = nonblank(payload.get("reason"))
+        if kind == "transition":
+            fields.add("outcome")
+            valid = valid and nonblank(payload.get("outcome"))
+    elif event_type == "approval-invalidated":
+        fields.add("mismatches")
+        allowed = (["pipeline"],) if kind == "action" else (
+            ["artifact"], ["pipeline"], ["artifact", "pipeline"],
+        )
+        valid = payload.get("mismatches") in allowed
+    else:
+        fields.add("actor")
+        valid = payload.get("actor") == "user"
+        if kind == "transition":
+            fields.add("phase_id")
+            valid = valid and event_type == "approval-granted" and nonblank(payload.get("phase_id"))
+    if not valid or payload.keys() != fields:
+        raise RunCorruptionError(f"invalid {kind} {event_type} payload", run_id=run_id)
+
 
 def validate_path(value: Any, run_id: str) -> None:
     if not isinstance(value, str):
@@ -236,6 +247,7 @@ def validate_path(value: Any, run_id: str) -> None:
         normalize_relative_path(value)
     except ValueError as exc:
         raise RunCorruptionError("persisted path is unsafe", run_id=run_id) from exc
+
 
 def invalid_manifest(run_id: str, message: str) -> None:
     raise RunCorruptionError(message, run_id=run_id)

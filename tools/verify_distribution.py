@@ -44,6 +44,7 @@ EXAMPLE_FILES = (
 TEST_MODULES = (
     "tests.packaging.test_consumer_roots",
     "tests.packaging.test_release_documentation",
+    "tests.engine.contract.test_action_approval",
     "tests.engine.contract.test_compatibility",
     "tests.engine.contract.test_engine_orchestration",
     "tests.engine.contract.test_multi_pipeline",

@@ -163,8 +163,9 @@ validation work without this file. Adapter generation and check require it.
 
 ## Upgrade an existing consumer
 
-Finish unfinished runs with their original graph and recorded resource bytes,
-or keep the original checkout for those runs and migrate a separate checkout.
+Run manifests and audit events each use schema version 2. To continue a
+version-1 run, keep its producing engine, original graph and recorded resource
+bytes together. Initialize a separate run when adopting the new engine.
 Adding `skill_source` changes the graph hash. Replacing the old procedure with a
 wrapper changes the prepared visit's recorded skill hash.
 

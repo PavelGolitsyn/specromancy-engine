@@ -21,7 +21,7 @@ def selected_pipeline(
             raise UsageError("init requires --pipeline ID; there is no default pipeline")
         return registry.load(selector)
 
-    saved = RunStore(root).load(arguments.run_id, verify_artifacts=False)["pipeline"]
+    saved = RunStore(root).read_pipeline(arguments.run_id)
     path = root / saved["path"]
     if selector is not None and selector != saved["id"]:
         raise UsageError("--pipeline must match the run's recorded pipeline ID")

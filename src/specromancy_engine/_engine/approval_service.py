@@ -26,6 +26,7 @@ from ..git import GitError
 from ..exit_codes import ExitCode
 from .provenance import require_provenance
 from .._runs.run_records import ApprovalRecord, RunRecord, VisitRecord, current_visit
+from .._runs.record_fields import positive_integer
 from ..run_store import RunStore
 from .validation_service import ValidationResult, check_visit_mutation
 
@@ -214,7 +215,7 @@ class ApprovalService:
         visit = current_visit(manifest)
         pending = pending_approval(manifest, visit["ordinal"]) if visit else None
         if request_number is not None:
-            if not 1 <= request_number <= len(manifest["approvals"]):
+            if not positive_integer(request_number) or request_number > len(manifest["approvals"]):
                 raise illegal_transition("approval request number does not exist", manifest)
             approval = manifest["approvals"][request_number - 1]
             if approval.get("phase_id") != phase_id or (pending and pending is not approval):

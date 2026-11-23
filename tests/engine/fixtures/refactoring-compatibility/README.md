@@ -12,7 +12,8 @@ inputs; its generated outputs are captured separately.
 | `canonical.json` | Exact canonical strings and SHA-256 for omitted pause, explicit false, and true; non-ASCII criteria and omitted optional defaults |
 | `responses-current.json` | Complete pending/active actions, approval, pause/resume, terminal and blocked envelopes; array order retained |
 | `diagnostics.json` | Exact configuration locations, remediation, error values, CLI exit codes and stdout/stderr routing; outcome-before-output and artifact-before-pipeline mismatch ordering |
-| `states.json` | State name → relative run filename → exact UTF-8 contents, including complete `run.json`, `events.jsonl`, request and output artifacts |
+| `states-v1.json` | Original awaiting-approval and recoverable files from `v0.1.3:tests/engine/fixtures/refactoring-compatibility/states.json`. Both produce `unsupported-schema-version` before recovery or mutation. |
+| `states.json` | Schema-2 state name → relative run filename → exact UTF-8 contents, including complete `run.json`, `events.jsonl`, request and output artifacts |
 | `adapters.json` | Generated relative path → exact UTF-8 content and SHA-256, including the adapter manifest |
 
 `states.json` includes pending, active, awaiting approval, approved before

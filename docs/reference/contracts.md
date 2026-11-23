@@ -373,7 +373,7 @@ address `.specromancy/runs/`.
 
 The `specromancy_engine.run_store` imports and compatibility aliases remain available,
 including the same exception classes re-exported from `run_errors`. Run and
-event schema versions remain 1. `RunStore` returns ordinary, defensively copied
+event records each use schema version 2. `RunStore` returns ordinary, defensively copied
 dictionaries; record annotations neither construct defaults nor validate
 external data. Generation accepts injected clocks and zero-argument or sized
 random sources, and timestamp formatting remains UTC with microseconds and `Z`.
@@ -386,18 +386,42 @@ after replacement but before the event append, the next load appends a
 event sequence, or any other manifest/event disagreement is corrupt state and
 is not repaired heuristically.
 
-### Malformed persisted statuses
+### Stored versions and fields
 
-Run and visit statuses must be recognized strings. Invalid JSON status values,
-including arrays and objects, raise `RunCorruptionError` with exit code 12 and
-details `{"error_code": "corrupt-run", "run_id": "<run-id>"}`. The messages are
-`manifest status is invalid` and `visit identity or status is invalid`,
-respectively, subject to earlier validation failures. Manifest validation occurs
-before event reconciliation: malformed statuses leave `run.json` and
-`events.jsonl` unchanged even when the log is one revision behind. Version-1
-acceptance of numeric quirks, open approval dictionaries, and weak nested metadata
-is unchanged; the [compatibility decision matrix](../implementation-history/refactoring/14-persisted-data-diagnostics.md#nested-validation-decision-matrix)
-records the separately deferred hardening work.
+All reads validate the manifest and every event under the run lock before
+reconciliation. An unsupported positive integer version raises `RunStoreError`
+with exit code 12 and diagnostic `unsupported-schema-version`. Its details
+include `run_id`, `surface` (run or event), `observed_version`, and
+`expected_version`. Finish an older run with its producing engine and the
+original graph, skills, templates, and validators. To adopt the new engine,
+start a separate run. Preserve the archived log with its manifest and artifacts.
+
+Missing or malformed version tags and malformed current records raise
+`RunCorruptionError` (`corrupt-run`, exit 12). For example, an invalid run
+status reports `manifest status is invalid`. An invalid visit status reports
+`visit identity or status is invalid`. A one-event gap permits recovery only
+after these checks pass.
+
+Versions, counters and ordinals require positive JSON integer tokens. A
+decimal point or exponent is invalid even when the number is mathematically
+integral. JSON Schema treats `2.0` as equal to `2` and as an integer. Consumers
+must also check token types when decoding. Booleans are a distinct JSON type,
+including in Python callers where `True == 1`. Timestamps are UTC calendar
+date-times ending in `Z`, with optional fractional seconds.
+
+Pipeline and phase identifiers, input references, and non-null visit outcomes
+and targets must contain non-whitespace text. Each visit records a mutation
+policy of `read-only`, `repository-write`, or `allowlist`. The loader checks
+ordinal and per-phase attempt ordering, current-visit bounds, start/completion
+timestamps for started/completed visits, and output sealing. Run status and
+visit status can differ. For example, low-level completion seals a visit
+without advancing the run, and a paused run can point to a pending successor.
+
+Git base/head, mutation baseline/result, terminal result, block reason and
+the entries in the validation-check, command-result and deviation arrays can
+hold arbitrary finite JSON. These fields support low-level store operations
+and historical evidence. Engine gates collect and check the evidence needed
+for the requested operation.
 
 ### Durable operations and visit preparation
 
@@ -409,8 +433,11 @@ no-op); they do not read files or clocks, assign revisions, or acquire locks.
 One lock spans manifest/event loading, the
 change, validation, replacement, and append; internal commit helpers do not
 reacquire it. Idempotent activation, transition, and resume returns do not add
-a revision or event. The general `mutate` API always commits, even if its callback
-leaves the record unchanged.
+a revision or event. The general `mutate` API always commits a valid proposal,
+even if its callback leaves the record unchanged. Custom event types accept
+object payloads containing arbitrary finite JSON. The store validates and
+serializes the candidate audit event before it replaces the manifest. A
+rejected candidate therefore preserves the previous revision and log.
 
 Visit preparation resolves symbolic inputs and hashes skill/template provenance
 immediately, including for a pending successor at a paused edge. Activation
@@ -423,7 +450,11 @@ their separate semantics: start appends an active visit, and completion seals a
 visit without advancing the run. Completion rejects an already completed visit;
 transition accepts an exact outcome/target retry without another commit.
 
-`load(recover=False)` checks consistency without appending recovery events.
+`read_pipeline(run_id)` returns a detached copy of the saved pipeline record.
+It checks manifest and log consistency and permits a one-revision gap without
+repairing it. The CLI uses this lookup to select and validate the saved graph
+before a command's normal load can recover. Both `load(recover=False)` and
+`read_events(recover=False)` require a synchronized manifest and log.
 `load(verify_artifacts=False)` skips artifact verification independently and
 still permits recovery by default. Normal loads, including those invoked by
 `status`, may append the allowed recovery event; recovery precedes artifact
@@ -513,7 +544,16 @@ the visit remains retriable.
 The ordered `approvals` array gives each request a one-based number. Every
 record stores `kind` as `action` or `transition`. Both kinds bind the run, visit, phase, pipeline hash, reason,
 exact details, and request timestamp. A transition also binds the validated
-artifact hash and outcome. A visit can have one pending request across both kinds.
+artifact hash and outcome. The stored phase must match the referenced visit
+ordinal in that run, and the pipeline digest must match its saved provenance.
+A visit can have one pending request across both kinds. The array position
+identifies a request even when a clock repeats a timestamp.
+
+Pending records have null `decision`, `actor`, and `decided_at`. A user grant
+records `approved` for both status and decision, actor `user`, and a decision
+timestamp. An action decline uses `declined` for status and decision. A stale
+request records decision `invalidated`, actor `system`, and a decision timestamp.
+A transition's details may be text or null.
 
 Action requests require nonblank details and preserve the visit's original
 mutation baseline and completion evidence. Request and grant check sealed
@@ -524,6 +564,17 @@ for `approval-requested`, `approval-granted`, `approval-declined`, and
 `approval-invalidated`. A pending action with a changed graph becomes stale
 and returns the visit to active. Restoring the graph permits a fresh request.
 
+Approval events require a positive `visit_number`. Each payload includes
+`kind`. The table lists its remaining fields. Every action payload also
+requires the positive one-based `request_number`.
+
+| Event | Action | Transition |
+| --- | --- | --- |
+| `approval-requested` | `reason` | `reason`, `outcome` |
+| `approval-granted` | `actor: "user"` | `actor: "user"`, `phase_id` |
+| `approval-declined` | `actor: "user"` | Unsupported |
+| `approval-invalidated` | `mismatches: ["pipeline"]` | Nonempty `mismatches` containing `artifact`, `pipeline`, or both in that order |
+
 Under the run lock, a pending request takes priority over a replay. An exact
 pending request returns exit 7. A different request or a decision aimed at
 another record conflicts (5). On the active visit, an exact decided action or
@@ -531,6 +582,8 @@ matching decision returns the recorded result (8). An opposite decision
 conflicts. Replays and conflicts leave the revision and event log intact.
 
 Transition approval and advancement remain separate durable operations.
+A caller supplying `approval` to `RunStore.transition_visit` must supply the
+stored transition grant for that visit and outcome and its configured target.
 After an interruption, only a granted transition can resume advancement.
 Revalidation failure records evidence and retains the grant. A matching
 continuation of a completed transition leaves the successor untouched.

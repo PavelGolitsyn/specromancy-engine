@@ -246,12 +246,11 @@ latest pending approval across the run, while engine approval decisions and
 next-command selection filter by visit. Approval invalidation and idempotency
 retain their separate matching rules.
 
-Annotations do not validate or fill missing fields. The existing runtime checks
-and published run/event schemas differ in several places; the
-[Stage 03 comparison](../implementation-history/refactoring/03-persisted-records.md#schema-comparison-and-deferred-validation-issues)
-records these differences and follow-up candidates. Artifact schema validation
-is a limited subset and cannot replace cross-record run checks. These internal
-modules are not public APIs.
+The manifest reader and approval decision code share the binding checks in
+`record_fields`. Published schemas describe approval variants, decision states
+and reserved audit payloads. The runtime also checks integer tokens, safe paths,
+calendar dates and references across records. The run and event schemas are
+versioned independently of each other and of project artifact validators.
 
 One run has this shape:
 
@@ -275,7 +274,7 @@ the next load adds a recovery event. Other disagreement is reported as corrupt
 state rather than guessed back into shape.
 
 For a store mutation, one lock spans loading, deciding, validating the manifest,
-replacing it, and appending its event. Artifact and command validation in the
+serializing the candidate event, replacing the manifest, and appending the event. Artifact and command validation in the
 engine occurs outside that store lock. Manifest replacement and event append are separate durable
 operations, not a transaction across two files. Completion and successor
 preparation share one manifest revision. Exact activation, transition, and resume
@@ -329,8 +328,8 @@ require a human to verify the owner has exited before removal.
 Approval locking covers request, grant, and invalidation decisions. It does not
 make validation and sealing atomic with external artifact or repository edits,
 nor establish general command-level concurrency safety. Duplicate continuations
-may execute validation commands more than once. Interrupted initialization and
-weakly accepted version-1 nested records also retain their existing limitations.
+may execute validation commands more than once. Interrupted initialization can leave a partial run. Low-level metadata and
+recorded evidence entries can contain arbitrary finite JSON.
 The [follow-on integration record](../implementation-history/refactoring/15-follow-on-integration.md)
 links the two intentional corrections to tests and defines the evidence and
 decisions required before these deferred areas can be changed.

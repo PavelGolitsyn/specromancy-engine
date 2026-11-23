@@ -1,6 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://specromancy.dev/schemas/run.schema.json",
+  "$comment": "Version and counter fields require JSON integer tokens. Runtime validation also checks calendar dates and record bindings.",
   "title": "Specromancy run manifest",
   "type": "object",
   "additionalProperties": false,
@@ -21,7 +22,7 @@
     "block_reason"
   ],
   "properties": {
-    "schema_version": {"const": 1},
+    "schema_version": {"type": "integer", "const": 2},
     "revision": {"type": "integer", "minimum": 1},
     "run_id": {"$ref": "#/$defs/runId"},
     "pipeline": {
@@ -29,7 +30,7 @@
       "additionalProperties": false,
       "required": ["id", "version", "path", "sha256"],
       "properties": {
-        "id": {"type": "string", "minLength": 1},
+        "id": {"$ref": "#/$defs/nonblank"},
         "version": {"type": "integer", "minimum": 1},
         "path": {"$ref": "#/$defs/path"},
         "sha256": {"$ref": "#/$defs/hash"}
@@ -49,18 +50,61 @@
     "created_at": {"$ref": "#/$defs/timestamp"},
     "updated_at": {"$ref": "#/$defs/timestamp"},
     "visits": {"type": "array", "items": {"$ref": "#/$defs/visit"}},
-    "approvals": {"type": "array", "items": {"type": "object"}},
+    "approvals": {"type": "array", "items": {"$ref": "#/$defs/approval"}},
     "terminal_result": {},
     "block_reason": {}
   },
   "$defs": {
+    "nonblank": {"type": "string", "pattern": "\\S"},
+    "approval": {
+      "type": "object",
+      "unevaluatedProperties": false,
+      "required": ["kind", "run_id", "phase_id", "visit_number", "pipeline_sha256", "reason",
+                   "details", "requested_at", "status", "decision", "actor", "decided_at"],
+      "properties": {
+        "run_id": {"$ref": "#/$defs/runId"},
+        "phase_id": {"$ref": "#/$defs/nonblank"},
+        "visit_number": {"type": "integer", "minimum": 1},
+        "pipeline_sha256": {"$ref": "#/$defs/hash"},
+        "reason": {"$ref": "#/$defs/nonblank"},
+        "requested_at": {"$ref": "#/$defs/timestamp"}
+      },
+      "oneOf": [
+        {"properties": {"kind": {"const": "action"}, "details": {"$ref": "#/$defs/nonblank"}}},
+        {
+          "required": ["artifact_sha256", "outcome"],
+          "properties": {
+            "kind": {"const": "transition"}, "details": {"type": ["null", "string"]},
+            "artifact_sha256": {"$ref": "#/$defs/hash"}, "outcome": {"$ref": "#/$defs/nonblank"}
+          }
+        }
+      ],
+      "allOf": [{"oneOf": [
+        {"properties": {
+          "status": {"const": "pending"}, "decision": {"type": "null"},
+          "actor": {"type": "null"}, "decided_at": {"type": "null"}
+        }},
+        {"properties": {
+          "status": {"const": "approved"}, "decision": {"const": "approved"},
+          "actor": {"const": "user"}, "decided_at": {"$ref": "#/$defs/timestamp"}
+        }},
+        {"properties": {
+          "kind": {"const": "action"}, "status": {"const": "declined"}, "decision": {"const": "declined"},
+          "actor": {"const": "user"}, "decided_at": {"$ref": "#/$defs/timestamp"}
+        }},
+        {"properties": {
+          "status": {"const": "stale"}, "decision": {"const": "invalidated"},
+          "actor": {"const": "system"}, "decided_at": {"$ref": "#/$defs/timestamp"}
+        }}
+      ]}]
+    },
     "runId": {
       "type": "string",
       "pattern": "^[0-9]{8}T[0-9]{6}Z-[0-9a-f]{8}$"
     },
     "hash": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
     "path": {"type": "string", "minLength": 1, "pattern": "^(?!/)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*\\\\).+$"},
-    "timestamp": {"type": "string", "pattern": "Z$"},
+    "timestamp": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(?:\\.[0-9]+)?Z$"},
     "status": {
       "enum": ["active", "awaiting-agent", "awaiting-approval", "paused", "completed", "failed", "blocked"]
     },
@@ -81,7 +125,7 @@
       "additionalProperties": false,
       "required": ["reference", "path", "sha256"],
       "properties": {
-        "reference": {"type": "string", "minLength": 1},
+        "reference": {"$ref": "#/$defs/nonblank"},
         "path": {"$ref": "#/$defs/path"},
         "sha256": {"$ref": "#/$defs/hash"}
       }
@@ -128,7 +172,7 @@
         "deviations"
       ],
       "properties": {
-        "phase_id": {"type": "string", "minLength": 1},
+        "phase_id": {"$ref": "#/$defs/nonblank"},
         "ordinal": {"type": "integer", "minimum": 1},
         "attempt": {"type": "integer", "minimum": 1},
         "status": {"$ref": "#/$defs/visitStatus"},
@@ -139,8 +183,8 @@
         "mutation_result": {},
         "validation_checks": {"type": "array"},
         "command_results": {"type": "array"},
-        "chosen_outcome": {"oneOf": [{"type": "null"}, {"type": "string"}]},
-        "transition_target": {"oneOf": [{"type": "null"}, {"type": "string"}]},
+        "chosen_outcome": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/nonblank"}]},
+        "transition_target": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/nonblank"}]},
         "skill": {"$ref": "#/$defs/provenance"},
         "template": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/provenance"}]},
         "started_at": {"oneOf": [{"type": "null"}, {"$ref": "#/$defs/timestamp"}]},

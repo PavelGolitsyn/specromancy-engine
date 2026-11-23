@@ -78,19 +78,18 @@ Run everything with:
 python -m unittest discover
 ```
 
-`engine/fixtures/refactoring-compatibility/` retains pre-extraction version-1
-records with exact canonical pipeline bytes/hashes, response and diagnostic
-envelopes, persisted manifests/events/artifacts, and generated adapter bytes.
-`engine/contract/compatibility_support.py` runs deterministic scenarios in
-temporary repositories; `test_compatibility.py` compares against those independent
-records and continues restored pending, active, approval, paused, terminal, and
-recovery states. Tests never refresh expected records. See the
-[fixture capture and normalization policy](engine/fixtures/refactoring-compatibility/README.md).
-The separate `responses-current.json` expectation changes only the final validation
-command prefixes in pending, active, and resumed actions. A dedicated comparison
-checks those exact changes against the untouched `responses.json`; all other
-response fields and the original persisted, canonical, and diagnostic records
-remain exact comparisons. `adapters-generator-v2.json` separately versions the
+`engine/fixtures/refactoring-compatibility/` contains current lifecycle snapshots,
+canonical pipeline bytes and hashes, response and diagnostic envelopes, and
+generated adapter captures. `engine/contract/compatibility_support.py` runs
+deterministic scenarios in temporary repositories. `test_compatibility.py`
+compares their exact bytes and continues restored version-2 runs, including
+paused successors and interrupted grants. `test_recovery.py` exercises
+byte-preserving refusal of the original version-1 approval and recoverable
+specimens, mixed logs, and future versions. These fixtures and both tests
+are included in installed-wheel verification. Tests never refresh expected
+records. See the [fixture capture policy](engine/fixtures/refactoring-compatibility/README.md).
+
+`adapters-generator-v2.json` separately versions the
 installed-command rendering. Its comparison against untouched `adapters.json`
 allows only invocation spelling, generator provenance/version, and output hashes
 to change. `adapters-generator-v3.json` records workflow-only inputs, packaged
@@ -135,7 +134,7 @@ The regression coverage for the final module boundaries and corrections is:
 | Preparation lock scope, resource order, collision/failure non-mutation, sealed successor inputs | `unit/test_visit_transition_store.py`, class `VisitStoreBoundaryTests` |
 | Request/grant/invalidation overlaps, no-op event counts, binding conflicts, recovery | `unit/test_visit_transition_store.py`, class `OverlappingAttemptTests`; `contract/test_engine_orchestration.py` |
 | Controlled malformed-status errors before recovery, without persisted changes | `unit/test_run_records.py`; `contract/test_cli.py` |
-| Deliberately retained weak version-1 acceptance | `unit/test_run_records.py`, status and nested compatibility tables |
+| Version-2 approval bindings, integer tokens, open metadata, and byte-preserving refusal of obsolete or mixed state | `unit/test_run_records.py`, `unit/test_run_persistence.py`, and `contract/test_recovery.py` |
 | Fault points, clocks, recovery, ownership, immutable outputs, read-only policy | `unit/test_run_persistence.py`, `unit/test_run_store.py`, `contract/test_interruptions.py`, `contract/test_recovery.py`, `contract/test_safety.py` |
 | Deterministic generation and adapter ownership in temporary repositories | `unit/test_adapters.py`, `contract/test_adapter_drift.py`, `contract/test_compatibility.py` |
 | Installation-free source exports, launchers, metadata/version agreement, standard-library imports | `contract/test_release.py`, `contract/test_launcher.py` |

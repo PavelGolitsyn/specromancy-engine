@@ -37,7 +37,8 @@ from ._runs.run_identity import (
 )
 from ._runs.run_records import (
     EVENT_SCHEMA_VERSION, EVENT_TYPE_PATTERN, RUN_SCHEMA_VERSION,
-    RUN_STATUSES, VISIT_STATUSES, ApprovalRecord, EventRecord, RunRecord, VisitRecord, require_visit_revision, visit_by_number,
+    RUN_STATUSES, VISIT_STATUSES, EventRecord, PipelineRecord, RunRecord, TransitionApproval,
+    VisitRecord, require_visit_revision, visit_by_number,
 )
 
 
@@ -175,7 +176,7 @@ class RunStore:
         """Reconstruct current state from disk, optionally repairing an event gap."""
 
         directory = self.run_directory(run_id)
-        with self._persistence.locked(directory, run_id, recover=recover) as (
+        with self._persistence.locked(directory, run_id, gap="recover" if recover else "reject") as (
             manifest, _events
         ):
             if verify_artifacts:
@@ -187,10 +188,16 @@ class RunStore:
 
     load_run = load
 
+    def read_pipeline(self, run_id: str) -> PipelineRecord:
+        """Read validated saved provenance, leaving a recoverable gap untouched."""
+        directory = self.run_directory(run_id)
+        with self._persistence.locked(directory, run_id, gap="inspect") as (manifest, _):
+            return copy.deepcopy(manifest["pipeline"])
+
     def read_events(self, run_id: str, *, recover: bool = True) -> list[EventRecord]:
         directory = self.run_directory(run_id)
-        with self._persistence.locked(directory, run_id, recover=recover):
-            return copy.deepcopy(self._persistence._read_events(directory, run_id))
+        with self._persistence.locked(directory, run_id, gap="recover" if recover else "reject") as (_, events):
+            return copy.deepcopy(events)
 
     def start_visit(
         self,
@@ -371,7 +378,7 @@ class RunStore:
         terminal_result: Any = None,
         expected_revision: int | None = None,
         expected_status: str = "active",
-        approval: ApprovalRecord | None = None,
+        approval: TransitionApproval | None = None,
         validation_checks: list[Any] | None = None,
         command_results: list[Any] | None = None,
         mutation_result: Any = None,
@@ -381,6 +388,11 @@ class RunStore:
         directory = self.run_directory(run_id)
         with self._persistence.locked(directory, run_id) as (manifest, events):
             self._require_pipeline(manifest, pipeline)
+            if approval is not None:
+                approvals.require_binding(manifest, approval)
+                if (approval["kind"] != "transition" or approval["outcome"] != outcome
+                        or approvals.approved_record(manifest, visit_number) != approval):
+                    raise approvals.conflict(approval)
             if not visit_transitions.transition_needed(
                 manifest, visit_number, outcome, transition_target
             ):
@@ -409,6 +421,8 @@ class RunStore:
                 for item in pipeline.phase(existing["phase_id"]).transitions
                 if item.outcome == outcome
             )
+            if approval is not None and transition.target != transition_target:
+                raise approvals.conflict(approval)
             limit_block = self._transition_limit_block(
                 manifest, pipeline, existing, outcome, transition_target
             )
@@ -502,8 +516,10 @@ class RunStore:
     ) -> RunRecord:
         """Apply a validated in-memory mutation using the store's commit protocol."""
 
-        if not EVENT_TYPE_PATTERN.fullmatch(event_type):
+        if not isinstance(event_type, str) or not EVENT_TYPE_PATTERN.fullmatch(event_type):
             raise ValueError(f"invalid event type: {event_type!r}")
+        if payload is not None and not isinstance(payload, Mapping):
+            raise RunCorruptionError("event payload must be an object", run_id=run_id)
         directory = self.run_directory(run_id)
         with self._persistence.locked(directory, run_id) as (manifest, events):
             updated = copy.deepcopy(manifest)

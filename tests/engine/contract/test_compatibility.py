@@ -167,7 +167,7 @@ class CompatibilityContractTests(unittest.TestCase):
                 try:
                     fixture.restore(files)
                     manifest = fixture.store.load(RUN_ID)
-                    self.assertEqual(manifest["schema_version"], 1)
+                    self.assertEqual(manifest["schema_version"], 2)
                     expected = states["recovered"] if name == "recoverable" else files
                     self.assertEqual(fixture.snapshot(), expected)
                     fixture.store.load(RUN_ID)

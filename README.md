@@ -54,7 +54,8 @@ command and `python -m specromancy_engine`. The checkout wrappers
 producer-checkout conveniences. Consumers install the dependency; they do not
 copy engine source or launchers into their projects.
 Python consumers import `specromancy_engine`. Run and event formats use schema
-version 1. See the [public contracts][contracts] for supported
+version 2. Finish version-1 runs with their producing engine and original workflow
+resources, or initialize a separate run. See the [public contracts][contracts] for supported
 interfaces, persistence, and ownership rules.
 
 ## Customize the workflow
