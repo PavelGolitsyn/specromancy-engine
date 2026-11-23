@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import Callable
-from pathlib import Path
 from typing import Any
 
 from ._engine import responses
 from ._engine.approval_service import ApprovalService
-from ._engine.approvals import approved_record, pending_approval
+from ._engine.approvals import approved_record
 from ._engine.command_decisions import (
-    declared_reason as _declared_reason, illegal_transition, select_outcome,
+    declared_reason, illegal_transition, select_outcome,
 )
 from .artifacts import ArtifactError, verify_manifest_artifacts
 from ._config.config_models import PhaseConfig, PipelineConfig
@@ -20,10 +19,10 @@ from .errors import UsageError
 from .exit_codes import ExitCode
 from .git import GitError, capture_repository_snapshot
 from ._engine.provenance import observe_provenance, pipeline_identity, pipeline_matches, require_provenance
-from ._engine.responses import RESPONSE_SCHEMA_VERSION  # Backward-compatible re-export.
-from .run_store import RunStore, format_timestamp, utc_now
+from .run_store import RunStore
+from ._runs.run_identity import format_timestamp, utc_now
 from ._runs.run_records import (
-    ApprovalRecord, RunRecord, VisitRecord, current_visit, require_visit_revision,
+    RunRecord, VisitRecord, current_visit, require_visit_revision,
 )
 from ._engine.validation_service import ValidationResult, perform_validation
 
@@ -80,7 +79,7 @@ class Engine:
             return responses.paused_response(
                 self.pipeline, manifest, "run is paused; resume it first"
             )
-        visit = self._current_visit(manifest)
+        visit = current_visit(manifest)
         if visit is None or visit["phase_id"] != phase_id:
             expected = visit["phase_id"] if visit is not None else None
             raise EngineError(
@@ -140,9 +139,9 @@ class Engine:
             return responses.paused_response(
                 self.pipeline, manifest, "run is paused; resume it first"
             )
-        visit = self._current_visit(manifest)
+        visit = current_visit(manifest)
         if visit is None:
-            raise self._illegal("run has no current visit", manifest)
+            raise illegal_transition("run has no current visit", manifest)
         if visit["status"] == "pending":
             previous = manifest["visits"][-2] if len(manifest["visits"]) > 1 else None
             if previous is not None and previous["status"] == "completed" and (
@@ -154,18 +153,18 @@ class Engine:
                     visit,
                     "validation was already recorded; the next phase requires agent action",
                 )
-            raise self._illegal(
+            raise illegal_transition(
                 f"phase {visit['phase_id']!r} must be started before validation",
                 manifest,
                 expected_phase=visit["phase_id"],
             )
         if visit["status"] != "active":
-            raise self._illegal(
+            raise illegal_transition(
                 f"visit cannot be validated from {visit['status']}", manifest
             )
         self._require_phase(visit, phase_id)
         phase = self.pipeline.phase(visit["phase_id"])
-        selected = self._select_outcome(phase, outcome)
+        selected = select_outcome(phase, outcome)
         transition = next(item for item in phase.transitions if item.outcome == selected)
         evidence = self._perform_validation(manifest, visit, phase)
         updated = self.store.transition_visit(
@@ -218,21 +217,21 @@ class Engine:
         if manifest["status"] == "blocked":
             recorded = manifest["block_reason"] or {}
             if reason is not None and reason != recorded.get("reason"):
-                raise self._illegal(
+                raise illegal_transition(
                     "run is already blocked for a different reason", manifest
                 )
             if details is not None and details != recorded.get("details"):
-                raise self._illegal(
+                raise illegal_transition(
                     "run is already blocked with different details", manifest
                 )
             return responses.blocked_response(
                 self.pipeline, manifest, "run is already blocked"
             )
-        visit = self._current_visit(manifest)
+        visit = current_visit(manifest)
         if visit is None or visit["status"] != "active":
-            raise self._illegal("only an active visit can be blocked", manifest)
+            raise illegal_transition("only an active visit can be blocked", manifest)
         phase = self.pipeline.phase(visit["phase_id"])
-        chosen_reason = _declared_reason(reason, phase.stop_conditions, "stop")
+        chosen_reason = declared_reason(reason, phase.stop_conditions, "stop")
         block = {
             "phase_id": phase.id,
             "visit_number": visit["ordinal"],
@@ -243,7 +242,7 @@ class Engine:
 
         def change(value: RunRecord) -> None:
             require_visit_revision(value, manifest["revision"], visit["ordinal"], "active")
-            current = self._current_visit(value)
+            current = current_visit(value)
             assert current is not None
             current["status"] = "blocked"
             value["status"] = "blocked"
@@ -292,11 +291,11 @@ class Engine:
 
     def run(self, run_id: str) -> dict[str, Any]:
         manifest = self._load(run_id)
-        visit = self._current_visit(manifest)
+        visit = current_visit(manifest)
         if manifest["status"] == "awaiting-approval" and visit is not None:
             approved = approved_record(manifest, visit["ordinal"])
             if approved is not None:
-                return self._advance_approved(manifest, visit, approved)
+                return self._approval_service().advance_approved(manifest, visit, approved)
         if visit is not None and visit["status"] == "pending":
             return self.start_phase(run_id, visit["phase_id"])
         return responses.response_for_state(
@@ -314,14 +313,6 @@ class Engine:
             ),
             timestamp=lambda: format_timestamp(utc_now()),
         )
-
-    def _advance_approved(
-        self,
-        manifest: RunRecord,
-        visit: VisitRecord,
-        approval: ApprovalRecord,
-    ) -> dict[str, Any]:
-        return self._approval_service().advance_approved(manifest, visit, approval)
 
     def _load(self, run_id: str) -> RunRecord:
         check_workflow_paths(self.pipeline)
@@ -365,31 +356,6 @@ class Engine:
             raise result.failure from result.cause
         return result
 
-    def _artifact_hash(
-        self, manifest: RunRecord, visit: VisitRecord
-    ) -> str:
-        return self._approval_service().artifact_hash(manifest, visit)
-
-    def _invalidate_approval(
-        self,
-        manifest: RunRecord,
-        visit: VisitRecord,
-        approval: ApprovalRecord,
-        mismatches: list[str],
-    ) -> None:
-        self._approval_service().invalidate_approval(manifest, visit, approval, mismatches)
-
-    def _select_outcome(self, phase: PhaseConfig, requested: str | None) -> str:
-        return select_outcome(phase, requested)
-
-    @staticmethod
-    def _current_visit(manifest: RunRecord) -> VisitRecord | None:
-        return current_visit(manifest)
-
-    # Preserve selector entry points used by existing callers and tests.
-    _pending_approval = staticmethod(pending_approval)
-    _approved_record = staticmethod(approved_record)
-
     @staticmethod
     def _require_phase(visit: VisitRecord, requested: str | None) -> None:
         if requested is not None and requested != visit["phase_id"]:
@@ -400,28 +366,3 @@ class Engine:
                 requested=requested,
                 expected=visit["phase_id"],
             )
-
-    @staticmethod
-    def _illegal(
-        message: str, manifest: RunRecord, **details: Any
-    ) -> EngineError:
-        return illegal_transition(message, manifest, **details)
-
-    def _idempotent_approval_result(
-        self, manifest: RunRecord, phase_id: str
-    ) -> dict[str, Any]:
-        return self._approval_service().idempotent_approval_result(manifest, phase_id)
-
-
-def capture_git_metadata(root: Path, *, include_status: bool = False) -> dict[str, Any]:
-    """Backward-compatible alias for content-level repository capture."""
-
-    snapshot = capture_repository_snapshot(root, allow_non_git=True)
-    if include_status:
-        return {**snapshot, "status": []}
-    return {
-        "is_worktree": snapshot["is_worktree"],
-        "head": snapshot["head"],
-        "branch": snapshot["branch"],
-        "status": [],
-    }

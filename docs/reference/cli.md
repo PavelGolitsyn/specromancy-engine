@@ -117,11 +117,27 @@ without writing. See [Adapter generation](contracts.md#adapter-generation).
 
 ## JSON and exit codes
 
-With `--json`, responses have stable `schema_version`, `kind`, `code`, and
-`message` fields. Actionable responses include `action`; approval responses
-include `approval` and `status`; terminal and read-only responses include
-`status`. Expected errors include `details.error_code` where a stable diagnostic
-is available.
+With `--json`, the CLI emits one object. Successful and actionable envelopes
+on stdout carry `schema_version: 2`, `kind`, `code`, and `message`.
+
+| Envelope kind | Payload and version to check |
+| --- | --- |
+| `action` | Check `action.schema_version == 2` before reading the phase, approval lists, decided actions, or validation argv. |
+| `approval` | Check `status.schema_version == 2`. A pending request appears in both `approval` and `status.pending_approval`. |
+| `status` | Check `status.schema_version == 2` for read-only, paused, blocked, and completed runs. |
+| `adapters` | Generation and check use the outer version. The `adapters` payload contains the manifest path, source hash, generated paths, removed paths, and check flag. |
+
+For a pending request, inspect `kind` and the one-based `request_number`.
+An action includes its exact `details` and both `approve_command` and
+`decline_command`. A transition includes `outcome`, `artifact_sha256`,
+nullable `details`, and `approve_command`. Run decision argv from the
+consumer worktree or supply its `--root`. Human approval and status output
+show the same decision commands and bindings.
+
+Diagnostics use the unversioned object with `code`, `message`, and optional
+`details`. A stable diagnostic identifier appears in `details.error_code`.
+Errors use stderr, including lock contention (10). The actionable
+`stale-approval` diagnostic (7) uses stdout and also has the unversioned shape.
 
 | Code | Meaning |
 | ---: | --- |
@@ -139,7 +155,7 @@ is available.
 | 12 | internal or corrupt-state error |
 | 13 | run paused at a configured checkpoint |
 
-Exit codes 7–10 and 13 are expected workflow boundaries, not generic crashes.
+Exit codes 7–9 and 13 identify workflow boundaries.
 In particular, init and phase start normally return 8. Automation using `set -e`
 must capture and handle that code before continuing with the emitted action.
 Status returns 0 for a readable state; inspect its status and terminal result
@@ -149,6 +165,4 @@ Full public contracts are recorded in [contracts.md](contracts.md).
 Malformed run or visit statuses, including JSON arrays and objects, return
 `corrupt-run` (12), with `manifest status is invalid` or
 `visit identity or status is invalid`. These failures occur before audit recovery
-and leave persisted files unchanged. Other deliberately permissive version-1
-nested fields retain their existing acceptance; see the
-[persisted-status contract](contracts.md#malformed-persisted-statuses).
+and leave persisted files unchanged. See the [stored field contract](contracts.md#stored-versions-and-fields).

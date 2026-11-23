@@ -6,10 +6,10 @@ import shlex
 from typing import Any
 
 from ._config.config_models import PipelineConfig
-from ._runs.run_records import ApprovalRecord, RunRecord, VisitRecord, current_visit, latest_approval
+from ._runs.run_records import ApprovalRecord, RunRecord, current_visit, latest_approval
 
 
-STATUS_SCHEMA_VERSION = 1
+STATUS_SCHEMA_VERSION = 2
 
 
 def describe_approval(manifest: RunRecord, approval: ApprovalRecord) -> dict[str, Any]:
@@ -22,12 +22,18 @@ def describe_approval(manifest: RunRecord, approval: ApprovalRecord) -> dict[str
 
 
 def render_approval(record: dict[str, Any]) -> str:
-    lines = [f"Request {record['request_number']}: {record['reason']}",
-             f"Phase: {record['phase_id']}"]
-    if record.get("details") is not None:
+    lines = [
+        f"Request {record['request_number']}: {record['reason']}",
+        f"Kind: {record['kind']}",
+        f"Phase: {record['phase_id']}",
+    ]
+    if record["details"] is not None:
         lines.append(f"Details: {record['details']}")
+    if record["kind"] == "transition":
+        lines.append(f"Outcome: {record['outcome']}")
+        lines.append(f"Artifact SHA-256: {record['artifact_sha256']}")
     lines.append("Approve: " + shlex.join(record["approve_command"]))
-    if "decline_command" in record:
+    if record["kind"] == "action":
         lines.append("Decline: " + shlex.join(record["decline_command"]))
     return "\n".join(lines)
 
@@ -38,7 +44,7 @@ def build_status(
     *,
     warnings: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    current = _current_visit(manifest)
+    current = current_visit(manifest)
     completed = [
         {
             "visit_id": visit["ordinal"],
@@ -79,12 +85,16 @@ def build_status(
 
 def next_command(manifest: RunRecord) -> list[str] | None:
     run_id = manifest["run_id"]
-    current = _current_visit(manifest)
+    current = current_visit(manifest)
     if manifest["status"] == "awaiting-agent" and current is not None:
         return ["specromancy", "phase", run_id, current["phase_id"]]
     if manifest["status"] == "active" and current is not None:
-        if any(record.get("kind") == "action" and record.get("visit_number") == current["ordinal"]
-               and record.get("status") in {"approved", "declined"} for record in manifest["approvals"]):
+        if any(
+            record["kind"] == "action"
+            and record["visit_number"] == current["ordinal"]
+            and record["status"] in {"approved", "declined"}
+            for record in manifest["approvals"]
+        ):
             return ["specromancy", "phase", run_id, current["phase_id"]]
         return ["specromancy", "validate", run_id, current["phase_id"]]
     if manifest["status"] == "awaiting-approval" and current is not None:
@@ -118,11 +128,7 @@ def render_status(status: dict[str, Any]) -> str:
     if status["block"] is not None:
         lines.append(f"Block: {status['block']}")
     if status["next_command"] is not None:
-        lines.append("Next: " + " ".join(status["next_command"]))
+        lines.append("Next: " + shlex.join(status["next_command"]))
     for warning in status["warnings"]:
         lines.append(f"Warning: {warning['message']}")
     return "\n".join(lines)
-
-
-def _current_visit(manifest: RunRecord) -> VisitRecord | None:
-    return current_visit(manifest)

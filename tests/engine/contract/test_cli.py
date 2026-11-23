@@ -85,7 +85,7 @@ class CliContractTests(unittest.TestCase):
         initialized = self.command("init", "Build the fixture")
         self.assertEqual(initialized.returncode, ExitCode.AGENT_ACTION_REQUIRED)
         init_payload = json.loads(initialized.stdout)
-        self.assertEqual(init_payload["schema_version"], 1)
+        self.assertEqual(init_payload["schema_version"], 2)
         self.assertEqual(init_payload["action"]["visit_status"], "pending")
         run_id = init_payload["action"]["run_id"]
 

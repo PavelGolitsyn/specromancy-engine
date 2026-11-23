@@ -58,12 +58,6 @@ class PhaseConfig:
     max_visits: int | None = None
     skill_source: str | None = None
 
-    @property
-    def validation_commands(self) -> tuple[ValidationCommand, ...]:
-        """Descriptive alias used by action-packet code in later stages."""
-
-        return self.commands
-
 
 @dataclass(frozen=True, slots=True)
 class PipelineConfig:
@@ -91,9 +85,3 @@ class PipelineConfig:
     @property
     def phase_ids(self) -> tuple[str, ...]:
         return tuple(phase.id for phase in self.phases)
-
-    @property
-    def hash(self) -> str:
-        """Compatibility-friendly shorthand for the canonical config hash."""
-
-        return self.config_hash

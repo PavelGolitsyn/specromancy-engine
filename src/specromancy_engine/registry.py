@@ -11,8 +11,8 @@ from pathlib import Path
 from typing import NoReturn
 
 from ._config.config_errors import PipelineConfigError
-from ._config.config_fields import FieldContext
-from ._config.config_loader import IDENTIFIER_PATTERN, _Loader, load_pipeline, read_pipeline_document
+from ._config.config_fields import FieldContext, IDENTIFIER_PATTERN
+from ._config.config_loader import _Loader, load_pipeline, read_pipeline_document
 from ._config.config_models import PipelineConfig
 from ._config.skill_sources import SkillBindings
 

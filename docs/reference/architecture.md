@@ -89,7 +89,7 @@ it never imports or receives an `Engine`. The validation callback retains
 expected rejection. Successful evidence is committed with the request or
 transition. Both callbacks resolve their engine seams at the original call sites,
 so later instance hooks and `engine.utc_now` patches remain effective. Store time
-is independent. Existing Engine approval methods remain compatibility delegates.
+is independent. Public `Engine` approval commands dispatch to the service.
 Approval decisions return detached state plus an optional event and explicit
 request/grant/completion disposition. `RunStore.decide_approval` loads, resolves
 the full observed binding, and commits under one lock through the existing
@@ -115,9 +115,8 @@ response. A request after a saved grant retains its existing two validation pass
 `cli_commands` supplies explicit descriptions shared by parser construction and
 adapter metadata. `pipeline_selection` implements registered initialization and
 persisted-run selection; `cli` retains parsing, dispatch, stream routing, and
-formatting. Existing public facades, exception identities, and compatibility
-aliases remain available. The extracted modules are internal implementation
-details, not new public APIs.
+formatting. Both `responses` and `adapters` take the outer envelope version
+from `contracts`. The action and status builders own their nested versions.
 
 ## Configuration dependencies
 
@@ -147,11 +146,9 @@ Legacy phases retain their repository-wide resource boundary. `config_phase_pars
 phase, validator, command, transition, input, and output-pattern parsing. Validator
 parsing reads schema files through `schema_validation` in the existing check order.
 
-`_Loader` retains its field methods through `FieldContext` inheritance and its
-phase-parser methods through delegates. Existing helpers/constants remain
-re-exported through the loader and public facade. Field parsing does not import
-phase parsing; neither parsing module imports the loader, facade, CLI, engine,
-or run storage. Graph analysis remains in `graph`, with diagnostic callbacks
+`_Loader` inherits its field context and calls the phase parser directly.
+The public config facade exposes the validated loader, records and diagnostics.
+Both parsing modules depend on lower-level records and diagnostics. Graph analysis remains in `graph`, with diagnostic callbacks
 supplied by the loader. Models, diagnostics, canonical serialization,
 and schema validation do not import the loader or public facade. Artifact
 validation owns artifact reads, Markdown/file checks, and `ValidationFailure`;
@@ -197,12 +194,11 @@ activate the successor. Direct phase and run commands cannot bypass the pause.
 
 ## Action packet boundary
 
-The action packet is the complete handoff from CLI to harness. It contains the
-resolved skill, literal input artifact records, output and template paths,
-mutation policy, completion criteria, validation contract, approval and stop
-codes, configured outcomes, and the exact final validation command. A harness
-may decide how to invoke an agent, but it must not infer or replace those
-fields.
+The version-2 action packet carries the resolved skill, input artifacts, output
+and template paths, mutation policy, completion criteria, and validation contract.
+It lists action and transition approval conditions separately, reports decided
+actions for the current visit in request order, and supplies stop codes, configured
+outcomes, and the exact final validation command.
 
 The CLI deliberately does not launch Codex, Claude Code, Copilot, OpenCode, or
 Hermes. Launch APIs, trust models, permissions, and interactive behavior differ
@@ -211,8 +207,8 @@ run and command contract portable and testable.
 
 ## Persistence and provenance
 
-`run_store` remains the compatibility entry point for `RunStore`, identity
-helpers, constants, exceptions, and aliases. Internally, `run_records` defines
+`run_store` exposes `RunStore`, run identity helpers, and storage exceptions.
+Internally, `run_records` defines
 dictionary annotations and pure selectors, `run_identity` owns injected
 clock/random helpers, `run_errors` defines shared exceptions, and
 `run_validation` checks persisted fields without filesystem mutation or

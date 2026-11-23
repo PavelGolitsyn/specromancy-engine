@@ -72,7 +72,7 @@ def pending_approval(manifest: RunRecord, visit_number: int) -> ApprovalRecord |
 def approved_record(manifest: RunRecord, visit_number: int) -> ApprovalRecord | None:
     return next((a for a in reversed(manifest["approvals"])
                  if a.get("visit_number") == visit_number and a.get("status") == "approved"
-                 and a.get("kind") == "transition"), None)
+                 and a["kind"] == "transition"), None)
 
 
 def approved_for_phase(manifest: RunRecord, phase_id: str) -> ApprovalRecord | None:
@@ -81,7 +81,7 @@ def approved_for_phase(manifest: RunRecord, phase_id: str) -> ApprovalRecord | N
             item
             for item in reversed(manifest["approvals"])
             if item.get("phase_id") == phase_id and item.get("status") == "approved"
-            and item.get("kind") == "transition"
+            and item["kind"] == "transition"
         ),
         None,
     )
@@ -159,9 +159,9 @@ def require_binding(manifest: RunRecord, observed: ApprovalRecord) -> VisitRecor
 def _matches(
     record: ApprovalRecord, observed: ApprovalRecord, *, creation: bool = False,
 ) -> bool:
-    if record.get("kind") != observed.get("kind"):
+    if record.get("kind") != observed["kind"]:
         return False
-    fields = COMMON_FIELDS if observed.get("kind") == "action" else IDENTITY_FIELDS
+    fields = COMMON_FIELDS if observed["kind"] == "action" else IDENTITY_FIELDS
     return all(key in record and record[key] == observed[key]
                for key in fields if not (creation and key == "requested_at"))
 
@@ -193,7 +193,7 @@ def request_decision(
             raise conflict(approval)
         return ApprovalDecision(manifest, pending, "pending")
 
-    is_action = approval.get("kind") == "action"
+    is_action = approval["kind"] == "action"
     if is_action:
         if visit["status"] != "active":
             raise conflict(approval)
@@ -248,7 +248,7 @@ def action_decision(
 ) -> ApprovalDecision:
     updated = copy.deepcopy(manifest)
     visit, record = _identified(updated, observed, request_number)
-    if updated["current_visit"] != visit["ordinal"] or record.get("kind") != "action":
+    if updated["current_visit"] != visit["ordinal"] or record["kind"] != "action":
         raise conflict(observed)
     if record["status"] == status and updated["status"] == visit["status"] == "active":
         return ApprovalDecision(updated, record, "decided")
@@ -269,7 +269,7 @@ def grant_decision(
 
     updated = copy.deepcopy(manifest)
     visit, record = _identified(updated, observed, request_number)
-    if record.get("kind") == "action":
+    if record["kind"] == "action":
         raise conflict(observed)
     if record.get("status") == "approved" and visit["status"] == "completed":
         if (visit["chosen_outcome"] != record["outcome"]
@@ -309,7 +309,7 @@ def invalidate_decision(
         raise conflict(observed)
     record.update(status="stale", decision="invalidated", actor="system", decided_at=decided_at)
     payload: dict[str, Any] = {"kind": record["kind"], "mismatches": list(mismatches)}
-    if record.get("kind") == "action":
+    if record["kind"] == "action":
         updated["status"] = visit["status"] = "active"
         payload["request_number"] = updated["approvals"].index(record) + 1
     return ApprovalDecision(

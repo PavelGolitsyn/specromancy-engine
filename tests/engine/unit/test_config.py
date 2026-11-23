@@ -567,17 +567,15 @@ class ConfigTests(unittest.TestCase):
         )
         self.assert_error(document(phase), "unsupported-json-schema")
 
-    def test_root_alias_discovery_and_failure_precedence_are_preserved(self) -> None:
+    def test_explicit_and_discovered_repository_roots(self) -> None:
         path = self.fixture.write(document())
         root = self.fixture.root
         expected = load_pipeline(path)
         self.assertEqual(load_pipeline(path, root), expected)
-        self.assertEqual(load_pipeline(path, root=root), expected)
-        with self.assertRaisesRegex(TypeError, "pass repository_root or root, not both"):
-            load_pipeline(path, root, root=root)
+        self.assertEqual(load_pipeline(path, repository_root=root), expected)
         missing = path.with_name("missing.toml")
         with self.assertRaises(PipelineConfigError) as raised:
-            load_pipeline(missing, root, root=root)
+            load_pipeline(missing, root)
         self.assertEqual(raised.exception.diagnostic_code, "pipeline-not-found")
         with self.assertRaises(PipelineConfigError) as raised:
             load_pipeline(path, missing)
@@ -591,7 +589,7 @@ class ConfigTests(unittest.TestCase):
             load_pipeline(path)
         self.assertEqual(raised.exception.diagnostic_code, "repository-root-not-found")
         self.assertNotIn("value", raised.exception.details)
-        self.assertEqual(load_pipeline(path, root=root), expected)
+        self.assertEqual(load_pipeline(path, repository_root=root), expected)
 
     def test_missing_diagnostic_values_remain_distinct_from_explicit_null(self) -> None:
         options = {"path": self.fixture.path, "remediation": "Correct the value."}

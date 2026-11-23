@@ -86,10 +86,3 @@ def resolve_relative_path(
     if not candidate.is_relative_to(resolved_root):
         raise ValueError(f"path resolves outside root: {normalized!r}")
     return candidate
-
-
-# Concise aliases are useful at call sites and preserve the public terminology.
-hash_bytes = sha256_bytes
-hash_text = sha256_text
-hash_json = sha256_json
-hash_file = sha256_file

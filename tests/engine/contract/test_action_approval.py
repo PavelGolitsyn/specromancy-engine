@@ -89,7 +89,12 @@ class ActionApprovalTests(unittest.TestCase):
 
     def test_cli_action_then_validation_and_transition(self):
         run_id = self.cli(8, "init", "--pipeline", "alpha", "Record a result")["action"]["run_id"]
-        packet = self.cli(8, "phase", run_id, "compose")["action"]
+        response = self.cli(8, "phase", run_id, "compose")
+        self.assertEqual(response["schema_version"], 2)
+        packet = response["action"]
+        self.assertEqual(packet["schema_version"], 2)
+        self.assertEqual(packet["action_approval_conditions"], [ACTION])
+        self.assertEqual(packet["transition_approval_conditions"], [TRANSITION])
         output = Path(packet["output"]["absolute_path"])
         before = self.store.load(run_id)["visits"][0]
         request = ("request-approval", run_id, "--reason", ACTION, "--details", "Install A")

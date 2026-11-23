@@ -579,7 +579,7 @@ class OverlappingAttemptTests(unittest.TestCase):
         observed = approvals.build_approval_record(
             run_id=self.run_id, phase_id="publish", visit_number=2,
             reason="external-effect", details=None, outcome="done",
-            artifact_sha256=self.engine._artifact_hash(manifest, manifest["visits"][-1]),
+            artifact_sha256=sha256_file(self.store.run_directory(self.run_id) / manifest["visits"][-1]["output"]["path"]),
             pipeline_sha256=self.fixture.pipeline.config_hash,
             requested_at=manifest["updated_at"],
         )

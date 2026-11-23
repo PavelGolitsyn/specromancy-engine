@@ -218,11 +218,11 @@ class ApprovalService:
             if not positive_integer(request_number) or request_number > len(manifest["approvals"]):
                 raise illegal_transition("approval request number does not exist", manifest)
             approval = manifest["approvals"][request_number - 1]
-            if approval.get("phase_id") != phase_id or (pending and pending is not approval):
+            if approval["phase_id"] != phase_id or (pending and pending is not approval):
                 raise conflict(approval)
         elif pending is not None and pending["phase_id"] == phase_id:
             approval = pending
-            if approval.get("kind") == "action":
+            if approval["kind"] == "action":
                 raise UsageError("an action decision requires --request N")
         elif pending is not None or status == "declined":
             raise illegal_transition("phase has no matching pending approval", manifest)
@@ -235,7 +235,7 @@ class ApprovalService:
             return self.idempotent_approval_result(manifest, phase_id)
 
         bound_visit = require_binding(manifest, approval)
-        is_action = approval.get("kind") == "action"
+        is_action = approval["kind"] == "action"
         if not is_action and status == "declined":
             raise illegal_transition("only an action approval can be declined", manifest)
         if is_action and (bound_visit is not visit or approval["status"] not in ("pending", status)):
@@ -284,7 +284,7 @@ class ApprovalService:
         self, manifest: RunRecord, visit: VisitRecord, approval: ApprovalRecord,
     ) -> None:
         current_hash = ""
-        if approval.get("kind") != "action":
+        if approval["kind"] != "action":
             try:
                 current_hash = self.artifact_hash(manifest, visit)
             except EngineError:

@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 from specromancy_engine._runs import run_errors, run_identity, run_records
 from specromancy_engine import run_store
 from specromancy_engine._runs import run_validation
-from specromancy_engine.engine import Engine
+from specromancy_engine._engine.approvals import approved_record, pending_approval
 from specromancy_engine.status import build_status, next_command
 from tests.engine.contract.compatibility_support import RUN_ID, read_record
 
@@ -281,13 +281,13 @@ class SelectionOutcomeTests(unittest.TestCase):
             status = build_status(value, None)
             self.assertIsNone(status["current"])
             self.assertIsNone(status["next_command"])
-            self.assertIsNone(Engine._current_visit(value))
+            self.assertIsNone(run_records.current_visit(value))
         with self.assertRaises(run_store.RunStoreError) as raised:
-            run_store.RunStore._visit(value, 999)
+            run_records.visit_by_number(value, 999)
         self.assertEqual(raised.exception.diagnostic_code, "visit-not-found")
         value = manifest_at("completed")
         self.assertEqual(build_status(value, None)["current"]["status"], "completed")
-        self.assertEqual(Engine._current_visit(value)["status"], "completed")
+        self.assertEqual(run_records.current_visit(value)["status"], "completed")
 
     def test_approval_status_is_global_but_next_command_and_engine_are_per_visit(self) -> None:
         value = manifest_at("paused")
@@ -298,12 +298,12 @@ class SelectionOutcomeTests(unittest.TestCase):
         value.update(status="awaiting-approval", approvals=[approved, here, pending])
         run_validation.validate_manifest(value, RUN_ID)
         self.assertEqual(build_status(value, None)["pending_approval"]["request_number"], 3)
-        self.assertIs(Engine._pending_approval(value, current), here)
-        self.assertIs(Engine._approved_record(value, approved["visit_number"]), approved)
+        self.assertIs(pending_approval(value, current), here)
+        self.assertIs(approved_record(value, approved["visit_number"]), approved)
         self.assertEqual(next_command(value)[-2:], ["--request", "2"])
         value["approvals"].remove(here)
         self.assertEqual(next_command(value)[1], "request-approval")
-        self.assertIsNone(Engine._pending_approval(value, current))
+        self.assertIsNone(pending_approval(value, current))
 
 
 if __name__ == "__main__":

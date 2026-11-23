@@ -31,11 +31,40 @@ records inherited exceptions and the stages responsible for retiring them.
 
 ## Python import surface
 
-Public imports use the `specromancy_engine` package-level exports and the
-`specromancy_engine.config`, `specromancy_engine.engine`, `specromancy_engine.run_store`,
-`specromancy_engine.registry`, `specromancy_engine.adapters`, and `specromancy_engine.cli` facades.
-Facade re-exports and compatibility aliases refer to the defining objects.
-For example, use `from specromancy_engine import Engine`.
+Import `Engine`, `RunStore`, `ExitCode`, `PipelineConfig`, `PipelineRegistry`,
+`PipelineRegistration`, `load_pipeline`, `load_registry`, `generate_run_id`,
+and `validate_run_id` from `specromancy_engine`. The package also exports
+`EngineError`, `PipelineConfigError`, `RunCorruptionError`, and `RunNotFoundError`.
+Catching these classes handles exceptions raised through the corresponding
+`engine`, `config`, and `run_store` modules.
+
+Use `specromancy_engine.config` for the loader, `require_pipeline_hash` and the
+configuration records (`PipelineConfig`, `PhaseConfig`, `TransitionConfig`,
+`ValidatorConfig`, and `ValidationCommand`). Use `schema_validation` for schema
+loading and validation, `adapters` for generation and rendering, and `cli` for
+in-process command invocation.
+
+When upgrading Python callers, replace the following retired spellings.
+
+| Previous API | Current API |
+| --- | --- |
+| `config.load_config`, `load_pipeline(..., root=...)` | `load_pipeline(path, repository_root=...)`. The root can also be positional or discovered from Git. |
+| `PhaseConfig.validation_commands` | `PhaseConfig.commands` |
+| `PipelineConfig.hash`, `config.hash_pipeline(pipeline)`, `config.canonicalize_pipeline(pipeline)` | `pipeline.config_hash` for the SHA-256, `pipeline.canonical_json` for its input text |
+| `hashing.hash_bytes/text/json/file` | `hashing.sha256_bytes`, `sha256_text`, `sha256_json`, `sha256_file` |
+| `artifacts.resolve_artifact_reference`, `artifacts.verify_artifacts` | `resolve_input_reference`, `verify_manifest_artifacts` in `artifacts` |
+| `git.snapshot_repository`, `engine.capture_git_metadata` | `git.capture_repository_snapshot`. Select the required fields from the snapshot. |
+| Module-level `run_store.new_run_id`, `CorruptRunError` | `generate_run_id`, `RunCorruptionError`. The instance method `RunStore.new_run_id()` uses the store's injected clock and random source. |
+| `RunStore.create_run`, `load_run`, `create_visit`, `update` | `create`, `load`, `start_visit`, `mutate`, respectively |
+| `engine.RESPONSE_SCHEMA_VERSION`, `config.RESERVED_COMMANDS` | `contracts.RESPONSE_SCHEMA_VERSION`, `contracts.RESERVED_COMMANDS` |
+
+Replace imports of `config.SUPPORTED_SCHEMA_VERSION`, `IDENTIFIER_PATTERN`,
+`MUTATION_POLICIES`, and `VALIDATOR_TYPES` with the version, pattern and enums
+in the published pipeline schema. Schema-subset constants live in
+`schema_validation`. Import artifact path and reference helpers from
+`artifacts`, and path resolution and SHA-256 helpers from `hashing`.
+Use `load_pipeline` for full graph and resource validation. The config
+facade no longer exports parser constants, private helpers or a loader class.
 The source tree lives under `src/specromancy_engine/`; its four JSON schemas are
 packaged under `specromancy_engine/schemas/` in the installed distribution.
 
@@ -371,8 +400,8 @@ Run IDs use a UTC timestamp and eight lowercase hexadecimal characters, for
 example `20260922T142501Z-a1b2c3d4`. Only IDs matching that form may be used to
 address `.specromancy/runs/`.
 
-The `specromancy_engine.run_store` imports and compatibility aliases remain available,
-including the same exception classes re-exported from `run_errors`. Run and
+The `specromancy_engine.run_store` module exposes `RunStoreError`,
+`RunNotFoundError`, and `RunCorruptionError` for storage failures. Run and
 event records each use schema version 2. `RunStore` returns ordinary, defensively copied
 dictionaries; record annotations neither construct defaults nor validate
 external data. Generation accepts injected clocks and zero-argument or sized
@@ -495,15 +524,26 @@ record.
 | 12 | `INTERNAL_ERROR` | Internal or corrupt-state error |
 | 13 | `RUN_PAUSED` | Run paused at a configured checkpoint |
 
-Human-readable successful and actionable responses use stdout; errors use stderr. With `--json`, every response is exactly one JSON object. Expected errors contain `code`, `message`, and, when relevant, `details`.
+Successful and actionable command results use stdout. With `--json`, the
+outer object has `schema_version: 2`, `kind`, `code`, and `message`.
+Dispatch on that version and kind first. For `action`, check
+`action.schema_version` before consuming the packet. For `status` and
+`approval`, check `status.schema_version` before using the status projection.
+Both nested versions are 2. The `adapters` result uses the common outer
+version for generation and check.
 
-Successful and actionable JSON responses use response schema version 1 and
-contain stable `schema_version`, `kind`, `code`, and `message` keys. An
-actionable phase response additionally contains `action`; approval boundaries
-contain `approval` and `status`; paused, read-only, and terminal responses
-contain `status`.
+Diagnostics carry `code`, `message`, and optional `details` without a version
+or kind. They use stderr, except actionable diagnostics such as
+`stale-approval` (7), which use stdout.
 
-An action packet uses schema version 1 and contains stable keys for `run_id`,
+Upgrade harnesses that consumed version 1 by reading the two kind-specific
+approval lists and the current visit's `action_decisions` in request order.
+Pending approvals in `approval` and `status.pending_approval` carry the stored
+record, its one-based `request_number`, and a numbered `approve_command`.
+Only actions carry `decline_command`. Only transitions carry `outcome` and
+`artifact_sha256`. Status uses null for an absent pending approval.
+
+An action packet uses schema version 2 and contains stable keys for `run_id`,
 `visit_id`, `visit_attempt`, `visit_status`, `phase`, `skill`, `inputs`,
 `output`, `template`, `mutation`, `completion_criteria`, `validation`,
 `action_approval_conditions`, `transition_approval_conditions`, `action_decisions`,

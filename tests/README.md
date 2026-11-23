@@ -129,7 +129,7 @@ The regression coverage for the final module boundaries and corrections is:
 
 | Contract | Evidence under `engine/` |
 | --- | --- |
-| Original sequential bytes, hashes, packets, errors, restored runs, and facade aliases | `contract/test_compatibility.py`; the overlap test is separate from unchanged captures |
+| Current response envelopes, hashes, diagnostics, restored runs, and public imports | `contract/test_compatibility.py`; the overlap test is separate from unchanged captures |
 | Parsing and service import direction, generic runtime, pure decision dependencies | `contract/test_architecture.py` |
 | Preparation lock scope, resource order, collision/failure non-mutation, sealed successor inputs | `unit/test_visit_transition_store.py`, class `VisitStoreBoundaryTests` |
 | Request/grant/invalidation overlaps, no-op event counts, binding conflicts, recovery | `unit/test_visit_transition_store.py`, class `OverlappingAttemptTests`; `contract/test_engine_orchestration.py` |

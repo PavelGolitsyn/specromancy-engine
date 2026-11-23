@@ -258,7 +258,3 @@ def _glob_matches(path: str, pattern: str) -> bool:
     if pattern.endswith("/**") and path == pattern[:-3].rstrip("/"):
         return True
     return False
-
-
-# A concise public alias matches the terminology used in action records.
-snapshot_repository = capture_repository_snapshot

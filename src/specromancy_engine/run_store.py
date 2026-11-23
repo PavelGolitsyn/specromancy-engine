@@ -13,23 +13,17 @@ from typing import Any
 from .artifacts import (
     ArtifactError,
     artifact_record,
-    render_output_path,
-    resolve_input_reference,
     verify_manifest_artifacts,
     write_artifact_atomic,
 )
 from ._config.config_models import PipelineConfig
 from ._config.skill_sources import check_workflow_paths
 from .exit_codes import ExitCode
-from .hashing import (
-    relative_path,
-    resolve_relative_path,
-    sha256_file,
-)
+from .hashing import relative_path
 from .locking import RunLock
 from ._runs.run_persistence import RunPersistence
 from ._engine import approvals
-from ._runs import run_validation, visit_preparation, visit_transitions
+from ._runs import visit_preparation, visit_transitions
 from ._runs.run_errors import RunCorruptionError, RunNotFoundError, RunStoreError
 from ._runs.run_identity import (
     RUN_ID_PATTERN, format_timestamp, generate_run_id, is_valid_run_id,
@@ -164,8 +158,6 @@ class RunStore:
             )
         return copy.deepcopy(manifest)
 
-    create_run = create
-
     def load(
         self,
         run_id: str,
@@ -185,8 +177,6 @@ class RunStore:
                 except ArtifactError:
                     raise
         return copy.deepcopy(manifest)
-
-    load_run = load
 
     def read_pipeline(self, run_id: str) -> PipelineRecord:
         """Read validated saved provenance, leaving a recoverable gap untouched."""
@@ -226,8 +216,6 @@ class RunStore:
                 directory, manifest, events, visit_transitions.append_visit(manifest, visit)
             )
             return copy.deepcopy(visit)
-
-    create_visit = start_visit
 
     def prepare_visit(
         self,
@@ -275,7 +263,7 @@ class RunStore:
                 started_at=self._timestamp() if needed else None,
             )
             updated = self._apply_decision_locked(directory, manifest, events, decision)
-            return copy.deepcopy(self._visit(updated, visit_number))
+            return copy.deepcopy(visit_by_number(updated, visit_number))
 
     def write_visit_output(
         self, run_id: str, visit_number: int, content: str | bytes
@@ -284,7 +272,7 @@ class RunStore:
 
         directory = self.run_directory(run_id)
         with self._persistence.locked(directory, run_id) as (manifest, _events):
-            visit = self._visit(manifest, visit_number)
+            visit = visit_by_number(manifest, visit_number)
             if visit["status"] == "completed":
                 raise ArtifactError(
                     "completed visit artifacts are immutable",
@@ -315,7 +303,7 @@ class RunStore:
         def change(manifest: RunRecord) -> None:
             if expected_revision is not None:
                 require_visit_revision(manifest, expected_revision, visit_number, expected_status)
-            visit = self._visit(manifest, visit_number)
+            visit = visit_by_number(manifest, visit_number)
             if visit["status"] not in {"active", "awaiting-approval"}:
                 raise RunStoreError(
                     "validation evidence can be recorded only for an active visit",
@@ -352,7 +340,7 @@ class RunStore:
         directory = self.run_directory(run_id)
         with self._persistence.locked(directory, run_id) as (manifest, events):
             visit_transitions.require_incomplete(manifest, visit_number)
-            existing = self._visit(manifest, visit_number)
+            existing = visit_by_number(manifest, visit_number)
             output = artifact_record(directory, existing["output"]["path"])
             sealed = visit_transitions.seal_visit(
                 manifest, visit_number, output_sha256=output["sha256"],
@@ -365,7 +353,7 @@ class RunStore:
                 directory, manifest, events,
                 visit_transitions.completion_decision(sealed, visit_number),
             )
-            return copy.deepcopy(self._visit(updated, visit_number))
+            return copy.deepcopy(visit_by_number(updated, visit_number))
 
     def transition_visit(
         self,
@@ -402,7 +390,7 @@ class RunStore:
                 )
             if expected_revision is not None:
                 require_visit_revision(manifest, expected_revision, visit_number, expected_status)
-            existing = self._visit(manifest, visit_number)
+            existing = visit_by_number(manifest, visit_number)
             try:
                 output = artifact_record(directory, existing["output"]["path"])
             except (ArtifactError, OSError):
@@ -423,8 +411,9 @@ class RunStore:
             )
             if approval is not None and transition.target != transition_target:
                 raise approvals.conflict(approval)
-            limit_block = self._transition_limit_block(
-                manifest, pipeline, existing, outcome, transition_target
+            limit_block = visit_transitions.transition_limit_block(
+                manifest, pipeline, existing, outcome, transition_target,
+                timestamp=self._timestamp(),
             )
             if limit_block is not None:
                 decision = visit_transitions.blocked_transition(
@@ -492,19 +481,6 @@ class RunStore:
             )
         return copy.deepcopy(updated)
 
-    def _transition_limit_block(
-        self,
-        manifest: RunRecord,
-        pipeline: PipelineConfig,
-        visit: VisitRecord,
-        outcome: str,
-        transition_target: str | None,
-    ) -> dict[str, Any] | None:
-        return visit_transitions.transition_limit_block(
-            manifest, pipeline, visit, outcome, transition_target,
-            timestamp=self._timestamp(),
-        )
-
     def mutate(
         self,
         run_id: str,
@@ -534,8 +510,6 @@ class RunStore:
                 dict(payload or {}),
             )
             return copy.deepcopy(updated)
-
-    update = mutate
 
     def block(self, run_id: str, reason: Any) -> RunRecord:
         def change(manifest: RunRecord) -> None:
@@ -638,47 +612,3 @@ class RunStore:
             )
 
         check_workflow_paths(pipeline)
-
-    _visit = staticmethod(visit_by_number)
-
-    def _validate_manifest(self, value: dict[str, Any], run_id: str) -> None:
-        run_validation.validate_manifest(value, run_id)
-
-    def _validate_visit(
-        self, visit: dict[str, Any], run_id: str, expected_ordinal: int
-    ) -> None:
-        run_validation.validate_visit(visit, run_id, expected_ordinal)
-
-    def _validate_artifact_record(
-        self,
-        value: Any,
-        run_id: str,
-        *,
-        hash_required: bool,
-        reference: bool = False,
-    ) -> None:
-        run_validation.validate_artifact_record(
-            value, run_id, hash_required=hash_required, reference=reference
-        )
-
-    def _validate_provenance(self, value: dict[str, Any], run_id: str) -> None:
-        run_validation.validate_provenance(value, run_id)
-
-    def _validate_event(self, event: dict[str, Any], run_id: str) -> None:
-        run_validation.validate_event(event, run_id)
-
-    @staticmethod
-    def _validate_timestamp(value: Any, run_id: str) -> None:
-        run_validation.validate_timestamp(value, run_id)
-
-    @staticmethod
-    def _validate_path(value: Any, run_id: str) -> None:
-        run_validation.validate_path(value, run_id)
-
-    @staticmethod
-    def _invalid_manifest(run_id: str, message: str) -> None:
-        run_validation.invalid_manifest(run_id, message)
-
-
-new_run_id = generate_run_id
-CorruptRunError = RunCorruptionError

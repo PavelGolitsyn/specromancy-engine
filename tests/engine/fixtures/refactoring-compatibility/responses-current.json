@@ -1,11 +1,11 @@
 {
   "action-pending": {
-    "schema_version": 1,
+    "schema_version": 2,
     "kind": "action",
     "code": 8,
     "message": "run 20261003T120000Z-01020304 initialized; agent action is required",
     "action": {
-      "schema_version": 1,
+      "schema_version": 2,
       "run_id": "20261003T120000Z-01020304",
       "visit_id": 1,
       "visit_attempt": 1,
@@ -67,12 +67,12 @@
     }
   },
   "action-active": {
-    "schema_version": 1,
+    "schema_version": 2,
     "kind": "action",
     "code": 8,
     "message": "phase compose is active; agent action is required",
     "action": {
-      "schema_version": 1,
+      "schema_version": 2,
       "run_id": "20261003T120000Z-01020304",
       "visit_id": 1,
       "visit_attempt": 1,
@@ -134,7 +134,7 @@
     }
   },
   "approval": {
-    "schema_version": 1,
+    "schema_version": 2,
     "kind": "approval",
     "code": 7,
     "message": "approval is required",
@@ -143,14 +143,14 @@
       "phase_id": "compose",
       "visit_number": 1,
       "reason": "accept-result",
-      "details": "Accept this evidence.",
-      "kind": "transition",
       "pipeline_sha256": "7b2d6bc8bb417ace8397c54e1151a0b62c493316ceeed2108658c5b2fa99ab35",
       "status": "pending",
       "decision": null,
       "actor": null,
       "requested_at": "2026-10-03T12:00:00.000000Z",
       "decided_at": null,
+      "kind": "transition",
+      "details": "Accept this evidence.",
       "artifact_sha256": "493a2559efd384b438980e8d50838730a467f4502b87ab23b9e743bfc2c6feaf",
       "outcome": "z-next",
       "request_number": 1,
@@ -164,7 +164,7 @@
       ]
     },
     "status": {
-      "schema_version": 1,
+      "schema_version": 2,
       "run_id": "20261003T120000Z-01020304",
       "pipeline": {
         "id": "compatibility",
@@ -189,14 +189,14 @@
         "phase_id": "compose",
         "visit_number": 1,
         "reason": "accept-result",
-        "details": "Accept this evidence.",
-        "kind": "transition",
         "pipeline_sha256": "7b2d6bc8bb417ace8397c54e1151a0b62c493316ceeed2108658c5b2fa99ab35",
         "status": "pending",
         "decision": null,
         "actor": null,
         "requested_at": "2026-10-03T12:00:00.000000Z",
         "decided_at": null,
+        "kind": "transition",
+        "details": "Accept this evidence.",
         "artifact_sha256": "493a2559efd384b438980e8d50838730a467f4502b87ab23b9e743bfc2c6feaf",
         "outcome": "z-next",
         "request_number": 1,
@@ -223,12 +223,12 @@
     }
   },
   "paused": {
-    "schema_version": 1,
+    "schema_version": 2,
     "kind": "status",
     "code": 13,
     "message": "outcome 'z-next' recorded; run paused at checkpoint",
     "status": {
-      "schema_version": 1,
+      "schema_version": 2,
       "run_id": "20261003T120000Z-01020304",
       "pipeline": {
         "id": "compatibility",
@@ -270,12 +270,12 @@
     }
   },
   "resumed": {
-    "schema_version": 1,
+    "schema_version": 2,
     "kind": "action",
     "code": 8,
     "message": "run resumed",
     "action": {
-      "schema_version": 1,
+      "schema_version": 2,
       "run_id": "20261003T120000Z-01020304",
       "visit_id": 2,
       "visit_attempt": 1,
@@ -344,12 +344,12 @@
     }
   },
   "terminal": {
-    "schema_version": 1,
+    "schema_version": 2,
     "kind": "status",
     "code": 0,
     "message": "run completed with outcome 'done'",
     "status": {
-      "schema_version": 1,
+      "schema_version": 2,
       "run_id": "20261003T120000Z-01020304",
       "pipeline": {
         "id": "compatibility",
@@ -400,12 +400,12 @@
     }
   },
   "blocked": {
-    "schema_version": 1,
+    "schema_version": 2,
     "kind": "status",
     "code": 9,
     "message": "run is blocked",
     "status": {
-      "schema_version": 1,
+      "schema_version": 2,
       "run_id": "20261003T120000Z-01020304",
       "pipeline": {
         "id": "compatibility",
@@ -440,6 +440,303 @@
         "20261003T120000Z-01020304"
       ],
       "warnings": []
+    }
+  },
+  "action-request": {
+    "schema_version": 2,
+    "kind": "approval",
+    "code": 7,
+    "message": "approval is required",
+    "approval": {
+      "run_id": "20261003T120000Z-01020304",
+      "phase_id": "compose",
+      "visit_number": 1,
+      "reason": "edit-source",
+      "pipeline_sha256": "3a0250dc48311580917554d6a55e2606136e0ba8fad588583e4a18eee5762289",
+      "status": "pending",
+      "decision": null,
+      "actor": null,
+      "requested_at": "2026-10-03T12:00:00.000000Z",
+      "decided_at": null,
+      "kind": "action",
+      "details": "Edit only the café heading.",
+      "request_number": 1,
+      "approve_command": [
+        "specromancy",
+        "approve",
+        "20261003T120000Z-01020304",
+        "compose",
+        "--request",
+        "1"
+      ],
+      "decline_command": [
+        "specromancy",
+        "decline",
+        "20261003T120000Z-01020304",
+        "compose",
+        "--request",
+        "1"
+      ]
+    },
+    "status": {
+      "schema_version": 2,
+      "run_id": "20261003T120000Z-01020304",
+      "pipeline": {
+        "id": "compatibility",
+        "path": "workflow/pipelines/compatibility.toml",
+        "sha256": "3a0250dc48311580917554d6a55e2606136e0ba8fad588583e4a18eee5762289",
+        "version": 1,
+        "current_sha256": "3a0250dc48311580917554d6a55e2606136e0ba8fad588583e4a18eee5762289"
+      },
+      "status": "awaiting-approval",
+      "current": {
+        "visit_id": 1,
+        "phase": "compose",
+        "status": "awaiting-approval",
+        "output": {
+          "path": "artifacts/001-compose.md",
+          "sha256": null
+        }
+      },
+      "completed_visits": [],
+      "pending_approval": {
+        "run_id": "20261003T120000Z-01020304",
+        "phase_id": "compose",
+        "visit_number": 1,
+        "reason": "edit-source",
+        "pipeline_sha256": "3a0250dc48311580917554d6a55e2606136e0ba8fad588583e4a18eee5762289",
+        "status": "pending",
+        "decision": null,
+        "actor": null,
+        "requested_at": "2026-10-03T12:00:00.000000Z",
+        "decided_at": null,
+        "kind": "action",
+        "details": "Edit only the café heading.",
+        "request_number": 1,
+        "approve_command": [
+          "specromancy",
+          "approve",
+          "20261003T120000Z-01020304",
+          "compose",
+          "--request",
+          "1"
+        ],
+        "decline_command": [
+          "specromancy",
+          "decline",
+          "20261003T120000Z-01020304",
+          "compose",
+          "--request",
+          "1"
+        ]
+      },
+      "block": null,
+      "terminal_result": null,
+      "next_command": [
+        "specromancy",
+        "approve",
+        "20261003T120000Z-01020304",
+        "compose",
+        "--request",
+        "1"
+      ],
+      "warnings": []
+    }
+  },
+  "action-request-status": {
+    "schema_version": 2,
+    "kind": "status",
+    "code": 0,
+    "message": "run status",
+    "status": {
+      "schema_version": 2,
+      "run_id": "20261003T120000Z-01020304",
+      "pipeline": {
+        "id": "compatibility",
+        "path": "workflow/pipelines/compatibility.toml",
+        "sha256": "3a0250dc48311580917554d6a55e2606136e0ba8fad588583e4a18eee5762289",
+        "version": 1,
+        "current_sha256": "3a0250dc48311580917554d6a55e2606136e0ba8fad588583e4a18eee5762289"
+      },
+      "status": "awaiting-approval",
+      "current": {
+        "visit_id": 1,
+        "phase": "compose",
+        "status": "awaiting-approval",
+        "output": {
+          "path": "artifacts/001-compose.md",
+          "sha256": null
+        }
+      },
+      "completed_visits": [],
+      "pending_approval": {
+        "actor": null,
+        "decided_at": null,
+        "decision": null,
+        "details": "Edit only the café heading.",
+        "kind": "action",
+        "phase_id": "compose",
+        "pipeline_sha256": "3a0250dc48311580917554d6a55e2606136e0ba8fad588583e4a18eee5762289",
+        "reason": "edit-source",
+        "requested_at": "2026-10-03T12:00:00.000000Z",
+        "run_id": "20261003T120000Z-01020304",
+        "status": "pending",
+        "visit_number": 1,
+        "request_number": 1,
+        "approve_command": [
+          "specromancy",
+          "approve",
+          "20261003T120000Z-01020304",
+          "compose",
+          "--request",
+          "1"
+        ],
+        "decline_command": [
+          "specromancy",
+          "decline",
+          "20261003T120000Z-01020304",
+          "compose",
+          "--request",
+          "1"
+        ]
+      },
+      "block": null,
+      "terminal_result": null,
+      "next_command": [
+        "specromancy",
+        "approve",
+        "20261003T120000Z-01020304",
+        "compose",
+        "--request",
+        "1"
+      ],
+      "warnings": []
+    }
+  },
+  "decided-actions": {
+    "schema_version": 2,
+    "kind": "action",
+    "code": 8,
+    "message": "run resumed",
+    "action": {
+      "schema_version": 2,
+      "run_id": "20261003T120000Z-01020304",
+      "visit_id": 1,
+      "visit_attempt": 1,
+      "visit_status": "active",
+      "phase": "compose",
+      "skill": {
+        "path": ".agents/skills/compose/SKILL.md",
+        "sha256": "0f23854eaf46ea74515485f83b2b9f00230d05f65db9cbbdc807cf695dbbbdbc",
+        "absolute_path": "<ROOT>/.agents/skills/compose/SKILL.md"
+      },
+      "inputs": [
+        {
+          "path": "artifacts/000-request.md",
+          "reference": "request",
+          "sha256": "682d4e5e22ea20f3eda915f6051354e2aca283ee925c16c91d9964f498c50c63",
+          "absolute_path": "<ROOT>/.specromancy/runs/20261003T120000Z-01020304/artifacts/000-request.md"
+        }
+      ],
+      "output": {
+        "path": "artifacts/001-compose.md",
+        "sha256": null,
+        "absolute_path": "<ROOT>/.specromancy/runs/20261003T120000Z-01020304/artifacts/001-compose.md"
+      },
+      "template": null,
+      "mutation": {
+        "policy": "read-only",
+        "allowlist": []
+      },
+      "completion_criteria": [
+        "Écrire un résultat 日本語."
+      ],
+      "validation": {
+        "type": "file",
+        "required_headings": [],
+        "heading_occurrence": "exactly-once",
+        "schema": null,
+        "commands": []
+      },
+      "action_approval_conditions": [
+        "edit-source"
+      ],
+      "transition_approval_conditions": [
+        "accept-result"
+      ],
+      "action_decisions": [
+        {
+          "actor": "user",
+          "decided_at": "2026-10-03T12:00:00.000000Z",
+          "decision": "declined",
+          "details": "Edit only the café heading.",
+          "kind": "action",
+          "phase_id": "compose",
+          "pipeline_sha256": "3a0250dc48311580917554d6a55e2606136e0ba8fad588583e4a18eee5762289",
+          "reason": "edit-source",
+          "requested_at": "2026-10-03T12:00:00.000000Z",
+          "run_id": "20261003T120000Z-01020304",
+          "status": "declined",
+          "visit_number": 1,
+          "request_number": 1
+        },
+        {
+          "actor": "user",
+          "decided_at": "2026-10-03T12:00:00.000000Z",
+          "decision": "approved",
+          "details": "Edit the title.",
+          "kind": "action",
+          "phase_id": "compose",
+          "pipeline_sha256": "3a0250dc48311580917554d6a55e2606136e0ba8fad588583e4a18eee5762289",
+          "reason": "edit-source",
+          "requested_at": "2026-10-03T12:00:00.000000Z",
+          "run_id": "20261003T120000Z-01020304",
+          "status": "approved",
+          "visit_number": 1,
+          "request_number": 2
+        }
+      ],
+      "stop_conditions": [
+        "no-evidence"
+      ],
+      "outcomes": [
+        "z-next",
+        "a-stop"
+      ],
+      "final_validation_command": [
+        "specromancy",
+        "--root",
+        "<ROOT>",
+        "validate",
+        "20261003T120000Z-01020304",
+        "compose"
+      ]
+    }
+  },
+  "adapters-generated": {
+    "schema_version": 2,
+    "kind": "adapters",
+    "code": 0,
+    "message": "generated 0 harness adapter files",
+    "adapters": {
+      "checked": false,
+      "manifest": "adapters/manifest.json",
+      "canonical_source_sha256": "9b2b2f8a4a575cbc21e1ec8e3d5a0377463aed7a1578284b318c954a70741ca9",
+      "paths": [],
+      "removed": []
+    }
+  },
+  "adapters-checked": {
+    "schema_version": 2,
+    "kind": "adapters",
+    "code": 0,
+    "message": "generated adapters are up to date",
+    "adapters": {
+      "checked": true,
+      "manifest": "adapters/manifest.json",
+      "canonical_source_sha256": "9b2b2f8a4a575cbc21e1ec8e3d5a0377463aed7a1578284b318c954a70741ca9",
+      "paths": [],
+      "removed": []
     }
   }
 }

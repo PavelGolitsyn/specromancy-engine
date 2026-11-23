@@ -2,16 +2,11 @@ from __future__ import annotations
 
 import hashlib
 import json
-import tomllib
 import unittest
 from unittest.mock import patch
 
 import specromancy_engine
-from specromancy_engine import artifacts, config, git, hashing, run_store
-from specromancy_engine._config import config_errors, config_fields, config_loader, config_models
-from specromancy_engine._config import config_phase_parser
-from specromancy_engine import schema_validation, validation, engine
-from specromancy_engine._engine import engine_errors
+from specromancy_engine import config, engine, hashing
 from specromancy_engine.engine import Engine
 from specromancy_engine.adapters import AdapterError
 from tests.engine.contract.compatibility_support import (
@@ -22,50 +17,9 @@ from tests.engine.unit.test_adapters import AdapterFixture
 
 
 class CompatibilityContractTests(unittest.TestCase):
-    def test_configuration_and_schema_reexports_share_the_defining_objects(self) -> None:
-        for name in (
-            "PhaseConfig", "PipelineConfig", "TransitionConfig",
-            "ValidationCommand", "ValidatorConfig",
-        ):
-            with self.subTest(name=name):
-                self.assertIs(getattr(config, name), getattr(config_models, name))
-        self.assertIs(config.PipelineConfigError, config_errors.PipelineConfigError)
-        self.assertIs(config._MISSING, config_errors._MISSING)
-        for module, names in (
-            (config_loader, ("_Loader", "_discover_root", "SUPPORTED_SCHEMA_VERSION", "load_pipeline")),
-            (config_fields, ("IDENTIFIER_PATTERN", "_safe_declared_path")),
-            (config_phase_parser, ("MUTATION_POLICIES", "VALIDATOR_TYPES",
-                                   "_validate_inputs", "_validate_output_pattern")),
-        ):
-            for name in names:
-                with self.subTest(name=name):
-                    self.assertIs(getattr(config, name), getattr(module, name))
-        for name in (
-            "SchemaDefinitionError", "load_json_schema", "validate_schema_definition",
-        ):
-            with self.subTest(name=name):
-                self.assertIs(getattr(validation, name), getattr(schema_validation, name))
-
-    def test_private_loader_parser_entry_points_remain_usable(self) -> None:
-        fixture = CompatibilityFixture()
-        self.addCleanup(fixture.close)
-        raw = tomllib.loads(fixture.path.read_text(encoding="utf-8"))
-        loader = config._Loader(fixture.path, fixture.root)
-        self.assertEqual(loader.parse(raw), fixture.pipeline)
-        for phase_raw, phase in zip(raw["phases"], fixture.pipeline.phases):
-            with self.subTest(phase=phase.id):
-                self.assertEqual(loader.parse_phase(phase_raw), phase)
-                self.assertEqual(loader.parse_validator(phase_raw, phase.id), phase.validator)
-                self.assertEqual(loader.parse_commands(phase_raw, phase.id), phase.commands)
-                self.assertEqual(
-                    tuple(loader.parse_transition(item, phase.id)
-                          for item in phase_raw["transitions"]),
-                    phase.transitions,
-                )
-
-    def test_public_imports_and_compatibility_aliases_remain_available(self) -> None:
-        self.assertIs(engine.EngineError, engine_errors.EngineError)
-        self.assertIs(specromancy_engine.EngineError, engine_errors.EngineError)
+    def test_public_imports(self) -> None:
+        self.assertIs(specromancy_engine.EngineError, engine.EngineError)
+        self.assertIs(specromancy_engine.PipelineConfigError, config.PipelineConfigError)
         exports = {
             "ExitCode", "Engine", "EngineError", "PipelineConfig", "PipelineConfigError",
             "PipelineRegistry", "PipelineRegistration", "RunCorruptionError",
@@ -75,27 +29,6 @@ class CompatibilityContractTests(unittest.TestCase):
         self.assertLessEqual(exports, set(specromancy_engine.__all__))
         for name in exports:
             self.assertTrue(callable(getattr(specromancy_engine, name)), name)
-        for module, aliases in (
-            (hashing, {"hash_bytes": "sha256_bytes", "hash_text": "sha256_text",
-                       "hash_json": "sha256_json", "hash_file": "sha256_file"}),
-            (artifacts, {"resolve_artifact_reference": "resolve_input_reference",
-                         "verify_artifacts": "verify_manifest_artifacts"}),
-            (run_store, {"new_run_id": "generate_run_id", "CorruptRunError": "RunCorruptionError"}),
-            (run_store.RunStore, {"create_run": "create", "load_run": "load",
-                                  "create_visit": "start_visit", "update": "mutate"}),
-            (git, {"snapshot_repository": "capture_repository_snapshot"}),
-        ):
-            for alias, target in aliases.items():
-                with self.subTest(alias=alias):
-                    self.assertIs(getattr(module, alias), getattr(module, target))
-        fixture = CompatibilityFixture()
-        try:
-            self.assertEqual(config.load_config(fixture.path, fixture.root), fixture.pipeline)
-            self.assertEqual(config.hash_pipeline(fixture.pipeline), fixture.pipeline.hash)
-            phase = fixture.pipeline.phase("compose")
-            self.assertEqual(phase.validation_commands, phase.commands)
-        finally:
-            fixture.close()
 
     def test_canonical_pipeline_bytes_and_hashes_match_baseline(self) -> None:
         expected = read_record("canonical.json")

@@ -160,6 +160,8 @@ pipeline = load_registry(root).load("shared")
 store = RunStore(root)
 engine = Engine(pipeline, store)
 response = engine.initialize("Record the consumer result.")
+if response["schema_version"] != 2 or response["action"]["schema_version"] != 2:
+    raise ValueError("Unsupported action response version")
 run_id = response["action"]["run_id"]
 status = engine.status(run_id)
 manifest = store.load(run_id)

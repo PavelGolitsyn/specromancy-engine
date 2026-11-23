@@ -15,8 +15,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
+from specromancy_engine.adapters import generate_adapters
 from specromancy_engine.cli import main
-from specromancy_engine.config import PipelineConfigError, canonicalize_pipeline, load_pipeline
+from specromancy_engine.registry import load_registry
+from specromancy_engine.config import PipelineConfigError, load_pipeline
 from specromancy_engine.engine import Engine
 from specromancy_engine.run_store import RunStore
 
@@ -95,7 +97,7 @@ def capture_canonical() -> dict:
         fixture = CompatibilityFixture(pause=pause)
         try:
             records[name] = {
-                "canonical": canonicalize_pipeline(fixture.pipeline),
+                "canonical": fixture.pipeline.canonical_json,
                 "sha256": fixture.pipeline.config_hash,
             }
         finally:
@@ -168,6 +170,34 @@ def capture_lifecycle() -> tuple[dict, dict]:
                 fixture.engine.block(RUN_ID, reason="no-evidence", details="No source."),
                 fixture.root,
             )
+    finally:
+        fixture.close()
+    fixture = CompatibilityFixture()
+    try:
+        fixture.path.write_text(fixture.path.read_text(encoding="utf-8").replace(
+            "action_approval_conditions = []", 'action_approval_conditions = ["edit-source"]', 1,
+        ), encoding="utf-8")
+        pipeline = load_pipeline(fixture.path, fixture.root)
+        engine = Engine(pipeline, fixture.store)
+        engine.initialize("Record action decisions")
+        engine.start_phase(RUN_ID, "compose")
+        with patch("specromancy_engine.engine.utc_now", return_value=NOW):
+            responses["action-request"] = engine.request_approval(
+                RUN_ID, reason="edit-source", details="Edit only the café heading.",
+            )
+            responses["action-request-status"] = engine.status(RUN_ID)
+            engine.decline(RUN_ID, "compose", request_number=1)
+            engine.request_approval(RUN_ID, reason="edit-source", details="Edit the title.")
+            engine.approve(RUN_ID, "compose", request_number=2)
+        restarted = Engine(pipeline, fixture.new_store())
+        responses["decided-actions"] = restarted.resume(RUN_ID)
+        (fixture.root / "workflow/adapters.toml").write_text(
+            'schema_version = 1\nharnesses = []\n', encoding="utf-8",
+        )
+        registry = load_registry(fixture.root)
+        responses["adapters-generated"] = generate_adapters(fixture.root, registry)
+        responses["adapters-checked"] = generate_adapters(fixture.root, registry, check=True)
+        responses = normalize_response(responses, fixture.root)
     finally:
         fixture.close()
     return states, responses

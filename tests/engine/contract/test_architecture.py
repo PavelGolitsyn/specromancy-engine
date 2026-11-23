@@ -37,6 +37,7 @@ unexpected = set(sys.argv[3:]) & set(sys.modules)
 assert not unexpected, unexpected
 """
         module_paths = (
+            "contracts", "actions", "status",
             "_config.config_models", "_config.config_errors", "_config.config_serialization",
             "schema_validation", "_config.config_fields", "_config.config_phase_parser",
             "_config.config_loader", "validation",
@@ -57,6 +58,10 @@ assert not unexpected, unexpected
                 forbidden.append("validation")
             if module in {"config_fields", "config_phase_parser"}:
                 forbidden.extend(("run_store", "run_persistence", "graph", "config_serialization"))
+            if module in {"contracts", "actions", "status"}:
+                forbidden.extend(("run_store", "run_persistence", "responses", "adapters"))
+            if module == "contracts":
+                forbidden.extend(("actions", "status", "config_models", "run_records"))
             if module == "config_fields":
                 forbidden.extend(("config_phase_parser", "config_models", "schema_validation"))
             if module in {"engine_errors", "provenance", "validation_service", "responses", "approvals"}:

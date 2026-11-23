@@ -8,25 +8,10 @@ from collections.abc import Callable, Mapping
 from pathlib import Path
 from typing import Any
 
-from .config_errors import PipelineConfigError, _MISSING
-from .config_fields import FieldContext, IDENTIFIER_PATTERN, _safe_declared_path
-from .config_models import (
-    PhaseConfig,
-    PipelineConfig,
-    TransitionConfig,
-    ValidationCommand,
-    ValidatorConfig,
-)
-from .config_phase_parser import (
-    MUTATION_POLICIES,
-    VALIDATOR_TYPES,
-    _validate_inputs,
-    _validate_output_pattern,
-    parse_commands,
-    parse_phase,
-    parse_transition,
-    parse_validator,
-)
+from .config_errors import PipelineConfigError
+from .config_fields import FieldContext
+from .config_models import PipelineConfig
+from .config_phase_parser import _validate_output_pattern, parse_phase
 from .config_serialization import _canonical_document, _encode_canonical_document
 from .skill_sources import SkillBindings
 from ..graph import validate_graph
@@ -43,7 +28,7 @@ def _discover_root(path: Path) -> Path | None:
 
 
 class _Loader(FieldContext):
-    """Pipeline assembly with inherited field helpers and legacy parser delegates."""
+    """Assemble a pipeline using its repository-bound field context."""
 
     def parse(self, raw: Mapping[str, Any], *, adapter_bindings: SkillBindings | None = None) -> PipelineConfig:
         allowed_top = {
@@ -101,7 +86,7 @@ class _Loader(FieldContext):
                 value=raw_phases,
                 remediation="declare one or more [[phases]] tables",
             )
-        phases = tuple(self.parse_phase(item) for item in raw_phases)
+        phases = tuple(parse_phase(self, item) for item in raw_phases)
         bindings = adapter_bindings if adapter_bindings is not None else SkillBindings()
         bindings.bind_graph(self, phases)
         if adapter_bindings is None:
@@ -144,34 +129,12 @@ class _Loader(FieldContext):
             config_hash=config_hash,
         )
 
-    def parse_phase(self, value: Any) -> PhaseConfig:
-        return parse_phase(self, value)
-
-    def parse_validator(
-        self, phase_raw: Mapping[str, Any], phase_id: str
-    ) -> ValidatorConfig:
-        return parse_validator(self, phase_raw, phase_id)
-
-    def parse_commands(
-        self, raw: Mapping[str, Any], phase_id: str
-    ) -> tuple[ValidationCommand, ...]:
-        return parse_commands(self, raw, phase_id)
-
-    def parse_transition(self, value: Any, phase_id: str) -> TransitionConfig:
-        return parse_transition(self, value, phase_id)
-
 
 def load_pipeline(
     path: str | Path,
     repository_root: str | Path | None = None,
-    *,
-    root: str | Path | None = None,
 ) -> PipelineConfig:
-    """Load and fully validate a pipeline TOML file.
-
-    ``root`` is accepted as a concise alias for ``repository_root``. Supplying
-    both is rejected to keep path authority unambiguous.
-    """
+    """Load and validate a pipeline, discovering its Git root when omitted."""
 
     source = Path(path).expanduser()
     try:
@@ -195,10 +158,7 @@ def load_pipeline(
             value=str(source),
             remediation="provide the path to a regular TOML file",
         )
-    if repository_root is not None and root is not None:
-        raise TypeError("pass repository_root or root, not both")
-    requested_root = repository_root if repository_root is not None else root
-    if requested_root is None:
+    if repository_root is None:
         discovered = _discover_root(source)
         if discovered is None:
             raise PipelineConfigError(
@@ -210,7 +170,7 @@ def load_pipeline(
             )
         resolved_root = discovered
     else:
-        resolved_root = Path(requested_root).expanduser().resolve()
+        resolved_root = Path(repository_root).expanduser().resolve()
     if not resolved_root.is_dir():
         raise PipelineConfigError(
             "invalid-repository-root",
