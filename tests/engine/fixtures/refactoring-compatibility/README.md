@@ -14,7 +14,8 @@ inputs; its generated outputs are captured separately.
 | `diagnostics.json` | Exact configuration locations, remediation, error values, CLI exit codes and stdout/stderr routing; outcome-before-output and artifact-before-pipeline mismatch ordering |
 | `states-v1.json` | Original awaiting-approval and recoverable files from `v0.1.3:tests/engine/fixtures/refactoring-compatibility/states.json`. Both produce `unsupported-schema-version` before recovery or mutation. |
 | `states.json` | Schema-2 state name → relative run filename → exact UTF-8 contents, including complete `run.json`, `events.jsonl`, request and output artifacts |
-| `adapters.json` | Generated relative path → exact UTF-8 content and SHA-256, including the adapter manifest |
+| `adapters-generator-v4.json` | Current schema-3 graph, exact generated file bytes and SHA-256 including the generator-4 ownership manifest |
+| `adapters.json` | Original generated file bytes and hashes at the historical revision above |
 
 `states.json` includes pending, active, awaiting approval, approved before
 advancement, paused, completed, a recoverable manifest/event gap, and its

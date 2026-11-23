@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from specromancy_engine.config import load_pipeline
+from specromancy_engine.config import PipelineConfigError, load_pipeline
 from specromancy_engine.engine import Engine, EngineError
 from specromancy_engine.exit_codes import ExitCode
 from specromancy_engine.run_store import RunStore
@@ -157,7 +157,7 @@ class EngineOrchestrationContractTests(unittest.TestCase):
         # rejection, even when all three fail simultaneously.
         fixture.path.write_text(fixture.path.read_text().replace("Seal the result.", "Seal carefully."))
         pipeline = load_pipeline(fixture.path, fixture.root)
-        (fixture.root / visit["skill"]["path"]).unlink()
+        (fixture.root / visit["skill"]["path"]).write_text("Changed procedure bytes.")
         with self.assertRaises(EngineError) as raised:
             Engine(pipeline, fixture.new_store()).approve(RUN_ID, "compose")
         self.assertEqual(raised.exception.diagnostic_code, "stale-approval")
@@ -314,34 +314,61 @@ class EngineOrchestrationContractTests(unittest.TestCase):
         ])
         self.assertEqual(fixture.store.load(RUN_ID)["visits"][0]["chosen_outcome"], "z-next")
 
-    def test_provenance_observations_warn_on_status_and_reject_commands(self) -> None:
-        states = read_record("states.json")
-        for drift in ("changed", "missing"):
-            with self.subTest(drift=drift):
-                fixture = CompatibilityFixture(pause=True)
-                self.addCleanup(fixture.close)
-                fixture.restore(states["awaiting-approval"])
-                before = fixture.store.load(RUN_ID)
-                skill = fixture.root / before["visits"][0]["skill"]["path"]
-                if drift == "changed":
-                    skill.write_text(skill.read_text() + "\nUpdated procedure.\n")
-                else:
-                    skill.unlink()
-                expected = "provenance-hash-mismatch" if drift == "changed" else "provenance-missing"
-                status = fixture.engine.status(RUN_ID)["status"]
-                self.assertEqual([w["code"] for w in status["warnings"]], [expected])
-                for operation in (lambda: fixture.engine.run(RUN_ID),
-                                  lambda: fixture.engine.approve(RUN_ID, "compose")):
-                    with self.assertRaises(EngineError) as raised:
-                        operation()
-                    self.assertEqual(raised.exception.diagnostic_code, expected)
-                self.assertEqual(fixture.store.load(RUN_ID), before)
-                request = fixture.store.run_directory(RUN_ID) / before["request"]["path"]
-                request.write_text("Changed immutable input.\n")
-                status = fixture.engine.status(RUN_ID)["status"]
-                self.assertEqual(len(status["warnings"]), 2)
-                self.assertEqual(status["warnings"][-1]["code"], expected)
-                self.assertEqual(fixture.store.load(RUN_ID, verify_artifacts=False), before)
+    def test_changed_procedure_warns_on_status_and_rejects_commands(self) -> None:
+        fixture = CompatibilityFixture(pause=True)
+        self.addCleanup(fixture.close)
+        fixture.restore(read_record("states.json")["awaiting-approval"])
+        before = fixture.store.load(RUN_ID)
+        skill = fixture.root / before["visits"][0]["skill"]["path"]
+        skill.write_text(skill.read_text() + "\nUpdated procedure.\n")
+        expected = "provenance-hash-mismatch"
+        status = fixture.engine.status(RUN_ID)["status"]
+        self.assertEqual([w["code"] for w in status["warnings"]], [expected])
+        for operation in (lambda: fixture.engine.run(RUN_ID),
+                          lambda: fixture.engine.approve(RUN_ID, "compose")):
+            with self.assertRaises(EngineError) as raised:
+                operation()
+            self.assertEqual(raised.exception.diagnostic_code, expected)
+        self.assertEqual(fixture.store.load(RUN_ID), before)
+        request = fixture.store.run_directory(RUN_ID) / before["request"]["path"]
+        request.write_text("Changed immutable input.\n")
+        status = fixture.engine.status(RUN_ID)["status"]
+        self.assertEqual(len(status["warnings"]), 2)
+        self.assertEqual(status["warnings"][-1]["code"], expected)
+        self.assertEqual(fixture.store.load(RUN_ID, verify_artifacts=False), before)
+
+    def test_prepared_visit_rechecks_all_workflow_resources(self) -> None:
+        fixture = SafetyFixture(phase("inspect"))
+        self.addCleanup(fixture.close)
+        graph = fixture.pipeline_path
+        template = graph.with_name("template.json")
+        schema = graph.with_name("schema.json")
+        template.write_text("{}")
+        schema.write_text("{}")
+        graph.write_text(graph.read_text().replace(
+            'validator = { type = "file" }',
+            'output_template = "template.json"\nvalidator = { type = "json", path = "schema.json" }',
+        ))
+        pipeline = load_pipeline(graph, fixture.root)
+        engine = Engine(pipeline, fixture.store)
+        run_id = engine.initialize("Inspect safely.")["action"]["run_id"]
+        directory = fixture.store.run_directory(run_id)
+        before = {p: p.read_bytes() for p in directory.rglob("*") if p.is_file()}
+        for resource in (pipeline.phases[0].skill_path, template, schema):
+            with self.subTest(resource=resource):
+                outside = fixture.root / resource.name
+                resource.rename(outside)
+                for diagnostic in ("missing-file", "unsafe-path"):
+                    if diagnostic == "unsafe-path":
+                        resource.symlink_to(outside)
+                    for operation in (lambda: engine.status(run_id), lambda: engine.resume(run_id),
+                                      lambda: load_pipeline(graph, fixture.root)):
+                        with self.assertRaises(PipelineConfigError) as caught:
+                            operation()
+                        self.assertEqual(caught.exception.diagnostic_code, diagnostic)
+                        self.assertEqual({p: p.read_bytes() for p in directory.rglob("*") if p.is_file()}, before)
+                resource.unlink()
+                outside.rename(resource)
 
     def test_template_drift_warns_and_rejects_activation_without_rewriting_state(self) -> None:
         fixture = SafetyFixture(phase("inspect"))
@@ -349,7 +376,7 @@ class EngineOrchestrationContractTests(unittest.TestCase):
         template = fixture.pipeline_path.with_name("template.md")
         template.write_text("Original template.\n")
         fixture.pipeline_path.write_text(fixture.pipeline_path.read_text().replace(
-            'validator = "file"', 'validator = "file"\noutput_template = "template.md"'
+            'validator = { type = "file" }', 'validator = { type = "file" }\noutput_template = "template.md"'
         ))
         engine = Engine(load_pipeline(fixture.pipeline_path, fixture.root), fixture.store)
         run_id = engine.initialize("Inspect safely.")["action"]["run_id"]

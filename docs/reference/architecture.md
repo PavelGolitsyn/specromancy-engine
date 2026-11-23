@@ -140,9 +140,9 @@ registry -> config_loader / config_models / config_errors
 The loader owns TOML/root loading, repository discovery, pipeline assembly, and
 graph validation orchestration. `config_fields.FieldContext` carries the source
 path and repository root, emits diagnostics, checks scalar/list values and unknown
-keys, and resolves existing resource paths with repository containment checks.
-Graph-relative templates and validators may use parent segments within `workflow/`.
-Legacy phases retain their repository-wide resource boundary. `config_phase_parser` consumes that context explicitly for
+keys, and checks declared and resolved resource locations under `workflow/`.
+Graph-relative templates and validators may use parent segments within that directory.
+Every phase names its repository-relative procedure. `config_phase_parser` consumes that context for
 phase, validator, command, transition, input, and output-pattern parsing. Validator
 parsing reads schema files through `schema_validation` in the existing check order.
 

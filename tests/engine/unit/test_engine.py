@@ -12,7 +12,7 @@ from specromancy_engine.run_store import RunStore
 
 
 PIPELINE = """
-schema_version = 2
+schema_version = 3
 id = "engine-fixture"
 version = 1
 start = "survey"
@@ -28,7 +28,7 @@ inputs = ["request"]
 output_name = "{visit:03}-survey.md"
 mutation = "read-only"
 completion_criteria = ["Produce evidence."]
-validator = "file"
+validator = { type = "file" }
 transition_approval_conditions = []
 action_approval_conditions = []
 stop_conditions = ["no-evidence"]
@@ -47,7 +47,7 @@ inputs = ["request", "latest:survey"]
 output_name = "{visit:03}-publish.md"
 mutation = "repository-write"
 completion_criteria = ["Publish the result."]
-validator = "file"
+validator = { type = "file" }
 transition_approval_conditions = ["external-effect"]
 action_approval_conditions = []
 stop_conditions = ["no-target"]

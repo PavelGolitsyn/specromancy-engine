@@ -2,7 +2,7 @@
 name: draft-release-notes
 description: Draft release notes when the current release-documentation phase requests them.
 license: MIT
-compatibility: Specromancy pipeline schema version 2.
+compatibility: Specromancy pipeline schema version 3.
 metadata:
   role: phase
 ---

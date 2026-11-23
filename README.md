@@ -53,9 +53,10 @@ command and `python -m specromancy_engine`. The checkout wrappers
 `bin/specromancy` and `adapters/generate.py` also work without installation as
 producer-checkout conveniences. Consumers install the dependency; they do not
 copy engine source or launchers into their projects.
-Python consumers import `specromancy_engine`. Run and event formats use schema
-version 2. Finish version-1 runs with their producing engine and original workflow
-resources, or initialize a separate run. See the [public contracts][contracts] for supported
+Python consumers import `specromancy_engine`. Pipeline graphs use schema 3
+and require a `skill_source` under `workflow/` for every phase. Run and event
+formats use schema 2. Finish older runs with their producing engine and original
+workflow resources, or initialize a separate run under the new graph. See the [public contracts][contracts] for supported
 interfaces, persistence, and ownership rules.
 
 ## Customize the workflow

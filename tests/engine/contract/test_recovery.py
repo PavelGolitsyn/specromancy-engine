@@ -83,12 +83,14 @@ class VersionedRecoveryTests(unittest.TestCase):
         fixture = self.restore(read_record("states.json")["recoverable"])
         before = self.snapshot(fixture)
         graph = fixture.path.read_text()
-        fixture.path.write_text(graph.replace("schema_version = 2", "schema_version = 99"))
-        code, error = self.cli(fixture, "resume")
-        self.assertEqual(code, 3)
-        self.assertEqual(error["details"]["error_code"], "unsupported-schema-version")
-        self.assertEqual(error["details"]["value"], 99)
-        self.assertEqual(self.snapshot(fixture), before)
+        for version in (1, 2, 4):
+            with self.subTest(version=version):
+                fixture.path.write_text(graph.replace("schema_version = 3", f"schema_version = {version}"))
+                code, error = self.cli(fixture, "resume")
+                self.assertEqual(code, 3)
+                self.assertEqual(error["details"]["error_code"], "unsupported-schema-version")
+                self.assertEqual(error["details"]["value"], version)
+                self.assertEqual(self.snapshot(fixture), before)
         fixture.path.write_text(graph)
         self.assertEqual(self.cli(fixture, "resume")[0], 8)
         events = fixture.store.read_events(CAPTURED_ID, recover=False)
@@ -114,7 +116,7 @@ class RecoveryContractTests(unittest.TestCase):
             pipeline_path.write_text(
                 textwrap.dedent(
                     """
-                    schema_version = 2
+                    schema_version = 3
                     id = "recovery"
                     version = 1
                     start = "compose"
@@ -129,7 +131,7 @@ class RecoveryContractTests(unittest.TestCase):
                     output_name = "{visit:03}-result.md"
                     mutation = "read-only"
                     completion_criteria = ["Write."]
-                    validator = "file"
+                    validator = { type = "file" }
                     transition_approval_conditions = []
                     action_approval_conditions = []
                     stop_conditions = []

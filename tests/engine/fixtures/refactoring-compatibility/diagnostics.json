@@ -90,7 +90,7 @@
       "path": "<ROOT>/workflow/pipelines/compatibility.toml",
       "remediation": "use only type, required, properties, items, enum, pattern, and additionalProperties",
       "phase": "compose",
-      "field": "validator_path",
+      "field": "validator.path",
       "value": "result.schema.json"
     }
   }

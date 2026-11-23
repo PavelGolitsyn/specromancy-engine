@@ -1,4 +1,4 @@
-schema_version = 2
+schema_version = 3
 id = "bounded-loop"
 version = 1
 start = "transform"
@@ -13,7 +13,7 @@ inputs = ["request"]
 output_name = "{visit:03}-transformation.md"
 mutation = "repository-write"
 completion_criteria = ["Produce a transformation record."]
-validator = "file"
+validator = { type = "file" }
 transition_approval_conditions = []
 action_approval_conditions = []
 stop_conditions = []
@@ -30,7 +30,7 @@ inputs = ["latest:transform"]
 output_name = "{visit:03}-verification.md"
 mutation = "read-only"
 completion_criteria = ["Record a verification result."]
-validator = "file"
+validator = { type = "file" }
 transition_approval_conditions = []
 action_approval_conditions = []
 stop_conditions = []

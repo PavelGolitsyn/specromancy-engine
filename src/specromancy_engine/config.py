@@ -23,5 +23,5 @@ def require_pipeline_hash(pipeline: PipelineConfig, expected_hash: str) -> None:
             path=pipeline.path,
             field="config_hash",
             value={"expected": expected_hash, "actual": pipeline.config_hash},
-            remediation="restore the original pipeline or start a new run",
+            remediation="finish with the producing engine and original workflow resources or start a new run",
         )

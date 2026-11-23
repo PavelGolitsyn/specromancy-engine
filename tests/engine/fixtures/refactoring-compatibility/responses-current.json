@@ -12,9 +12,9 @@
       "visit_status": "pending",
       "phase": "compose",
       "skill": {
-        "path": ".agents/skills/compose/SKILL.md",
+        "path": "workflow/skills/compose/SKILL.md",
         "sha256": "0f23854eaf46ea74515485f83b2b9f00230d05f65db9cbbdc807cf695dbbbdbc",
-        "absolute_path": "<ROOT>/.agents/skills/compose/SKILL.md"
+        "absolute_path": "<ROOT>/workflow/skills/compose/SKILL.md"
       },
       "inputs": [
         {
@@ -79,9 +79,9 @@
       "visit_status": "active",
       "phase": "compose",
       "skill": {
-        "path": ".agents/skills/compose/SKILL.md",
+        "path": "workflow/skills/compose/SKILL.md",
         "sha256": "0f23854eaf46ea74515485f83b2b9f00230d05f65db9cbbdc807cf695dbbbdbc",
-        "absolute_path": "<ROOT>/.agents/skills/compose/SKILL.md"
+        "absolute_path": "<ROOT>/workflow/skills/compose/SKILL.md"
       },
       "inputs": [
         {
@@ -143,7 +143,7 @@
       "phase_id": "compose",
       "visit_number": 1,
       "reason": "accept-result",
-      "pipeline_sha256": "7b2d6bc8bb417ace8397c54e1151a0b62c493316ceeed2108658c5b2fa99ab35",
+      "pipeline_sha256": "ed5b2b5721d537bf6ab0ee3d749bc9b24ef10644e0b1525eeeded4e8584e002e",
       "status": "pending",
       "decision": null,
       "actor": null,
@@ -169,9 +169,9 @@
       "pipeline": {
         "id": "compatibility",
         "path": "workflow/pipelines/compatibility.toml",
-        "sha256": "7b2d6bc8bb417ace8397c54e1151a0b62c493316ceeed2108658c5b2fa99ab35",
+        "sha256": "ed5b2b5721d537bf6ab0ee3d749bc9b24ef10644e0b1525eeeded4e8584e002e",
         "version": 1,
-        "current_sha256": "7b2d6bc8bb417ace8397c54e1151a0b62c493316ceeed2108658c5b2fa99ab35"
+        "current_sha256": "ed5b2b5721d537bf6ab0ee3d749bc9b24ef10644e0b1525eeeded4e8584e002e"
       },
       "status": "awaiting-approval",
       "current": {
@@ -189,7 +189,7 @@
         "phase_id": "compose",
         "visit_number": 1,
         "reason": "accept-result",
-        "pipeline_sha256": "7b2d6bc8bb417ace8397c54e1151a0b62c493316ceeed2108658c5b2fa99ab35",
+        "pipeline_sha256": "ed5b2b5721d537bf6ab0ee3d749bc9b24ef10644e0b1525eeeded4e8584e002e",
         "status": "pending",
         "decision": null,
         "actor": null,
@@ -233,9 +233,9 @@
       "pipeline": {
         "id": "compatibility",
         "path": "workflow/pipelines/compatibility.toml",
-        "sha256": "7b2d6bc8bb417ace8397c54e1151a0b62c493316ceeed2108658c5b2fa99ab35",
+        "sha256": "ed5b2b5721d537bf6ab0ee3d749bc9b24ef10644e0b1525eeeded4e8584e002e",
         "version": 1,
-        "current_sha256": "7b2d6bc8bb417ace8397c54e1151a0b62c493316ceeed2108658c5b2fa99ab35"
+        "current_sha256": "ed5b2b5721d537bf6ab0ee3d749bc9b24ef10644e0b1525eeeded4e8584e002e"
       },
       "status": "paused",
       "current": {
@@ -282,9 +282,9 @@
       "visit_status": "pending",
       "phase": "seal",
       "skill": {
-        "path": ".agents/skills/seal/SKILL.md",
+        "path": "workflow/skills/seal/SKILL.md",
         "sha256": "377c9f805696dbea53612fa03586724ff583580d3164efff4f242f987090fc46",
-        "absolute_path": "<ROOT>/.agents/skills/seal/SKILL.md"
+        "absolute_path": "<ROOT>/workflow/skills/seal/SKILL.md"
       },
       "inputs": [
         {
@@ -354,9 +354,9 @@
       "pipeline": {
         "id": "compatibility",
         "path": "workflow/pipelines/compatibility.toml",
-        "sha256": "7b2d6bc8bb417ace8397c54e1151a0b62c493316ceeed2108658c5b2fa99ab35",
+        "sha256": "ed5b2b5721d537bf6ab0ee3d749bc9b24ef10644e0b1525eeeded4e8584e002e",
         "version": 1,
-        "current_sha256": "7b2d6bc8bb417ace8397c54e1151a0b62c493316ceeed2108658c5b2fa99ab35"
+        "current_sha256": "ed5b2b5721d537bf6ab0ee3d749bc9b24ef10644e0b1525eeeded4e8584e002e"
       },
       "status": "completed",
       "current": {
@@ -410,9 +410,9 @@
       "pipeline": {
         "id": "compatibility",
         "path": "workflow/pipelines/compatibility.toml",
-        "sha256": "7b2d6bc8bb417ace8397c54e1151a0b62c493316ceeed2108658c5b2fa99ab35",
+        "sha256": "ed5b2b5721d537bf6ab0ee3d749bc9b24ef10644e0b1525eeeded4e8584e002e",
         "version": 1,
-        "current_sha256": "7b2d6bc8bb417ace8397c54e1151a0b62c493316ceeed2108658c5b2fa99ab35"
+        "current_sha256": "ed5b2b5721d537bf6ab0ee3d749bc9b24ef10644e0b1525eeeded4e8584e002e"
       },
       "status": "blocked",
       "current": {
@@ -452,7 +452,7 @@
       "phase_id": "compose",
       "visit_number": 1,
       "reason": "edit-source",
-      "pipeline_sha256": "3a0250dc48311580917554d6a55e2606136e0ba8fad588583e4a18eee5762289",
+      "pipeline_sha256": "adcf735d75851ef41792bdf0860969a22b90ed6fd0de1f7f37c1bbfce6b84b99",
       "status": "pending",
       "decision": null,
       "actor": null,
@@ -484,9 +484,9 @@
       "pipeline": {
         "id": "compatibility",
         "path": "workflow/pipelines/compatibility.toml",
-        "sha256": "3a0250dc48311580917554d6a55e2606136e0ba8fad588583e4a18eee5762289",
+        "sha256": "adcf735d75851ef41792bdf0860969a22b90ed6fd0de1f7f37c1bbfce6b84b99",
         "version": 1,
-        "current_sha256": "3a0250dc48311580917554d6a55e2606136e0ba8fad588583e4a18eee5762289"
+        "current_sha256": "adcf735d75851ef41792bdf0860969a22b90ed6fd0de1f7f37c1bbfce6b84b99"
       },
       "status": "awaiting-approval",
       "current": {
@@ -504,7 +504,7 @@
         "phase_id": "compose",
         "visit_number": 1,
         "reason": "edit-source",
-        "pipeline_sha256": "3a0250dc48311580917554d6a55e2606136e0ba8fad588583e4a18eee5762289",
+        "pipeline_sha256": "adcf735d75851ef41792bdf0860969a22b90ed6fd0de1f7f37c1bbfce6b84b99",
         "status": "pending",
         "decision": null,
         "actor": null,
@@ -554,9 +554,9 @@
       "pipeline": {
         "id": "compatibility",
         "path": "workflow/pipelines/compatibility.toml",
-        "sha256": "3a0250dc48311580917554d6a55e2606136e0ba8fad588583e4a18eee5762289",
+        "sha256": "adcf735d75851ef41792bdf0860969a22b90ed6fd0de1f7f37c1bbfce6b84b99",
         "version": 1,
-        "current_sha256": "3a0250dc48311580917554d6a55e2606136e0ba8fad588583e4a18eee5762289"
+        "current_sha256": "adcf735d75851ef41792bdf0860969a22b90ed6fd0de1f7f37c1bbfce6b84b99"
       },
       "status": "awaiting-approval",
       "current": {
@@ -576,7 +576,7 @@
         "details": "Edit only the café heading.",
         "kind": "action",
         "phase_id": "compose",
-        "pipeline_sha256": "3a0250dc48311580917554d6a55e2606136e0ba8fad588583e4a18eee5762289",
+        "pipeline_sha256": "adcf735d75851ef41792bdf0860969a22b90ed6fd0de1f7f37c1bbfce6b84b99",
         "reason": "edit-source",
         "requested_at": "2026-10-03T12:00:00.000000Z",
         "run_id": "20261003T120000Z-01020304",
@@ -626,9 +626,9 @@
       "visit_status": "active",
       "phase": "compose",
       "skill": {
-        "path": ".agents/skills/compose/SKILL.md",
+        "path": "workflow/skills/compose/SKILL.md",
         "sha256": "0f23854eaf46ea74515485f83b2b9f00230d05f65db9cbbdc807cf695dbbbdbc",
-        "absolute_path": "<ROOT>/.agents/skills/compose/SKILL.md"
+        "absolute_path": "<ROOT>/workflow/skills/compose/SKILL.md"
       },
       "inputs": [
         {
@@ -672,7 +672,7 @@
           "details": "Edit only the café heading.",
           "kind": "action",
           "phase_id": "compose",
-          "pipeline_sha256": "3a0250dc48311580917554d6a55e2606136e0ba8fad588583e4a18eee5762289",
+          "pipeline_sha256": "adcf735d75851ef41792bdf0860969a22b90ed6fd0de1f7f37c1bbfce6b84b99",
           "reason": "edit-source",
           "requested_at": "2026-10-03T12:00:00.000000Z",
           "run_id": "20261003T120000Z-01020304",
@@ -687,7 +687,7 @@
           "details": "Edit the title.",
           "kind": "action",
           "phase_id": "compose",
-          "pipeline_sha256": "3a0250dc48311580917554d6a55e2606136e0ba8fad588583e4a18eee5762289",
+          "pipeline_sha256": "adcf735d75851ef41792bdf0860969a22b90ed6fd0de1f7f37c1bbfce6b84b99",
           "reason": "edit-source",
           "requested_at": "2026-10-03T12:00:00.000000Z",
           "run_id": "20261003T120000Z-01020304",

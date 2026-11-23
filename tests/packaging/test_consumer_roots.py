@@ -54,7 +54,7 @@ def write_consumer(root: Path, phase: str, *, allow_non_git: bool = False) -> No
         "workflow/instructions.md": "# Consumer instructions\n",
         "workflow/pipelines.toml": 'schema_version = 1\n[[pipelines]]\nid = "shared"\npath = "pipelines/flow.toml"\n',
         "workflow/pipelines/flow.toml": (
-            f'schema_version = 2\nid = "shared"\nversion = 1\nstart = "{phase}"\n'
+            f'schema_version = 3\nid = "shared"\nversion = 1\nstart = "{phase}"\n'
             'terminal_outcomes = ["done"]\nartifact_pattern = "artifacts/{visit:03}-{phase}.json"\n'
             f'allow_non_git = {str(allow_non_git).lower()}\n'
             f'[[phases]]\nid = "{phase}"\nskill = "compose"\n{source_field}inputs = ["request"]\n'

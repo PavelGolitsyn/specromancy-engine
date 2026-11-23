@@ -245,8 +245,8 @@ def capture_diagnostics() -> dict:
         for name, old, new in (
             ("field-location", 'mutation = "read-only"', 'mutation = "sometimes"'),
             ("transition-location", 'target = "seal"', 'target = "missing"'),
-            ("schema-location", 'validator = "file"',
-             'validator = { type = "json", schema = "result.schema.json" }'),
+            ("schema-location", 'validator = { type = "file" }',
+             'validator = { type = "json", path = "result.schema.json" }'),
         ):
             (fixture.path.parent / "result.schema.json").write_text(
                 '{"type":"object","properties":{"result":{"minLength":1}}}',

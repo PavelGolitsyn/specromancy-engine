@@ -47,6 +47,7 @@ files never create pipeline launch skills and cannot initialize new runs.
 
 To add a pipeline, copy an existing graph into `workflow/pipelines/<id>.toml`,
 set its `id`, customize its phases and transitions, and add its registration.
+Use `schema_version = 3` in the graph and set `version` to your workflow revision.
 Set `skill` to the portable frontmatter name and `skill_source` to its
 repository-relative workflow file. Use `../templates/<name>.md`
 for a shared output template, or a path relative to the graph for a private one.

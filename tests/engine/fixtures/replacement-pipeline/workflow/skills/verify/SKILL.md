@@ -2,7 +2,7 @@
 name: verify
 description: Verify a transformed value when the replacement pipeline requests a decision.
 license: MIT
-compatibility: Specromancy pipeline schema version 2.
+compatibility: Specromancy pipeline schema version 3.
 metadata:
   role: phase
 ---

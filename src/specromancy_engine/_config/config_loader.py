@@ -17,7 +17,7 @@ from .skill_sources import SkillBindings
 from ..graph import validate_graph
 
 
-SUPPORTED_SCHEMA_VERSION = 2
+SUPPORTED_SCHEMA_VERSION = 3
 
 
 def _discover_root(path: Path) -> Path | None:
@@ -41,18 +41,22 @@ class _Loader(FieldContext):
             "allow_non_git",
             "phases",
         }
-        self.check_unknown(raw, allowed_top)
         schema_version = self.require_integer(
             raw.get("schema_version"), "schema_version", minimum=1
         )
         if schema_version != SUPPORTED_SCHEMA_VERSION:
             self.fail(
                 "unsupported-schema-version",
-                f"schema_version {schema_version} is not supported",
+                f"pipeline graph schema_version {schema_version} is not supported",
                 field="schema_version",
                 value=schema_version,
-                remediation=f"set schema_version to {SUPPORTED_SCHEMA_VERSION}",
+                remediation=(
+                    f"author a schema_version = {SUPPORTED_SCHEMA_VERSION} graph with skill_source pointing "
+                    "to a procedure under workflow/ and declare transition_approval_conditions and "
+                    "action_approval_conditions for every phase"
+                ),
             )
+        self.check_unknown(raw, allowed_top)
         pipeline_id = self.require_identifier(raw.get("id"), "id")
         version = self.require_integer(raw.get("version"), "version", minimum=1)
         start = self.require_identifier(raw.get("start"), "start")
@@ -86,7 +90,7 @@ class _Loader(FieldContext):
                 value=raw_phases,
                 remediation="declare one or more [[phases]] tables",
             )
-        phases = tuple(parse_phase(self, item) for item in raw_phases)
+        phases = tuple(parse_phase(self, item, pipeline_id) for item in raw_phases)
         bindings = adapter_bindings if adapter_bindings is not None else SkillBindings()
         bindings.bind_graph(self, phases)
         if adapter_bindings is None:

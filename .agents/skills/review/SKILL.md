@@ -4,7 +4,7 @@
 name: review
 description: Inspect changes and choose a verdict when the current Specromancy phase is review.
 license: MIT
-compatibility: Specromancy pipeline schema version 2.
+compatibility: Specromancy pipeline schema version 3.
 metadata:
   role: phase
 ---

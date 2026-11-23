@@ -77,7 +77,7 @@ class SkillBindings:
     """One normalized declaration and one resolved file per skill identifier."""
 
     def __init__(self) -> None:
-        self.by_name: dict[str, tuple[str | None, Path]] = {}
+        self.by_name: dict[str, tuple[str, Path]] = {}
         self.by_path: dict[Path, str] = {}
         self.checked: set[Path] = set()
 
@@ -92,14 +92,12 @@ class SkillBindings:
             )
 
     def bind_graph(self, context: FieldContext, phases: tuple[PhaseConfig, ...]) -> None:
-        if not any(phase.skill_source is not None for phase in phases):
-            return
         for phase in phases:
             self._bind(context, phase)
 
     def validate_metadata(self, context: FieldContext, phases: tuple[PhaseConfig, ...]) -> None:
         for phase in phases:
-            if phase.skill_source is not None and phase.skill_path not in self.checked:
+            if phase.skill_path not in self.checked:
                 _validate_skill_metadata(context, phase)
                 self.checked.add(phase.skill_path)
 
@@ -131,12 +129,10 @@ def check_workflow_paths(pipeline: PipelineConfig) -> None:
     """An embedding caller may retain the parsed graph across filesystem changes."""
     context = FieldContext(pipeline.path, pipeline.repository_root)
     for phase in pipeline.phases:
-        if phase.skill_source is None:
-            continue
         resources = (
             ("skill_source", phase.skill_source, phase.skill_path),
             ("output_template", phase.output_template, phase.output_template_path),
-            ("validator_path", phase.validator.declared_path, phase.validator.resolved_path),
+            ("validator.path", phase.validator.declared_path, phase.validator.resolved_path),
         )
         for field, declared, original in resources:
             if declared is None:

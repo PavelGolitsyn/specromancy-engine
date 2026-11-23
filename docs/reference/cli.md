@@ -60,9 +60,10 @@ Paths are not accepted as selectors. Action packets validate using the run ID
 without a selector.
 
 Removing a registration prevents new runs while existing runs can still use
-their original files. Changing or moving their graph causes drift or missing-file
-errors; restoring the original files is required to continue. Unrelated graphs
-are not loaded for an existing-run command.
+their original files. The CLI checks the saved graph’s schema before recovery.
+Finish a run that uses graph schema 1 or 2 with its producing engine and original
+resources, or initialize a separate run under schema 3. Existing-run commands
+load only the saved graph.
 
 ## Approval and stop commands
 

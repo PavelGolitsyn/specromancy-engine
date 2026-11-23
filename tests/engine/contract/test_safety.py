@@ -29,7 +29,7 @@ def phase(name: str, *, target: str | None = None, extra: str = "") -> str:
         output_name = "{{visit:03}}-{name}.md"
         mutation = "read-only"
         completion_criteria = ["Complete safely."]
-        validator = "file"
+        validator = {{ type = "file" }}
         transition_approval_conditions = []
         action_approval_conditions = []
         stop_conditions = []
@@ -57,7 +57,7 @@ class SafetyFixture:
         self.pipeline_path.write_text(
             textwrap.dedent(
                 f"""
-                schema_version = 2
+                schema_version = 3
                 id = "safety"
                 version = 1
                 start = "{names[0]}"

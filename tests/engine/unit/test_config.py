@@ -32,7 +32,7 @@ inputs = ["request"]
 output_name = "{visit:03}-result.md"
 mutation = "read-only"
 completion_criteria = ["Write the result."]
-validator = "file"
+validator = { type = "file" }
 transition_approval_conditions = []
 action_approval_conditions = []
 stop_conditions = []
@@ -45,7 +45,7 @@ outcome = "done"
 
 def document(phase: str = PHASE, **changes: str) -> str:
     values = {
-        "schema_version": "2",
+        "schema_version": "3",
         "id": '"fixture"',
         "version": "1",
         "start": '"compose"',
@@ -113,7 +113,7 @@ class WorkflowSourceTests(unittest.TestCase):
         phase = schema["$defs"]["phase"]
         rule = phase["properties"]["skill_source"]
         self.assertEqual(rule["type"], "string")
-        self.assertNotIn("skill_source", phase["required"])
+        self.assertIn("skill_source", phase["required"])
         for spelling in (self.source, "./workflow//skills/./compose/SKILL.md"):
             with self.subTest(spelling=spelling):
                 self.assertRegex(spelling, rule["pattern"])
@@ -148,7 +148,7 @@ class WorkflowSourceTests(unittest.TestCase):
     def test_portable_strings_and_flat_metadata(self) -> None:
         self.skill.write_text(
             "---\nname: 'compose'\ndescription: \"Use when editing: record evidence.\"\n"
-            "compatibility: Specromancy pipeline schema version 2.\nlicense: MIT\n"
+            "compatibility: Specromancy pipeline schema version 3.\nlicense: MIT\n"
             "metadata:\n  role: phase\n  revision: '2'\n---\n", encoding="utf-8"
         )
         self.assertEqual(self.load(self.graph_text).phases[0].skill_path, self.skill)
@@ -162,12 +162,11 @@ class WorkflowSourceTests(unittest.TestCase):
         outside_alias = outside.with_name("alias")
         outside_alias.symlink_to(self.skill)
         for ref in ("../../.opencode/generated", "../../.opencode/alias", "../link"):
-            for field in ("output_template", "validator_path"):
+            for field in ("output_template", "validator.path"):
                 with self.subTest(ref=ref, field=field):
-                    if field == "validator_path":
-                        graph = self.graph_text.replace('validator = "markdown"',
-                                                        f'validator = {{type = "json", schema = "{ref}"}}')
-                        graph = graph.replace('required_headings = ["Result"]', '')
+                    if field == "validator.path":
+                        graph = self.graph_text.replace('validator = { type = "markdown", required_headings = ["Result"] }',
+                                                        f'validator = {{type = "json", path = "{ref}"}}')
                     else:
                         graph = self.graph_text.replace("../templates/shared.md", ref)
                     self.assert_failure(graph, "unsafe-path", field)
@@ -344,6 +343,22 @@ class ConfigTests(unittest.TestCase):
         self.assert_error(document(legacy), "unknown-field")
         self.assert_error(document(schema_version="1"), "unsupported-schema-version")
 
+    def test_schema_three_refuses_retired_field_spellings(self) -> None:
+        validator = 'validator = { type = "file" }'
+        for declaration, diagnostic, field in (
+            ('validator = "file"', "invalid-field-type", "validator"),
+            ('validator = { type = "json", schema = "result.json" }', "unknown-field", "schema"),
+            (validator + '\nrequired_headings = []', "unknown-field", "required_headings"),
+            (validator + '\nheading_occurrence = "exactly-once"', "unknown-field", "heading_occurrence"),
+            (validator + '\nvalidator_path = "result.json"', "unknown-field", "validator_path"),
+            (validator + '\nmutation_allowlist = []', "unknown-field", "mutation_allowlist"),
+            (validator + '\nvalidation_commands = []', "unknown-field", "validation_commands"),
+            (validator + '\ncommands = [["check"]]', "invalid-field-type", "commands"),
+        ):
+            with self.subTest(declaration=declaration):
+                error = self.assert_error(document(PHASE.replace(validator, declaration)), diagnostic)
+                self.assertEqual(error.details["field"], field)
+
     def test_reserved_phase_id_is_rejected(self) -> None:
         phase = PHASE.replace('id = "compose"', 'id = "status"')
         self.assert_error(document(phase, start='"status"'), "reserved-phase-id")
@@ -375,24 +390,17 @@ class ConfigTests(unittest.TestCase):
         )
         self.assert_error(document(phase), "missing-file")
 
-    def test_legacy_skill_resolution_and_hash_do_not_depend_on_procedure_bytes(self) -> None:
-        legacy = self.fixture.root / ".agents/skills/compose/SKILL.md"
-        legacy.parent.mkdir(parents=True)
-        legacy.write_bytes((self.fixture.root / "workflow/skills/compose/SKILL.md").read_bytes())
-        path = self.fixture.write(document().replace('skill_source = "workflow/skills/compose/SKILL.md"\n', ""))
-        first = load_pipeline(path)
-        skill = self.fixture.root / ".agents/skills/compose/SKILL.md"
-        self.assertEqual(first.phase("compose").skill_path, skill.resolve())
-        self.assertNotIn("skill_source", json.loads(first.canonical_json)["phases"][0])
-        skill.write_bytes(skill.read_bytes() + b"\nUpdated procedure.\n")
-        self.assertEqual(load_pipeline(path).canonical_json, first.canonical_json)
-        self.assertEqual(load_pipeline(path).config_hash, first.config_hash)
-        skill.unlink()
-        with self.assertRaises(PipelineConfigError) as caught:
-            load_pipeline(path)
-        self.assertEqual(caught.exception.diagnostic_code, "missing-file")
-        self.assertEqual(caught.exception.details["field"], "skill")
-        self.assertEqual(caught.exception.details["value"], ".agents/skills/compose/SKILL.md")
+    def test_missing_source_is_rejected_even_with_a_discovery_wrapper(self) -> None:
+        wrapper = self.fixture.root / ".agents/skills/compose/SKILL.md"
+        wrapper.parent.mkdir(parents=True)
+        wrapper.write_bytes((self.fixture.root / "workflow/skills/compose/SKILL.md").read_bytes())
+        error = self.assert_error(
+            document().replace('skill_source = "workflow/skills/compose/SKILL.md"\n', ""),
+            "missing-skill-source",
+        )
+        self.assertEqual(error.details["field"], "skill_source")
+        self.assertEqual(error.details["phase"], "compose")
+        self.assertIn("fixture", error.message)
 
     def test_unsafe_template_and_output_paths_are_rejected(self) -> None:
         (self.fixture.root / "outside.md").write_text("# Safe parent\n", encoding="utf-8")
@@ -409,7 +417,7 @@ class ConfigTests(unittest.TestCase):
             "unsafe-output-path",
         )
 
-    def test_template_parent_segments_may_stay_inside_repository(self) -> None:
+    def test_template_parent_segments_may_stay_inside_workflow(self) -> None:
         template = self.fixture.root / "workflow/shared.md"
         template.write_text("# Shared\n", encoding="utf-8")
         phase = PHASE.replace(
@@ -447,7 +455,7 @@ class ConfigTests(unittest.TestCase):
             output_name = "compose.md"
             mutation = "read-only"
             completion_criteria = ["Choose a route."]
-            validator = "file"
+            validator = { type = "file" }
             transition_approval_conditions = []
             action_approval_conditions = []
             stop_conditions = []
@@ -467,7 +475,7 @@ class ConfigTests(unittest.TestCase):
             output_name = "produce.md"
             mutation = "read-only"
             completion_criteria = ["Produce."]
-            validator = "file"
+            validator = { type = "file" }
             transition_approval_conditions = []
             action_approval_conditions = []
             stop_conditions = []
@@ -484,7 +492,7 @@ class ConfigTests(unittest.TestCase):
             output_name = "consume.md"
             mutation = "read-only"
             completion_criteria = ["Consume."]
-            validator = "file"
+            validator = { type = "file" }
             transition_approval_conditions = []
             action_approval_conditions = []
             stop_conditions = []
@@ -504,7 +512,7 @@ class ConfigTests(unittest.TestCase):
         self.assert_error(document(phase, start='"done"'), "terminal-outcome-phase")
 
     def test_diagnostic_serializes_without_traceback_data(self) -> None:
-        error = self.assert_error(document(schema_version="3"), "unsupported-schema-version")
+        error = self.assert_error(document(schema_version="4"), "unsupported-schema-version")
         payload = error.as_dict()
         self.assertEqual(payload["code"], ExitCode.INVALID_PIPELINE)
         json.dumps(payload)
@@ -524,7 +532,7 @@ class ConfigTests(unittest.TestCase):
                 start = "compose"
                 version = 1
                 id = "fixture"
-                schema_version = 2
+                schema_version = 3
                 {reordered_phase}
                 """
             ),
@@ -562,8 +570,8 @@ class ConfigTests(unittest.TestCase):
         schema = self.fixture.root / "workflow/config" / "result.schema.json"
         schema.write_text('{"type":"string","minLength":1}', encoding="utf-8")
         phase = PHASE.replace(
-            'validator = "file"',
-            'validator = { type = "json", schema = "result.schema.json" }',
+            'validator = { type = "file" }',
+            'validator = { type = "json", path = "result.schema.json" }',
         )
         self.assert_error(document(phase), "unsupported-json-schema")
 
@@ -604,10 +612,11 @@ class ConfigTests(unittest.TestCase):
     def test_multiple_invalid_fields_preserve_the_first_complete_diagnostic(self) -> None:
         cases = [
             ("a_extra = true\n" + document(),
-             "z_extra = false\na_extra = true\n" + document(schema_version="false"),
+             "z_extra = false\na_extra = true\n" + document(),
              "unknown-field", "a_extra"),
             (document(schema_version="false"),
-             document(schema_version="false", id="42"), "invalid-field-type", "schema_version"),
+             "retired = true\n" + document(schema_version="false", id="42"),
+             "invalid-field-type", "schema_version"),
             (document(PHASE.replace('id = "compose"', 'id = "Bad"')),
              document(PHASE.replace('id = "compose"', 'id = "Bad"\nextra = true')),
              "invalid-identifier", "id"),
@@ -615,11 +624,11 @@ class ConfigTests(unittest.TestCase):
              document(PHASE.replace("workflow/skills/compose/", "workflow/skills/missing/")
                       .replace('inputs = ["request"]', 'inputs = false')),
              "missing-file", "skill_source"),
-            (document(PHASE.replace('validator = "file"', 'validator = "unknown"')),
-             document(PHASE.replace('validator = "file"', 'validator = "unknown"\ncommands = false')),
+            (document(PHASE.replace('validator = { type = "file" }', 'validator = { type = "unknown" }')),
+             document(PHASE.replace('validator = { type = "file" }', 'validator = { type = "unknown" }\ncommands = false')),
              "invalid-validator", "validator"),
-            (document(PHASE.replace('validator = "file"', 'validator = "file"\ncommands = false')),
-             document(PHASE.replace('validator = "file"', 'validator = "file"\ncommands = false')
+            (document(PHASE.replace('validator = { type = "file" }', 'validator = { type = "file" }\ncommands = false')),
+             document(PHASE.replace('validator = { type = "file" }', 'validator = { type = "file" }\ncommands = false')
                       .replace('outcome = "done"', 'outcome = false')),
              "invalid-field-type", "commands"),
         ]
@@ -634,8 +643,8 @@ class ConfigTests(unittest.TestCase):
         schema = self.fixture.root / "workflow/shared.schema.json"
         schema.write_text('{"type":"string"}', encoding="utf-8")
         phase = PHASE.replace(
-            'validator = "file"',
-            'validator = { type = "json", schema = "../shared.schema.json" }',
+            'validator = { type = "file" }',
+            'validator = { type = "json", path = "../shared.schema.json" }',
         )
         path = self.fixture.write(document(phase))
         first = load_pipeline(path)
@@ -648,7 +657,7 @@ class ConfigTests(unittest.TestCase):
         with self.assertRaises(PipelineConfigError) as raised:
             load_pipeline(path)
         self.assertEqual(raised.exception.diagnostic_code, "unsupported-json-schema")
-        self.assertEqual(raised.exception.details["field"], "validator_path")
+        self.assertEqual(raised.exception.details["field"], "validator.path")
         self.assertEqual(raised.exception.details["value"], "../shared.schema.json")
         with tempfile.TemporaryDirectory() as outside:
             external = Path(outside) / "schema.json"

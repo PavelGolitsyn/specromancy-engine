@@ -84,7 +84,7 @@ The source visit completes and the target visit is prepared atomically, but the
 run remains `paused` until `specromancy resume RUN_ID` releases it. Pauses are
 independent from approvals and are rejected on terminal transitions. Omitting
 `pause`, or setting it to `false`, preserves ordinary transition behavior and
-the canonical hash of an otherwise unchanged version-1 pipeline.
+the same canonical graph hash.
 
 ## Skills and templates
 
@@ -116,16 +116,11 @@ optional `license` and `compatibility`. Optional `metadata` holds a flat mapping
 of string values indented two spaces. Quote values containing YAML punctuation
 such as a colon followed by a space.
 
-With `skill_source`, the procedure, template and validator files must all resolve
-under the repository's actual `workflow/` directory. The directory itself must
+The declared paths and resolved files for procedures, templates and validators
+must stay under the repository's actual `workflow/` directory. The directory itself must
 not be a symlink. Descendant links can target files elsewhere inside it. Use
 forward slashes and omit parent segments in `skill_source`. The CLI returns
 the canonical procedure in `action.skill` and checks its bytes on continuation.
-
-For an existing graph without `skill_source`, the runtime still loads
-`.agents/skills/<skill>/SKILL.md`. Adapter generation requires explicit declarations in every registered graph. Adding the field changes the graph hash. Finish an
-existing run with its original graph and procedure bytes, or retain its checkout
-and start new runs in a separate checkout.
 
 `output_template` is relative to the pipeline file. `../templates/result.md`
 can reference shared `workflow/templates/`; multiple graphs may use the same
@@ -137,9 +132,10 @@ the documented project-owned schema subset. Templates should contain every
 required heading exactly once and meaningful placeholder content that a valid
 artifact must replace.
 
-JSON validator `path` (or `schema`) resolves relative to the pipeline file and
-follows the same containment rule as the template. Legacy phases use the
-consumer root as their resource boundary. The
+Declare validators as TOML tables, for example
+`validator = { type = "markdown", required_headings = ["Summary"] }`.
+For JSON, `validator = { type = "json", path = "../schemas/result.json" }`
+resolves the schema relative to the graph inside `workflow/`. The
 `load_json_schema(path)` API still reads these project-owned files and rejects
 unsupported keywords. The four published engine schemas are a separate package
 resource contract, not artifact validators for that subset; see
@@ -188,7 +184,7 @@ separate pipeline and store for each consumer; no new builder API is required.
 
 ## Approvals and stops
 
-In pipeline schema version 2, every phase declares both approval lists. Use
+In pipeline schema version 3, every phase declares both approval lists. Use
 empty arrays when a phase has no reasons of that kind. Each reason must occur
 in only one list per phase.
 
@@ -222,7 +218,7 @@ work; repository instructions still apply.
 
 ## Validation commands
 
-Commands are arrays, never shell strings:
+Each command table specifies an argument array in `argv`.
 
 ```toml
 [[phases.commands]]
@@ -252,12 +248,19 @@ Selection and regeneration write ordinary repository files. Make these edits
 before starting a read-only visit. An active visit's original mutation policy
 and allowlist still apply during validation and approval.
 
-A run stores its pipeline hash. Any pipeline change causes `resume`, `phase`,
-and transition commands to reject that run with `pipeline-hash-mismatch`.
-Approval records also become stale. The engine deliberately has no active-run
-migration: finish the old run before editing its pipeline, restore the exact
-old configuration to resume it, or initialize a new run under the new hash.
-Never edit `run.json` to force compatibility.
+The graph's `schema_version = 3` selects the engine's TOML format. The
+positive integer `version` is the author's revision of this particular workflow.
+Each run saves that revision and the SHA-256 of the canonical graph. Editing a
+phase changes the hash even if the author keeps the revision number. A prepared
+visit also records the resolved procedure and template paths and their raw byte
+hashes.
+
+To upgrade from graph schema 1 or 2, finish active runs with their producing
+engine and original resources, or initialize a separate run under the new graph.
+Declare each phase's `skill_source` and both approval lists. Use `allowlist` and
+`commands` for mutation patterns and command tables. Move validator options into
+the `validator` table and use `path` for a JSON schema file. Keep the registry and
+harness-selection declarations at `schema_version = 1`.
 
 Removing a registration disables new runs and removes unchanged generated
 launch skills on regeneration. Keep original graph, skill, and template files

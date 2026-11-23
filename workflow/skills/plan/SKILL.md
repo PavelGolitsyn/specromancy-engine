@@ -2,7 +2,7 @@
 name: plan
 description: Map requirements to files and verification when the current Specromancy phase is plan.
 license: MIT
-compatibility: Specromancy pipeline schema version 2.
+compatibility: Specromancy pipeline schema version 3.
 metadata:
   role: phase
 ---

@@ -160,44 +160,6 @@ class FieldContext:
             )
         return tuple(parsed)
 
-    def existing_path(
-        self,
-        declared: str,
-        field: str,
-        *,
-        phase: str | None = None,
-        base: Path | None = None,
-    ) -> Path:
-        if not _safe_declared_path(declared, allow_parent=True):
-            self.fail(
-                "unsafe-path",
-                f"{field} must be a safe repository-relative path",
-                phase=phase,
-                field=field,
-                value=declared,
-                remediation="use a relative path that resolves inside the repository",
-            )
-        candidate = ((base or self.path.parent) / declared).resolve()
-        if not candidate.is_relative_to(self.repository_root):
-            self.fail(
-                "unsafe-path",
-                f"{field} resolves outside the repository",
-                phase=phase,
-                field=field,
-                value=declared,
-                remediation="choose a file inside the repository",
-            )
-        if not candidate.is_file():
-            self.fail(
-                "missing-file",
-                f"referenced file does not exist: {declared}",
-                phase=phase,
-                field=field,
-                value=declared,
-                remediation="create the referenced file or correct the path",
-            )
-        return candidate
-
     def workflow_path(
         self, declared: str, field: str, *, phase: str | None = None,
         base: Path | None = None, allow_parent: bool = False,
@@ -232,12 +194,9 @@ class FieldContext:
         return resolved
 
     def phase_dependency(
-        self, declared: str, field: str, *, phase: str, workflow_owned: bool,
+        self, declared: str, field: str, *, phase: str,
     ) -> Path:
-        if workflow_owned:
-            return self.workflow_path(declared, field, phase=phase,
-                                      base=self.path.parent, allow_parent=True)
-        return self.existing_path(declared, field, phase=phase)
+        return self.workflow_path(declared, field, phase=phase, base=self.path.parent, allow_parent=True)
 
     def check_unknown(
         self,

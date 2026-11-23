@@ -14,7 +14,7 @@
     "phases"
   ],
   "properties": {
-    "schema_version": {"const": 2},
+    "schema_version": {"const": 3},
     "id": {"$ref": "#/$defs/identifier"},
     "version": {"type": "integer", "minimum": 1},
     "start": {"$ref": "#/$defs/identifier"},
@@ -43,44 +43,29 @@
       "items": {"type": "string", "minLength": 1}
     },
     "validator": {
-      "oneOf": [
-        {"enum": ["markdown", "json", "file"]},
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["type"],
-          "properties": {
-            "type": {"enum": ["markdown", "json", "file"]},
-            "required_headings": {"$ref": "#/$defs/stringList"},
-            "heading_occurrence": {"enum": ["exactly-once", "at-least-once"]},
-            "path": {"type": "string", "minLength": 1},
-            "schema": {"type": "string", "minLength": 1}
-          }
-        }
-      ]
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type": {"enum": ["markdown", "json", "file"]},
+        "required_headings": {"$ref": "#/$defs/stringList"},
+        "heading_occurrence": {"enum": ["exactly-once", "at-least-once"]},
+        "path": {"type": "string", "minLength": 1}
+      }
     },
     "command": {
-      "oneOf": [
-        {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["argv"],
+      "properties": {
+        "argv": {
           "type": "array",
           "minItems": 1,
           "items": {"type": "string", "minLength": 1}
         },
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["argv"],
-          "properties": {
-            "argv": {
-              "type": "array",
-              "minItems": 1,
-              "items": {"type": "string", "minLength": 1}
-            },
-            "timeout_seconds": {"type": "number", "exclusiveMinimum": 0},
-            "required": {"type": "boolean"}
-          }
-        }
-      ]
+        "timeout_seconds": {"type": "number", "exclusiveMinimum": 0},
+        "required": {"type": "boolean"}
+      }
     },
     "transition": {
       "type": "object",
@@ -99,6 +84,7 @@
       "required": [
         "id",
         "skill",
+        "skill_source",
         "inputs",
         "output_name",
         "mutation",
@@ -122,19 +108,11 @@
         "output_template": {"type": "string", "minLength": 1},
         "mutation": {"enum": ["read-only", "repository-write", "allowlist"]},
         "allowlist": {"$ref": "#/$defs/stringList"},
-        "mutation_allowlist": {"$ref": "#/$defs/stringList"},
         "completion_criteria": {
           "allOf": [{"$ref": "#/$defs/stringList"}, {"minItems": 1}]
         },
         "validator": {"$ref": "#/$defs/validator"},
-        "validator_path": {"type": "string", "minLength": 1},
-        "required_headings": {"$ref": "#/$defs/stringList"},
-        "heading_occurrence": {"enum": ["exactly-once", "at-least-once"]},
         "commands": {
-          "type": "array",
-          "items": {"$ref": "#/$defs/command"}
-        },
-        "validation_commands": {
           "type": "array",
           "items": {"$ref": "#/$defs/command"}
         },

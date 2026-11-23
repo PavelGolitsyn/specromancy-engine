@@ -26,7 +26,8 @@ matches. Unowned and edited stale files are preserved and reported as conflicts.
 Generation restores current manifest-owned output even if edited; `--check`
 reports those edits without writing. Preserve intentional edits before
 regenerating and incorporate their intended changes into canonical sources.
-During migration, first relocate hand-written instructions and phase skills.
+For graph schema 3, move hand-written instructions and procedures under
+`workflow/` and declare a `skill_source` for every phase before generating wrappers.
 Older manifests retain the ownership limits of their own versions.
 
 All harnesses need the installed command on their process's `PATH`; terminal

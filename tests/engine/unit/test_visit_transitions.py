@@ -22,7 +22,7 @@ def visit(status="pending", *, ordinal=1, phase="compose"):
         phase_id=phase, ordinal=ordinal, attempt=ordinal, status="pending",
         inputs=[{"reference": "request", "path": "artifacts/request.md", "sha256": HASH}],
         output_path=f"artifacts/{ordinal}.md", mutation_policy="read-only",
-        mutation_baseline=None, skill={"path": "skills/compose.md", "sha256": HASH},
+        mutation_baseline=None, skill={"path": "workflow/skill.md", "sha256": HASH},
         template=None, started_at=None,
     )
     value["status"] = status
@@ -52,7 +52,8 @@ def manifest(status="pending", *, run_status="active"):
 
 def pipeline(*, max_visits=None, max_traversals=None):
     phase = PhaseConfig(
-        id="compose", skill="compose", skill_path=Path("/unused/skill.md"),
+        id="compose", skill="compose", skill_source="workflow/skill.md",
+        skill_path=Path("/unused/workflow/skill.md"),
         inputs=("request",), output_name="output.md", output_template=None,
         output_template_path=None, mutation="read-only", allowlist=(),
         completion_criteria=("Write.",), validator=ValidatorConfig("file"),
@@ -61,7 +62,7 @@ def pipeline(*, max_visits=None, max_traversals=None):
         max_visits=max_visits,
     )
     return PipelineConfig(
-        schema_version=2, id="fixture", version=1, start="compose",
+        schema_version=3, id="fixture", version=1, start="compose",
         terminal_outcomes=("done",), artifact_pattern="artifacts/{visit}.md",
         allow_non_git=True, phases=(phase,), path=Path("/unused/pipeline.toml"),
         repository_root=Path("/unused"), canonical_json="{}", config_hash=HASH,

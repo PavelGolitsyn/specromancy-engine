@@ -30,7 +30,7 @@ class ActionApprovalTests(unittest.TestCase):
         self.source = self.path.read_text()
         self.source = self.source.replace("transition_approval_conditions = []\naction_approval_conditions = []",
             f'transition_approval_conditions = ["{TRANSITION}"]\n'
-            f'action_approval_conditions = ["{ACTION}"]\ncommands = [{json.dumps(command)}]')
+            f'action_approval_conditions = ["{ACTION}"]\ncommands = [{{ argv = {json.dumps(command)} }}]')
         self.source = self.source.replace('stop_conditions = []', 'stop_conditions = ["stopped"]')
         self.path.write_text(self.source)
         self.pipeline = load_pipeline(self.path, self.root)

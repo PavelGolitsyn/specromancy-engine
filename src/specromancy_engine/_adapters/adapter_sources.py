@@ -136,7 +136,6 @@ def capture_workflow_sources(
     for pipeline in pipelines:
         for phase in pipeline.phases:
             if phase.skill not in skills:
-                assert phase.skill_source is not None  # checked across all registrations
                 source = _workflow_text("canonical-skill", phase.skill_source, phase.skill_path, read)
                 lines = source.content.decode("utf-8").splitlines()
                 frontmatter = "\n".join(lines[1:lines.index("---", 1)])

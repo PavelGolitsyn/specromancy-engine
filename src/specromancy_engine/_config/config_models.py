@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -41,6 +41,7 @@ class TransitionConfig:
 class PhaseConfig:
     id: str
     skill: str
+    skill_source: str = field(kw_only=True)
     skill_path: Path
     inputs: tuple[str, ...]
     output_name: str
@@ -56,7 +57,6 @@ class PhaseConfig:
     stop_conditions: tuple[str, ...]
     transitions: tuple[TransitionConfig, ...]
     max_visits: int | None = None
-    skill_source: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

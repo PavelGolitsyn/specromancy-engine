@@ -112,7 +112,7 @@ Each root owns its registry, graphs, skills, templates, validator schemas, and
 `.specromancy/runs/`. Graph and resource resolution is scoped to that root on
 each load; identical pipeline IDs in different projects do not share state.
 Skills resolve from the root; templates and validator schemas resolve from the
-graph's directory. Explicit workflow sources use the containment rules below.
+graph's directory. All three use the workflow containment rules below.
 No installed command
 requires writes to the package, the producer checkout, or home-directory
 configuration. Python bytecode caching can be disabled independently with
@@ -308,19 +308,20 @@ original files exist. Registry ordering and unrelated graph edits do not alter
 another pipeline's run. Every workflow command requires a valid registry;
 help remains available without one.
 
-### Workflow-owned procedures (pipeline schema 2)
+### Workflow-owned procedures (pipeline schema 3)
 
-A phase may declare `skill_source = "workflow/skills/compose/SKILL.md"` alongside
+Each phase declares `skill_source = "workflow/skills/compose/SKILL.md"` alongside
 `skill = "compose"`. The identifier remains lowercase kebab-case. The source
 is a repository-relative POSIX file path with no parent segments. The parser
 normalizes redundant separators and current-directory segments, stores this
 declared path as `PhaseConfig.skill_source`, and includes it in canonical JSON.
+Callers constructing `PhaseConfig` directly must supply the `skill_source` keyword.
 `PhaseConfig.skill_path` holds the resolved regular file. Both the declared
 location and the symlink target of each procedure, output template, and validator
 must be inside a non-symlinked `workflow/` directory. Templates and validators
 retain their graph-relative bases, including safe `../templates/` references.
 
-Each explicit skill has portable UTF-8 frontmatter with a matching `name` and a
+Each skill has portable UTF-8 frontmatter with a matching `name` and a
 nonempty `description`. See [authoring pipelines](../guides/authoring-pipelines.md#skills-and-templates)
 for the supported fields. Each identifier binds to one normalized declaration
 and one resolved file. A file can serve multiple phases under the same identifier.
@@ -330,10 +331,19 @@ path checks bindings across the registry and requires explicit sources in every 
 the registry. Its `load_adapter_pipelines(root)` method rechecks the supplied
 registry and registration paths before loading graphs and reuses the parsed registry.
 
-When the field is omitted, the engine resolves the procedure at
-`.agents/skills/<skill>/SKILL.md` and checks that templates and validators
-stay inside the repository. Adding the field changes pipeline identity. Keep the original checkout,
-graph and recorded resource bytes available to finish an existing run.
+Graph schema 3 requires `skill_source`, `transition_approval_conditions`, and
+`action_approval_conditions` on every phase. The loader checks `schema_version`
+before it interprets graph fields. A missing source declaration in schema 3
+reports `missing-skill-source` with the pipeline, phase and field. The registry
+and harness-selection documents each use their own schema version 1.
+
+The graph author controls the positive integer `version`. A run saves the graph
+ID, path, author revision, and SHA-256 of the canonical configuration, including
+its schema version and normalized procedure declarations. A semantic graph edit
+changes the hash even at the same revision. Finish runs created under a retired
+graph schema with the producing engine and original resources, or initialize
+a separate run under schema 3.
+
 Prepared visits seal the raw bytes at the resolved procedure path and return
 that path and digest in `action.skill`. A missing declared source is an error,
 even when a same-named discovery file exists. A retained Python configuration
@@ -384,9 +394,8 @@ it is not guaranteed to leave every run byte-identical.
 Graph and artifact drift can invalidate approval. Prepared skill/template drift
 produces provenance warnings and prevents continuation. Editing an approved output
 before advancement marks the approval stale and requires a fresh decision.
-Finish active runs before changing their graph or consumed resources, or retain
-the exact resources recorded by those runs. There is no automatic active-run
-conversion; initialize a new run when adopting changed configuration.
+Finish active runs with their producing engine and recorded resources, or
+initialize a separate run when adopting the new graph.
 
 Configuration and adapter changes are separate from installing the engine.
 Preserve project instructions and the adapter manifest, and follow the ownership

@@ -1,4 +1,4 @@
-schema_version = 2
+schema_version = 3
 id = "release-documentation"
 version = 1
 start = "draft-release-notes"
@@ -15,8 +15,7 @@ output_name = "{visit:03}-release-notes.md"
 output_template = "../templates/release-notes.md"
 mutation = "read-only"
 completion_criteria = ["Describe only supplied changes and include the required upgrade action."]
-validator = "markdown"
-required_headings = ["Summary", "Changes", "Upgrade Notes"]
+validator = { type = "markdown", required_headings = ["Summary", "Changes", "Upgrade Notes"] }
 transition_approval_conditions = []
 action_approval_conditions = []
 stop_conditions = ["insufficient-change-data"]
@@ -38,8 +37,7 @@ output_name = "{visit:03}-review.md"
 output_template = "../templates/review.md"
 mutation = "read-only"
 completion_criteria = ["Compare every release claim and upgrade instruction against the request and record a verdict."]
-validator = "markdown"
-required_headings = ["Verdict", "Findings", "Verification"]
+validator = { type = "markdown", required_headings = ["Verdict", "Findings", "Verification"] }
 transition_approval_conditions = []
 action_approval_conditions = []
 stop_conditions = ["unsupported-release-claims"]

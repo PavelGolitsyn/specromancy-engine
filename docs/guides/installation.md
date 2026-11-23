@@ -163,11 +163,13 @@ validation work without this file. Adapter generation and check require it.
 
 ## Upgrade an existing consumer
 
-Run manifests and audit events each use schema version 2. To continue a
-version-1 run, keep its producing engine, original graph and recorded resource
-bytes together. Initialize a separate run when adopting the new engine.
-Adding `skill_source` changes the graph hash. Replacing the old procedure with a
-wrapper changes the prepared visit's recorded skill hash.
+Pipeline graphs use schema 3. Run manifests and events each use schema 2.
+Finish older runs with their producing engine and original workflow resources,
+or initialize a separate run after upgrading. Move procedures and dependencies
+under `workflow/`, declare each phase's `skill_source` and both approval lists,
+and convert validators and commands to tables. The registry and harness
+selection keep their independent schema version 1. See the
+[graph upgrade instructions](authoring-pipelines.md#regeneration-and-active-runs).
 
 When upgrading from an all-target manifest, first save the desired harness list.
 Selecting all five preserves the previous output set. A smaller selection retires
