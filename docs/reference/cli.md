@@ -112,7 +112,7 @@ declarations and consistent skill bindings across registrations. Runtime command
 validate the selected graph independently. Generation rejects `--pipeline`.
 
 The selected harnesses determine which instruction files, wrappers, and launch
-skills are required. The generator-v4, schema-2 manifest records each output
+skills are required. The generator-5, schema-3 ownership manifest records each output
 once with its selected consumers. `--check` reports missing, modified, unexpected or source-stale files
 without writing. See [Adapter generation](contracts.md#adapter-generation).
 

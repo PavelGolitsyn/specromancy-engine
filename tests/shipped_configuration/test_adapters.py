@@ -40,7 +40,8 @@ class ShippedAdapterTests(unittest.TestCase):
         config = tomllib.loads((ROOT / "workflow/adapters.toml").read_text())
         self.assertEqual(config["harnesses"], sorted(HARNESS_MODES))
         self.assertEqual(list(targets), config["harnesses"])
-        self.assertEqual(self.manifest["generator"]["version"], 4)
+        self.assertEqual(self.manifest["schema_version"], 3)
+        self.assertEqual(self.manifest["generator"]["version"], 5)
         generated_by_target = {name: [] for name in HARNESS_MODES}
         for entry in self.manifest["generated"]:
             for target in entry["targets"]:

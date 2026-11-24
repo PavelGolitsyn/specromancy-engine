@@ -336,9 +336,9 @@ class ConsumerRootTests(unittest.TestCase):
         self.assertEqual(snapshot(root), before)
         manifest = json.loads((root / "adapters/manifest.json").read_text())
         self.assertEqual(manifest["generator"], {
-            "name": "specromancy", "version": 4, "command": "specromancy adapters generate",
+            "name": "specromancy", "version": 5, "command": "specromancy adapters generate",
         })
-        self.assertEqual(manifest["schema_version"], 2)
+        self.assertEqual(manifest["schema_version"], 3)
         for entry in manifest["generated"]:
             content = (root / entry["path"]).read_bytes()
             self.assertEqual(hashlib.sha256(content).hexdigest(), entry["sha256"])

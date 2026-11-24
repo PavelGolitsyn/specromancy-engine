@@ -171,18 +171,30 @@ and convert validators and commands to tables. The registry and harness
 selection keep their independent schema version 1. See the
 [graph upgrade instructions](authoring-pipelines.md#regeneration-and-active-runs).
 
-When upgrading from an all-target manifest, first save the desired harness list.
-Selecting all five preserves the previous output set. A smaller selection retires
-unchanged owned files that the project no longer needs.
+### Rebuild adapters from a previous ownership format
 
-Before generation, move hand-written root instructions to
-`workflow/instructions.md` and phase procedures into `workflow/skills/`.
-Update relative references, add the source declarations, and bring referenced
-templates and validators inside `workflow/`. Preserve any custom instructions
-from the former generic launch skill in the authored workflow before relocating
-that file. Keep the previous adapter manifest. The generator validates it using
-its original ownership rules and reports conflicts at occupied unowned paths,
-even if their contents match. Review the resulting manifest and run check mode.
+Generation and check accept ownership manifest schema 3 with generator 5.
+Both return adapter drift (11) for earlier identities, including when the
+desired harness list is empty. Upgrade in a fresh directory.
+
+1. Preserve the original project, including its manifest, generated files,
+   local edits and run data. Use the producing engine's check in that tree
+   to identify edits you want to keep.
+2. Copy the authored workflow into a clean destination. Merge hand-written
+   instructions into `workflow/instructions.md` and custom procedures into
+   `workflow/skills/`. Update relative references, graph source declarations,
+   templates and validators. Leave the old manifest and generated outputs in
+   the original tree.
+3. Set `workflow/adapters.toml` to the desired harness list. In the clean
+   directory, run `specromancy adapters generate`, then
+   `specromancy adapters generate --check`.
+4. Compare the new manifest's paths and file contents with the preserved tree.
+   Review additions, removals, edits and collisions with project files. Adopt
+   the reviewed outputs and their manifest together, then run check in the
+   adopted tree.
+
+Deleting the old manifest alone leaves occupied output paths unowned, even if
+their bytes match. Editing version fields or hashes cannot establish ownership.
 
 ## Contributor environment
 

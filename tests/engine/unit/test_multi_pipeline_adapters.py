@@ -204,7 +204,7 @@ class WorkflowAdapterTests(unittest.TestCase):
         rendered = render_workflow_sources(captured)
         manifest = workflow_manifest(captured, rendered)
         self.assertEqual(list(rendered), sorted(rendered))
-        self.assertEqual((manifest["schema_version"], manifest["generator"]["version"]), (2, 4))
+        self.assertEqual((manifest["schema_version"], manifest["generator"]["version"]), (3, 5))
         inputs = [entry["path"] for entry in manifest["canonical_source"]["inputs"]]
         self.assertEqual(inputs, sorted(set(inputs)))
         self.assertTrue(set(inputs).isdisjoint(rendered))
@@ -353,17 +353,20 @@ class WorkflowAdapterTests(unittest.TestCase):
         selection = self.root / "workflow/adapters.toml"
         select_harnesses(self.root)
         empty = selection.read_bytes()
+        generate_adapters(self.root, registry)
         selection.unlink()
         for relative in ("AGENTS.md", ".claude/CLAUDE.md", MANIFEST_PATH):
             target = self.root / relative
             target.parent.mkdir(exist_ok=True)
-            target.write_bytes(empty)
+            if relative != MANIFEST_PATH:
+                target.write_bytes(empty)
+            original = target.read_bytes()
             selection.symlink_to(target)
             for check in (False, True):
                 with self.subTest(path=relative), self.assertRaises(PipelineConfigError) as caught:
                     generate_adapters(self.root, registry, check=check)
                 self.assertEqual(caught.exception.diagnostic_code, "unsafe-path")
-                self.assertEqual(target.read_bytes(), empty)
+                self.assertEqual(target.read_bytes(), original)
             selection.unlink()
         workflow = self.root / "workflow"
         destination = self.root / ".claude/workflow"

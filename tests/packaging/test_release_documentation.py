@@ -168,7 +168,7 @@ class ReleaseDocumentationTests(unittest.TestCase):
             reference = re.search(r"\[draft template\]\(([^)]+)\)", canonical.read_text()).group(1)
             self.assertEqual((canonical.parent / reference).resolve(), Path(action["template"]["absolute_path"]))
 
-    def test_v2_upgrade_rejects_matching_hash_claim_before_touching_files(self) -> None:
+    def test_historical_claim_refused_and_fresh_directory_upgrade_preserves_original(self) -> None:
         fixture = BUNDLE / "tests/engine/fixtures/refactoring-compatibility/adapters-generator-v2.json"
         for name, record in json.loads(fixture.read_bytes()).items():
             path = self.root / name
@@ -181,22 +181,33 @@ class ReleaseDocumentationTests(unittest.TestCase):
         instructions.write_bytes(b"# Hand-written consumer policy\n")
         forged["generated"].append({"path": "AGENTS.md", "target": "codex",
                                     "sha256": hashlib.sha256(instructions.read_bytes()).hexdigest()})
-        manifest.write_text(json.dumps(forged))
-        before = snapshot(self.root)
-        for options in ((), ("--check",)):
-            result = self.command("adapters", "generate", *options, expected=11)
-            self.assertIn("outside generated adapter locations", result["message"])
-            self.assertEqual(result["details"]["path"], "AGENTS.md")
-            self.assertEqual(snapshot(self.root), before)
-        manifest.write_bytes(valid)
-        before = snapshot(self.root)
-        refused = self.command("adapters", "generate", expected=11)
-        self.assertEqual(refused["details"]["unowned"], ["AGENTS.md"])
-        self.assertEqual(snapshot(self.root), before)
-        instructions.replace(self.root / "workflow/instructions.md")
+        selection = self.root / "workflow/adapters.toml"
+        desired = selection.read_bytes()
+        for contents in (desired, b"schema_version = 1\nharnesses = []\n"):
+            selection.write_bytes(contents)
+            for evidence in (valid, json.dumps(forged).encode()):
+                manifest.write_bytes(evidence)
+                before = snapshot(self.root)
+                for options in ((), ("--check",)):
+                    result = self.command("adapters", "generate", *options, expected=11)
+                    self.assertIn("unsupported adapter manifest generator identity", result["message"])
+                    self.assertEqual(snapshot(self.root), before)
+
+        original = self.root
+        self.root = self.base / "upgraded"
+        shutil.copytree(original / "workflow", self.root / "workflow")
+        (self.root / "workflow/adapters.toml").write_bytes(desired)
+        authored = self.root / "workflow/instructions.md"
+        authored.write_bytes(authored.read_bytes() + b"\n" + instructions.read_bytes())
         self.command("adapters", "generate")
         self.command("adapters", "generate", "--check")
-        self.assertEqual(json.loads(manifest.read_bytes())["schema_version"], 2)
+        reviewed = snapshot(self.root)
+        self.command("adapters", "generate")
+        self.assertEqual(snapshot(self.root), reviewed)
+        self.assertIn(instructions.read_bytes(), (self.root / "AGENTS.md").read_bytes())
+        current = json.loads((self.root / "adapters/manifest.json").read_bytes())
+        self.assertEqual((current["schema_version"], current["generator"]["version"]), (3, 5))
+        self.assertEqual(snapshot(original), before)
 
     def write_draft(self, action: dict) -> None:
         Path(action["output"]["absolute_path"]).write_text(

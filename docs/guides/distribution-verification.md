@@ -151,10 +151,11 @@ The copied suite covers explicit/discovered consumer roots, two-project
 isolation, custom pipeline completion, public API calls, immutable outputs,
 read-only enforcement, and adapter invocation. Original compatibility records
 are replayed without refreshing their expected bytes or hashes, including old
-approvals and exactly-once recovery. Adapter tests verify upgrades from original
-owned files, collision protection, and repeated generation with identical bytes.
+approvals and exactly-once recovery. Adapter tests exercise both commands against all four retired ownership
+identities, check collision and interrupted-write behavior, and compare
+current output with the frozen generator-5 bytes.
 Installed CLI tests also cover registry redirects before TOML parsing, forged
-generator-v2 claims, and reconstruction after removing root instructions and
+generator-2 claims with matching hashes, fresh-directory upgrades, and reconstruction after removing root instructions and
 shared skills. Wrapper tests execute the rendered CLI arguments and resolve
 procedure references from the canonical file. Live harness sessions require
 separate verification.

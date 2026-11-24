@@ -50,7 +50,9 @@ TEST_MODULES = (
     "tests.engine.contract.test_multi_pipeline",
     "tests.engine.contract.test_safety",
     "tests.engine.contract.test_recovery",
+    "tests.engine.contract.test_adapter_drift",
     "tests.engine.unit.test_adapters",
+    "tests.engine.unit.test_multi_pipeline_adapters",
 )
 
 

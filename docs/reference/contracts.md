@@ -217,7 +217,7 @@ unique supported identifiers. Missing configuration reports the supported names
 and an example. Both commands are non-interactive and reject `--pipeline`.
 For nonempty selection generation validates every registration. With an empty
 selection it checks prior ownership and reconciles to zero generated files.
-Generator version 4 writes schema 2 and carries the generator name `specromancy`.
+Generator version 5 writes ownership schema 3 and carries the generator name `specromancy`.
 `--check` compares expected output and ownership without writing. It reports
 drift when the generated tree or manifest differs.
 
@@ -254,7 +254,7 @@ Phase wrappers retain the validated frontmatter and load the declared procedure 
 An action packet identifies the authoritative file. A missing file or a mismatch
 stops the visit. Relative references inside the procedure use its own directory.
 
-In generator v4 each output has one `path`, one `sha256`, and a sorted
+In generator v5 each output has one `path`, one `sha256`, and a sorted
 `targets` list of its selected consumers. Each selected target lists all its required paths. Root `AGENTS.md`
 serves Codex, Hermes, and OpenCode. Shared `.agents/skills` serve those three
 and Copilot. Claude has its own instructions, skills, and commands. Copilot
@@ -262,13 +262,12 @@ also requires its instructions and prompts, and OpenCode its commands. Codex
 and Hermes list the shared skills in `discovery_paths`. Each launch embeds the
 coordination procedure with the registered pipeline ID.
 
-Generation and check validate the previous manifest's generator identity and
-ownership records. Schema 1 generators 1 and 2 use their original single-target
-mapping. Under `.agents` they own only recorded `skills/specromancy-*/SKILL.md`
-outputs. Their Claude mirrors retain the original `.claude/skills/*/SKILL.md`
-grammar. Generator 3 requires the original all-target mapping. Generator 4
-validates attribution against its recorded selection. Both schema-2 versions
-check the consuming targets in both directions. Unrelated
+Generation and check first require any existing ownership manifest to identify
+schema 3, generator 5 and the command `specromancy adapters generate`. Missing,
+mixed, older and future identities return adapter drift (11) before rendering
+or cleanup. Both commands verify the recorded selection input and its hash,
+each path's selected consumers, and each target's paths and native discovery
+paths. Only then does today's selection determine the desired outputs. Unrelated
 skills beside expected outputs are ignored. An existing expected file requires
 valid prior ownership even when its bytes match. Regeneration restores edited
 current outputs and removes stale owned outputs only while their recorded hashes
