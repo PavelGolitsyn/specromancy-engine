@@ -161,7 +161,7 @@ In particular, init and phase start normally return 8. Automation using `set -e`
 must capture and handle that code before continuing with the emitted action.
 Status returns 0 for a readable state; inspect its status and terminal result
 instead of treating that return code alone as workflow completion.
-Full public contracts are recorded in [contracts.md](contracts.md).
+The [format version table](contracts.md#current-format-versions) includes authored inputs, persisted state and generated ownership.
 
 Malformed run or visit statuses, including JSON arrays and objects, return
 `corrupt-run` (12), with `manifest status is invalid` or

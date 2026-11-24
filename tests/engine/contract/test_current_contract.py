@@ -1,23 +1,34 @@
 from __future__ import annotations
 
 import hashlib
+import json
+from importlib.resources import files
 import unittest
 from unittest.mock import patch
 
 import specromancy_engine
-from specromancy_engine import config, engine, hashing
+from specromancy_engine import config, engine, hashing, run_store
+from specromancy_engine._config.config_loader import SUPPORTED_SCHEMA_VERSION
+from specromancy_engine.actions import ACTION_PACKET_SCHEMA_VERSION
+from specromancy_engine.adapters import ADAPTER_SCHEMA_VERSION, GENERATOR_VERSION, MANIFEST_PATH
+from specromancy_engine.contracts import RESPONSE_SCHEMA_VERSION
 from specromancy_engine.engine import Engine
-from tests.engine.contract.compatibility_support import (
-    NOW, RUN_ID, CompatibilityFixture, capture_canonical, capture_diagnostics,
+from specromancy_engine.registry import load_registry
+from specromancy_engine.run_store import EVENT_SCHEMA_VERSION, RUN_SCHEMA_VERSION
+from specromancy_engine.status import STATUS_SCHEMA_VERSION
+from tests.engine.contract.current_contract_support import (
+    NOW, RUN_ID, CurrentContractFixture, capture_canonical, capture_diagnostics,
     capture_lifecycle, normalize_response, read_record,
 )
 from tests.engine.unit.test_adapters import AdapterFixture
 
 
-class CompatibilityContractTests(unittest.TestCase):
+class CurrentContractTests(unittest.TestCase):
     def test_public_imports(self) -> None:
         self.assertIs(specromancy_engine.EngineError, engine.EngineError)
         self.assertIs(specromancy_engine.PipelineConfigError, config.PipelineConfigError)
+        self.assertIs(specromancy_engine.RunCorruptionError, run_store.RunCorruptionError)
+        self.assertIs(specromancy_engine.RunNotFoundError, run_store.RunNotFoundError)
         exports = {
             "ExitCode", "Engine", "EngineError", "PipelineConfig", "PipelineConfigError",
             "PipelineRegistry", "PipelineRegistration", "RunCorruptionError",
@@ -28,7 +39,25 @@ class CompatibilityContractTests(unittest.TestCase):
         for name in exports:
             self.assertTrue(callable(getattr(specromancy_engine, name)), name)
 
-    def test_canonical_pipeline_bytes_and_hashes_match_baseline(self) -> None:
+    def test_packaged_schema_declarations_agree_with_current_formats(self):
+        fixture = CurrentContractFixture()
+        self.addCleanup(fixture.close)
+        registry = json.loads(load_registry(fixture.root).canonical_json)
+        for name, version in (
+            ("pipeline", SUPPORTED_SCHEMA_VERSION), ("pipelines", registry["schema_version"]),
+            ("run", RUN_SCHEMA_VERSION), ("event", EVENT_SCHEMA_VERSION),
+        ):
+            with self.subTest(schema=name):
+                path = files("specromancy_engine").joinpath("schemas", f"{name}.schema.json")
+                schema = json.loads(path.read_bytes())
+                self.assertEqual(schema["properties"]["schema_version"]["const"], version)
+        self.assertEqual(fixture.pipeline.schema_version, SUPPORTED_SCHEMA_VERSION)
+        self.assertEqual(registry, {
+            "schema_version": 1,
+            "pipelines": [{"id": "compatibility", "path": "pipelines/compatibility.toml"}],
+        })
+
+    def test_canonical_pipeline_bytes_and_hashes_match_current_records(self) -> None:
         expected = read_record("canonical.json")
         self.assertEqual(capture_canonical(), expected)
         self.assertEqual(expected["absent"], expected["false"])
@@ -43,13 +72,23 @@ class CompatibilityContractTests(unittest.TestCase):
         self.assertEqual(hashing.canonical_json_bytes({"text": "café 日本語"}),
                          '{"text":"café 日本語"}'.encode("utf-8"))
 
-    def test_response_envelopes_and_persisted_bytes_match_baseline(self) -> None:
+    def test_response_envelopes_and_persisted_bytes_match_current_records(self) -> None:
         states, responses = capture_lifecycle()
-        self.assertEqual(responses, read_record("responses-current.json"))
+        self.assertEqual(responses, read_record("responses.json"))
         self.assertEqual(states, read_record("states.json"))
+        for response in responses.values():
+            self.assertEqual(response["schema_version"], RESPONSE_SCHEMA_VERSION)
+            if "action" in response:
+                self.assertEqual(response["action"]["schema_version"], ACTION_PACKET_SCHEMA_VERSION)
+            if "status" in response:
+                self.assertEqual(response["status"]["schema_version"], STATUS_SCHEMA_VERSION)
+        for snapshot in states.values():
+            self.assertEqual(json.loads(snapshot["run.json"])["schema_version"], RUN_SCHEMA_VERSION)
+            for line in snapshot["events.jsonl"].splitlines():
+                self.assertEqual(json.loads(line)["schema_version"], EVENT_SCHEMA_VERSION)
 
     def test_visit_provenance_hashes_raw_skill_bytes_and_preserves_prepared_records(self) -> None:
-        fixture = CompatibilityFixture()
+        fixture = CurrentContractFixture()
         self.addCleanup(fixture.close)
         skill = fixture.pipeline.phase("compose").skill_path
         normalized = skill.read_bytes()
@@ -72,10 +111,10 @@ class CompatibilityContractTests(unittest.TestCase):
 
     def test_persisted_records_replay_and_recovery_is_exactly_once(self) -> None:
         states = read_record("states.json")
-        responses = read_record("responses-current.json")
+        responses = read_record("responses.json")
         for name, files in states.items():
             with self.subTest(state=name):
-                fixture = CompatibilityFixture(pause=True)
+                fixture = CurrentContractFixture(pause=True)
                 try:
                     fixture.restore(files)
                     manifest = fixture.store.load(RUN_ID)
@@ -130,7 +169,7 @@ class CompatibilityContractTests(unittest.TestCase):
         # Intentional Stage 13 correction, separate from sequential byte replay.
         for boundary in ("paused", "pending", "active", "completed"):
             with self.subTest(boundary=boundary):
-                fixture = CompatibilityFixture(pause=True)
+                fixture = CurrentContractFixture(pause=True)
                 self.addCleanup(fixture.close)
                 fixture.restore(read_record("states.json")["awaiting-approval"])
                 winner = Engine(fixture.pipeline, fixture.new_store())
@@ -164,13 +203,20 @@ class CompatibilityContractTests(unittest.TestCase):
         self.assertEqual(capture_diagnostics(), read_record("diagnostics.json"))
 
     @patch("specromancy_engine._adapters.adapter_sources.get_version", lambda: "0.1.4")
-    def test_generated_adapter_bytes_and_hashes_match_baseline(self) -> None:
+    def test_generated_adapter_bytes_and_hashes_match_current_records(self) -> None:
         fixture = AdapterFixture()
         try:
             fixture.generate()
             actual = {path: {"text": content.decode("utf-8"), "sha256": hashlib.sha256(content).hexdigest()}
                       for path, content in fixture.snapshot().items()}
-            self.assertEqual(actual, read_record("adapters-generator-v5.json"))
+            self.assertEqual(actual, read_record("ownership.json"))
+            manifest = json.loads(actual[MANIFEST_PATH]["text"])
+            self.assertEqual(manifest["schema_version"], ADAPTER_SCHEMA_VERSION)
+            self.assertEqual(manifest["generator"]["version"], GENERATOR_VERSION)
+            selection = next(item for item in manifest["canonical_source"]["inputs"]
+                             if item["path"] == "workflow/adapters.toml")
+            canonical = b'{"harnesses":["claude","codex","copilot","hermes","opencode"],"schema_version":1}'
+            self.assertEqual(selection["sha256"], hashlib.sha256(canonical).hexdigest())
         finally:
             fixture.close()
 

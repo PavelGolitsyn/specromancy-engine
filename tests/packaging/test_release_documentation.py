@@ -169,11 +169,11 @@ class ReleaseDocumentationTests(unittest.TestCase):
             self.assertEqual((canonical.parent / reference).resolve(), Path(action["template"]["absolute_path"]))
 
     def test_historical_claim_refused_and_fresh_directory_upgrade_preserves_original(self) -> None:
-        fixture = BUNDLE / "tests/engine/fixtures/refactoring-compatibility/adapters-generator-v2.json"
-        for name, record in json.loads(fixture.read_bytes()).items():
+        fixture = BUNDLE / "tests/engine/fixtures/refused-contracts/ownership-generator-2.json"
+        for name, content in json.loads(fixture.read_bytes()).items():
             path = self.root / name
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(record["text"])
+            path.write_bytes(content.encode("utf-8"))
         manifest = self.root / "adapters/manifest.json"
         valid = manifest.read_bytes()
         forged = json.loads(valid)

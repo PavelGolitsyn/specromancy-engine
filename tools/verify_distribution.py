@@ -45,13 +45,15 @@ TEST_MODULES = (
     "tests.packaging.test_consumer_roots",
     "tests.packaging.test_release_documentation",
     "tests.engine.contract.test_action_approval",
-    "tests.engine.contract.test_compatibility",
+    "tests.engine.contract.test_current_contract",
     "tests.engine.contract.test_engine_orchestration",
     "tests.engine.contract.test_multi_pipeline",
     "tests.engine.contract.test_safety",
     "tests.engine.contract.test_recovery",
     "tests.engine.contract.test_adapter_drift",
     "tests.engine.unit.test_adapters",
+    "tests.engine.unit.test_registry",
+    "tests.engine.unit.test_run_records",
     "tests.engine.unit.test_multi_pipeline_adapters",
 )
 
@@ -190,7 +192,7 @@ def environment() -> dict[str, str]:
 
 def copy_bundle(destination: Path, consumer_source: Path) -> None:
     files = {m.replace(".", "/") + ".py" for m in TEST_MODULES}
-    files.update({"tests/engine/support.py", "tests/engine/contract/compatibility_support.py",
+    files.update({"tests/engine/support.py", "tests/engine/contract/current_contract_support.py",
                   "tests/engine/contract/support.py"})
     for relative in files:
         target = destination / relative
@@ -200,9 +202,20 @@ def copy_bundle(destination: Path, consumer_source: Path) -> None:
         while parent != destination:
             (parent / "__init__.py").touch()
             parent = parent.parent
-    for fixture in ("refactoring-compatibility", "example-pipeline"):
+    for fixture in ("current-contract/source", "example-pipeline"):
         shutil.copytree(ROOT / "tests/engine/fixtures" / fixture,
                         destination / "tests/engine/fixtures" / fixture)
+    fixtures = Path("tests/engine/fixtures")
+    for directory, names in (
+        ("current-contract", ("canonical.json", "diagnostics.json", "ownership.json",
+                              "responses.json", "states.json")),
+        ("refused-contracts", ("runs-v1.json", "ownership-generator-1.json", "ownership-generator-2.json",
+                               "ownership-generator-3.json", "ownership-generator-4.json")),
+    ):
+        target = destination / fixtures / directory
+        target.mkdir(exist_ok=True)
+        for name in names:
+            shutil.copyfile(ROOT / fixtures / directory / name, target / name)
     for name in EXAMPLE_FILES:
         target = destination / EXAMPLE / name
         target.parent.mkdir(parents=True, exist_ok=True)

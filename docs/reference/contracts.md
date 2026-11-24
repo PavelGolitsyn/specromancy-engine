@@ -29,6 +29,22 @@ The sections below describe the current implementation. The
 [Stage 23 inventory](../implementation-history/refactoring/23-pre-1-contract-policy.md)
 records inherited exceptions and the stages responsible for retiring them.
 
+## Current format versions
+
+| Surface | Version | Consumer action |
+| --- | --- | --- |
+| Registry and harness selection TOML | 1 each | Keep the registry and desired harness list in the authored workflow. |
+| Pipeline graph | 3 | Declare the procedure source and both approval lists for every phase. Use the current validator and command tables. |
+| Run manifest and event log | 2 each | Finish an incompatible run with its producing engine and original workflow resources. Start new work in a separate run. |
+| CLI success/actionable envelope, action packet and status | 2 each | Check the outer and applicable nested versions before interpreting approval bindings. Errors have an unversioned diagnostic shape. |
+| Adapter ownership | Manifest 3, generator 5 | Generate in a fresh consumer and review the resulting files and manifest together. |
+
+Dynamic phase commands, implicit transition request selection where unambiguous,
+explicit and discovered roots, injected stores, same-format replay and crash
+recovery remain supported. The command-line entry points and render-only adapter
+API serve current callers. The table below lists the removed Python spellings.
+See the [executable consumer upgrades](../guides/installation.md#exercise-an-upgrade-in-disposable-consumers).
+
 ## Python import surface
 
 Import `Engine`, `RunStore`, `ExitCode`, `PipelineConfig`, `PipelineRegistry`,

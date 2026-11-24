@@ -49,6 +49,8 @@ specromancy adapters generate --check
 
 ## Ownership and conflicts
 
+For an earlier ownership identity, follow the [fresh-directory upgrade](installation.md#rebuild-adapters-from-a-previous-ownership-format).
+
 Generate before starting a read-only visit. `adapters/manifest.json` records
 generated paths and hashes; canonical consumer instructions stay user-owned.
 Keep the manifest alongside its generated outputs. Check mode writes nothing

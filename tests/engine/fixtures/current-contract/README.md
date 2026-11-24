@@ -2,21 +2,15 @@
 
 The lifecycle records use the current pipeline schema and a test-owned graph in
 `source/`. They cover configuration identity, CLI responses and recovery.
-The historical adapter captures originated on 2026-10-03 at runtime commit
-`7f8aafab4a4f7b6597fded823deb5cd49889450f`.
-The existing `tests.engine.unit.test_adapters.AdapterFixture` supplies adapter
-inputs; its generated outputs are captured separately.
+The all-target adapter inputs come from `AdapterFixture` in the adapter unit tests.
 
 | Record | Contract |
 | --- | --- |
 | `canonical.json` | Exact canonical strings and SHA-256 for omitted pause, explicit false, and true; non-ASCII criteria and omitted optional defaults |
-| `responses-current.json` | Complete version-2 action, approval, status and adapter envelopes, including both pending request kinds and ordered action decisions after restart |
+| `responses.json` | Complete version-2 action, approval, status and adapter envelopes, including both pending request kinds and ordered action decisions after restart |
 | `diagnostics.json` | Exact configuration locations, remediation, error values, CLI exit codes and stdout/stderr routing; outcome-before-output and artifact-before-pipeline mismatch ordering |
-| `states-v1.json` | Original awaiting-approval and recoverable files from `v0.1.3:tests/engine/fixtures/refactoring-compatibility/states.json`. Both produce `unsupported-schema-version` before recovery or mutation. |
 | `states.json` | Schema-2 state name → relative run filename → exact UTF-8 contents, including complete `run.json`, `events.jsonl`, request and output artifacts |
-| `adapters-generator-v5.json` | Current all-target outputs, exact UTF-8 and SHA-256 including the schema-3 ownership manifest |
-| `adapters-generator-v2.json`, `adapters-generator-v3.json`, `adapters-generator-v4.json` | Historical ownership and outputs used to verify refusal before writes |
-| `adapters.json` | Original generated file bytes and hashes at the historical revision above |
+| `ownership.json` | Current all-target outputs, exact UTF-8 and SHA-256 including the schema-3 ownership manifest |
 
 `states.json` includes pending, active, awaiting approval, approved before
 advancement, paused, completed, a recoverable manifest/event gap, and its
@@ -40,14 +34,16 @@ remains covered by the existing safety tests and the added mutation-order test.
 Run the comparison and replay gate with:
 
 ```sh
-python3 -m unittest tests.engine.contract.test_compatibility
+python3 -m unittest tests.engine.contract.test_current_contract
 ```
 
 Tests never rewrite these records. `capture_canonical`, `capture_lifecycle`, and
-`capture_diagnostics` in `tests.engine.contract.compatibility_support` expose
+`capture_diagnostics` in `tests.engine.contract.current_contract_support` expose
 the capture scenarios for inspection. A deliberate contract change must review
 both the scenario and the expected record; do not refresh records merely to make
 an extraction pass. Adapter generation must also stay in `AdapterFixture`'s
 temporary repository.
 
-`responses.json` is a historical capture retained for the implementation history.
+The ownership comparison fixes the package-version input at 0.1.4. The installed
+gate separately exercises the actual candidate version. See the [refusal
+specimens](../refused-contracts/README.md) for earlier formats.

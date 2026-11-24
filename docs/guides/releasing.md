@@ -77,7 +77,8 @@ and writes, and consumers such as harnesses and the installed test bundle.
 - Verify current fixtures, focused and full tests, and reproducible generated
   files. Record how to finish existing work with its producing engine or start
   new work with the current inputs when an upgrade breaks a contract. See the
-  [classification rules](../reference/contracts.md#changing-a-contract-before-10).
+  [classification rules](../reference/contracts.md#changing-a-contract-before-10) and
+  [disposable upgrade examples](installation.md#exercise-an-upgrade-in-disposable-consumers).
 
 1. Finish the release changes and merge them into the default branch. The
    workflow accepts only a full lowercase 40-character commit SHA in that

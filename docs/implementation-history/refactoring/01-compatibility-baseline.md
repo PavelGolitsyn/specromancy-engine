@@ -123,7 +123,7 @@ separate behavioral checks. Newly extracted modules are included by default;
 no directory-wide exclusion is granted to future adapter internals.
 
 The baseline records and capture/replay policy are documented in
-[`refactoring-compatibility/README.md`](../../../tests/engine/fixtures/refactoring-compatibility/README.md).
+[`refactoring-compatibility/README.md`](https://github.com/PavelGolitsyn/specromancy-engine/blob/c5e846a/tests/features/fixtures/refactoring-compatibility/README.md).
 No runtime, shipped configuration, canonical procedures, or generated adapter
 files changed. Snapshots do not involve live runs. Fixed records cover default
 omission and non-ASCII canonicalization, both pause values, all requested

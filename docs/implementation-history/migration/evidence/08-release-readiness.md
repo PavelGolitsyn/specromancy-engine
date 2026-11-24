@@ -58,7 +58,7 @@ This run used the plan's **independent original fixture replay** route. The
 fixtures were captured from runtime commit
 `7f8aafab4a4f7b6597fded823deb5cd49889450f`; their capture procedure and fault
 boundaries are documented in the
-[fixture README](../../../../tests/engine/fixtures/refactoring-compatibility/README.md).
+[fixture README](https://github.com/PavelGolitsyn/specromancy-engine/blob/6093c7812eff7a68e314e46ae8022144497d6e46/tests/engine/fixtures/refactoring-compatibility/README.md).
 No live consumer or producer run was used as a test fixture.
 
 For each installed wheel, the verifier creates a temporary consumer using the

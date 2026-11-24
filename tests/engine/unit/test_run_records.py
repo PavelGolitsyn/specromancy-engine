@@ -5,12 +5,12 @@ import json
 import unittest
 from datetime import datetime, timedelta, timezone
 
-from specromancy_engine._runs import run_errors, run_identity, run_records
+from specromancy_engine._runs import run_records
 from specromancy_engine import run_store
 from specromancy_engine._runs import run_validation
 from specromancy_engine._engine.approvals import approved_record, pending_approval
 from specromancy_engine.status import build_status, next_command
-from tests.engine.contract.compatibility_support import RUN_ID, read_record
+from tests.engine.contract.current_contract_support import RUN_ID, read_record
 
 
 def manifest_at(state: str = "active") -> dict:
@@ -37,7 +37,7 @@ class RecordValidationTests(unittest.TestCase):
                                      {"error_code": "corrupt-run", "run_id": RUN_ID})
                     self.assertEqual(value, original)
 
-    def test_baseline_records_validate_without_mutation(self) -> None:
+    def test_current_records_validate_without_mutation(self) -> None:
         for state, files in read_record("states.json").items():
             with self.subTest(state=state):
                 manifest = json.loads(files["run.json"])
@@ -200,7 +200,7 @@ class RecordValidationTests(unittest.TestCase):
         with self.assertRaisesRegex(run_store.RunCorruptionError, "multiple pending approvals"):
             run_validation.validate_manifest({**value, "approvals": [action, transition]}, RUN_ID)
 
-    def test_nested_compatibility_matrix_remains_accepted_without_mutation(self) -> None:
+    def test_open_metadata_is_accepted_without_mutation(self) -> None:
         cases = [
             (("visits", 0, "validation_checks"), [None, 42]),
             (("visits", 0, "command_results"), ["unstructured"]),
@@ -241,18 +241,7 @@ class RecordValidationTests(unittest.TestCase):
         self.assertEqual(run_records.TransitionApproval.__required_keys__, common | {"artifact_sha256", "outcome"})
 
 
-class IdentityCompatibilityTests(unittest.TestCase):
-    def test_facade_reexports_the_original_objects(self) -> None:
-        for module, names in (
-            (run_errors, ("RunStoreError", "RunNotFoundError", "RunCorruptionError")),
-            (run_identity, ("RUN_ID_PATTERN", "utc_now", "format_timestamp", "validate_run_id",
-                            "is_valid_run_id", "generate_run_id")),
-            (run_records, ("RUN_SCHEMA_VERSION", "EVENT_SCHEMA_VERSION", "EVENT_TYPE_PATTERN",
-                           "RUN_STATUSES", "VISIT_STATUSES")),
-        ):
-            for name in names:
-                self.assertIs(getattr(run_store, name), getattr(module, name))
-
+class RunIdentityTests(unittest.TestCase):
     def test_utc_formatting_and_random_source_injection(self) -> None:
         for value in (datetime(2026, 10, 4, 12, 30, 1, 123456),
                       datetime(2026, 10, 4, 14, 30, 1, 123456,

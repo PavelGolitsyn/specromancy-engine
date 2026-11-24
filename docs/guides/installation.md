@@ -196,6 +196,97 @@ desired harness list is empty. Upgrade in a fresh directory.
 Deleting the old manifest alone leaves occupied output paths unowned, even if
 their bytes match. Editing version fields or hashes cannot establish ownership.
 
+### Exercise an upgrade in disposable consumers
+
+Run these examples from the producer checkout with its pinned build environment
+active. Set `CANDIDATE_WHEEL` to the absolute path of the wheel you built.
+Both examples use the same shell and create their projects and environments
+under a new temporary directory.
+
+**Finish a run with its producing release.** The local tag supplies the
+0.1.3 source, example graph, procedures, templates and validator declarations.
+The first process starts a run. A second process resumes it from disk with the
+same installed wheel and original inputs.
+
+```sh
+set -e
+producer=$PWD
+demo=$(mktemp -d)
+mkdir "$demo/prior"
+git archive --output="$demo/prior.tar" v0.1.3
+tar -xf "$demo/prior.tar" -C "$demo/prior"
+python -m build --wheel --no-isolation --outdir "$demo/wheels" "$demo/prior"
+python -m venv "$demo/old-env"
+"$demo/old-env/bin/python" -m pip install --no-index --no-deps \
+  "$demo/wheels/specromancy_engine-0.1.3-py3-none-any.whl"
+cp -R "$demo/prior/examples/release-documentation" "$demo/old-project"
+git init --quiet "$demo/old-project"
+(
+  cd "$demo/old-project"
+  . "$demo/old-env/bin/activate"
+  specromancy adapters generate
+  python - > "$demo/old-id" <<'PY'
+from pathlib import Path
+from specromancy_engine import Engine, load_registry
+
+engine = Engine(load_registry(Path.cwd()).load("release-documentation"))
+print(engine.initialize(Path("sample-changes.md").read_text())["action"]["run_id"])
+PY
+  python - "$(cat "$demo/old-id")" <<'PY'
+import sys
+from pathlib import Path
+from specromancy_engine import Engine, load_registry
+
+run_id = sys.argv[1]
+engine = Engine(load_registry(Path.cwd()).load("release-documentation"))
+for phase, output in (
+    ("draft-release-notes",
+     "## Summary\nReport export and retry fixes.\n## Changes\nAdded CSV export.\n"
+     "## Upgrade Notes\nRename report_timeout to report_timeout_seconds.\n"),
+    ("review-release-notes",
+     "## Verdict\nApproved.\n## Findings\nClaims match the sample.\n"
+     "## Verification\nChecked the CSV change and setting rename.\n"),
+):
+    assert engine.resume(run_id)["action"]["phase"] == phase
+    action = engine.start_phase(run_id, phase)["action"]
+    Path(action["output"]["absolute_path"]).write_text(output, encoding="utf-8")
+    engine.validate(run_id, phase)
+status = engine.status(run_id)["status"]
+assert status["status"] == "completed"
+print(run_id, status["terminal_result"]["outcome"])
+PY
+)
+```
+
+**Start a separate run with current inputs.** The current example supplies
+the converted authored files. Generate adapters before starting its first
+visit. The two projects and their run directories remain independently usable.
+
+```sh
+python -m venv "$demo/new-env"
+"$demo/new-env/bin/python" -m pip install --no-index --no-deps "${CANDIDATE_WHEEL:?set the absolute candidate wheel path}"
+cp -R "$producer/examples/release-documentation" "$demo/new-project"
+git init --quiet "$demo/new-project"
+(
+  cd "$demo/new-project"
+  . "$demo/new-env/bin/activate"
+  specromancy adapters generate
+  specromancy adapters generate --check
+  python - <<'PY'
+from pathlib import Path
+from specromancy_engine import Engine, RunStore, load_registry
+
+root = Path.cwd()
+store = RunStore(root)
+engine = Engine(load_registry(root).load("release-documentation"), store)
+action = engine.initialize((root / "sample-changes.md").read_text())["action"]
+run_id = action["run_id"]
+assert store.load(run_id)["schema_version"] == 2
+print(run_id, action["phase"], action["visit_status"])
+PY
+)
+```
+
 ## Contributor environment
 
 Contributors editing engine source use a dedicated editable installation from

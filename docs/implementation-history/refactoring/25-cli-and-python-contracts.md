@@ -21,7 +21,7 @@ object independent version-2 tags.
    Exercise both CLI entry points and independent Python consumers, including
    callers that inspect the nested version before interpreting an action.
 3. Trace the names in [config.py](../../../src/specromancy_engine/config.py),
-   other public facades and the [compatibility tests](../../../tests/engine/contract/test_compatibility.py)
+   other public facades and the [compatibility tests](https://github.com/PavelGolitsyn/specromancy-engine/blob/31f2866/tests/engine/contract/test_compatibility.py)
    to current docs and callers. Remove private re-exports such as parser
    helpers and delegates whose only caller enforces an old internal API.
    Migrate actual internal callers to the defining module or canonical

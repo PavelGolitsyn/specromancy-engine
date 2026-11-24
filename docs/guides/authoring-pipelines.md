@@ -233,6 +233,9 @@ redirections are not interpreted.
 
 ## Regeneration and active runs
 
+The [disposable upgrade examples](installation.md#exercise-an-upgrade-in-disposable-consumers)
+show how to finish an original run and start another with a current graph.
+
 After changing `workflow/adapters.toml`, `workflow/instructions.md`, a canonical skill, the registry, a pipeline or its
 referenced templates/schemas, or CLI help
 metadata, regenerate and check. A body edit can change only manifest provenance.

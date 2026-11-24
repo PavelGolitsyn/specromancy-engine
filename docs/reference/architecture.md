@@ -246,7 +246,9 @@ The manifest reader and approval decision code share the binding checks in
 `record_fields`. Published schemas describe approval variants, decision states
 and reserved audit payloads. The runtime also checks integer tokens, safe paths,
 calendar dates and references across records. The run and event schemas are
-versioned independently of each other and of project artifact validators.
+versioned independently of each other and of project artifact validators. Both
+currently require version 2. The store checks both before repairing an event
+gap. See the [current format versions](contracts.md#current-format-versions).
 
 One run has this shape:
 

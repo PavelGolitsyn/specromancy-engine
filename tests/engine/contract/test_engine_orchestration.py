@@ -12,8 +12,8 @@ from specromancy_engine.config import PipelineConfigError, load_pipeline
 from specromancy_engine.engine import Engine, EngineError
 from specromancy_engine.exit_codes import ExitCode
 from specromancy_engine.run_store import RunStore
-from tests.engine.contract.compatibility_support import (
-    NOW, RUN_ID, CompatibilityFixture, read_record,
+from tests.engine.contract.current_contract_support import (
+    NOW, RUN_ID, CurrentContractFixture, read_record,
 )
 from tests.engine.contract.test_safety import SafetyFixture, phase
 
@@ -98,7 +98,7 @@ class EngineOrchestrationContractTests(unittest.TestCase):
                 ])
 
     def test_validation_hook_replaced_after_grant_is_resolved_at_revalidation(self) -> None:
-        fixture = CompatibilityFixture(pause=True)
+        fixture = CurrentContractFixture(pause=True)
         self.addCleanup(fixture.close)
         fixture.restore(read_record("states.json")["awaiting-approval"])
         before = fixture.store.load(RUN_ID)
@@ -127,7 +127,7 @@ class EngineOrchestrationContractTests(unittest.TestCase):
 
     def test_approval_gate_precedence_with_multiple_failures(self) -> None:
         states = read_record("states.json")
-        fixture = CompatibilityFixture(pause=True)
+        fixture = CurrentContractFixture(pause=True)
         self.addCleanup(fixture.close)
         fixture.restore(states["awaiting-approval"])
         before = fixture.store.load(RUN_ID)
@@ -172,7 +172,7 @@ class EngineOrchestrationContractTests(unittest.TestCase):
         states = read_record("states.json")
         for boundary in ("blocked", "completed"):
             with self.subTest(boundary=boundary):
-                fixture = CompatibilityFixture(pause=True)
+                fixture = CurrentContractFixture(pause=True)
                 self.addCleanup(fixture.close)
                 fixture.restore(states["active" if boundary == "blocked" else "completed"])
                 if boundary == "blocked":
@@ -194,7 +194,7 @@ class EngineOrchestrationContractTests(unittest.TestCase):
         for state in ("awaiting-approval", "approved"):
             for drift in ("artifact", "missing-output", "pipeline"):
                 with self.subTest(state=state, drift=drift):
-                    fixture = CompatibilityFixture(pause=True)
+                    fixture = CurrentContractFixture(pause=True)
                     self.addCleanup(fixture.close)
                     fixture.restore(states[state])
                     before = fixture.store.load(RUN_ID)
@@ -273,7 +273,7 @@ class EngineOrchestrationContractTests(unittest.TestCase):
             self.assertEqual(fixture.store.load(run_id)["approvals"], granted)
 
     def test_overtaken_grant_failure_retains_winner_and_retries_saved_outcome(self):
-        fixture = CompatibilityFixture(pause=True)
+        fixture = CurrentContractFixture(pause=True)
         self.addCleanup(fixture.close)
         fixture.restore(read_record("states.json")["awaiting-approval"])
         winner = Engine(fixture.pipeline, fixture.new_store())
@@ -315,7 +315,7 @@ class EngineOrchestrationContractTests(unittest.TestCase):
         self.assertEqual(fixture.store.load(RUN_ID)["visits"][0]["chosen_outcome"], "z-next")
 
     def test_changed_procedure_warns_on_status_and_rejects_commands(self) -> None:
-        fixture = CompatibilityFixture(pause=True)
+        fixture = CurrentContractFixture(pause=True)
         self.addCleanup(fixture.close)
         fixture.restore(read_record("states.json")["awaiting-approval"])
         before = fixture.store.load(RUN_ID)

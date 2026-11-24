@@ -15,7 +15,7 @@ from specromancy_engine.adapters import MANIFEST_PATH, AdapterError, generate_ad
 from specromancy_engine.cli import main
 from specromancy_engine.config import PipelineConfigError
 from specromancy_engine.registry import load_adapter_registry
-from tests.engine.contract.compatibility_support import read_record
+from tests.engine.contract.current_contract_support import REFUSED_FIXTURES, read_record
 from tests.engine.support import MultiPipelineFixture, select_harnesses, write_workflow_skill
 from specromancy_engine.contracts import RESERVED_COMMANDS
 from specromancy_engine.hashing import sha256_bytes
@@ -187,13 +187,6 @@ class WorkflowOwnershipTests(unittest.TestCase):
             self.assertRegex(json.loads(output.getvalue())["message"], message)
             self.assertEqual(self.tree(), before)
 
-    def install_capture(self, name):
-        snapshot = read_record(name)
-        for relative, record in snapshot.items():
-            target = self.root / relative
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(record["text"], encoding="utf-8")
-
     def test_independent_consumer_and_package_locations_produce_identical_files(self):
         self.generate()
         manifest = json.loads(self.manifest_path.read_bytes())
@@ -222,7 +215,7 @@ for check in (False, True):
                 self.assertEqual((self.root / path).read_bytes(), (consumer / path).read_bytes(), path)
 
     def test_selection_requires_exact_output_union_and_inputs(self):
-        original = json.loads(read_record("adapters-generator-v5.json")[MANIFEST_PATH]["text"])
+        original = json.loads(read_record("ownership.json")[MANIFEST_PATH]["text"])
         self.fixture.add_pipeline("adapter-fixture", "compose")
         self.fixture.register("adapter-fixture")
         required = {target["name"]: set(target["paths"]) for target in original["targets"]}
@@ -350,12 +343,15 @@ for check in (False, True):
                 self.assertEqual(self.tree(), before)
 
     def test_historical_manifests_refuse_both_commands_before_render_or_cleanup(self):
-        for capture in ("adapters.json", "adapters-generator-v2.json",
-                        "adapters-generator-v3.json", "adapters-generator-v4.json"):
-            self.install_capture(capture)
+        for version in range(1, 5):
+            specimen = REFUSED_FIXTURES / f"ownership-generator-{version}.json"
+            for relative, content in json.loads(specimen.read_bytes()).items():
+                target = self.root / relative
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(content.encode("utf-8"))
             for names in (("claude", "codex", "copilot", "hermes", "opencode"), ()):
                 select_harnesses(self.root, *names)
-                with self.subTest(capture=capture, selection=names):
+                with self.subTest(generator=version, selection=names):
                     self.rejected("unsupported adapter manifest generator identity")
 
     def test_unknown_identity_precedes_desired_selection_and_generated_paths(self):
