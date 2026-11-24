@@ -32,8 +32,8 @@ Avoid a persistence rewrite: the current ordered protocol is already tested.
    branch before attempting the POSIX directory open. Do not catch arbitrary
    `OSError` and report success on every platform.
 2. Keep each writer's authorization, serialization, temporary-file placement,
-   cleanup, and fault-injection ordering in its existing owner. Retain existing
-   compatibility methods/seams where tests rely on them. Share the directory
+   cleanup, and fault-injection ordering in its existing owner. Exercise those
+   boundaries through the current store and writer interfaces. Share the directory
    operation, not a generalized transaction or writer framework.
 3. Maintain the exact write sequence: create a unique adjacent temporary file;
    write all bytes; flush and file-fsync; close the handle; replace with

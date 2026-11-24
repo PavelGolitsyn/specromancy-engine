@@ -201,6 +201,40 @@ class PersistenceProtocolTests(unittest.TestCase):
             self.assertEqual(self.files(directory), before)
             self.assertEqual(RunStore(fixture.root).load(RUN_ID)["revision"], 1)
 
+    def test_invalid_approval_and_event_candidates_fail_before_publication(self):
+        fixture = self.fixture()
+        store = RunStore(fixture.root)
+        store.create(fixture.pipeline, "request", run_id=RUN_ID)
+        store.start_visit(RUN_ID, fixture.pipeline, "compose")
+        before = self.files(store.run_directory(RUN_ID))
+        action = {"kind": "action", "reason": "permission", "request_number": 1}
+        for event, visit, payload in (
+            ("custom", True, {}), ("custom", None, {"value": float("inf")}),
+            ("custom", None, {"value": object()}), ("custom", None, {"text": "\ud800"}),
+            ("approval-requested", None, action),
+            ("approval-requested", 1, {**action, "request_number": False}),
+            ("approval-requested", 1, {**action, "request_number": 1.0}),
+            ("approval-requested", 1, {"kind": "transition", "reason": "permission"}),
+            ("approval-granted", 1, {"kind": "transition", "actor": "user"}),
+            ("approval-granted", 1, {"kind": "action", "actor": "system", "request_number": 1}),
+            ("approval-declined", 1, {"kind": "transition", "actor": "user", "phase_id": "compose"}),
+            ("approval-invalidated", 1, {"kind": "transition", "mismatches": []}),
+            ("approval-invalidated", 1, {"kind": "action", "request_number": 1, "mismatches": ["artifact"]}),
+        ):
+            with self.subTest(event=event, payload=payload), self.assertRaises(RunCorruptionError):
+                store.mutate(RUN_ID, event, lambda m: m.update(block_reason="candidate"),
+                             visit_number=visit, payload=payload)
+            self.assertEqual(self.files(store.run_directory(RUN_ID)), before)
+        for mutate in (lambda m: m["approvals"].append({}), lambda m: m.update(current_visit=True)):
+            with self.assertRaises(RunCorruptionError):
+                store.mutate(RUN_ID, "custom", mutate)
+            self.assertEqual(self.files(store.run_directory(RUN_ID)), before)
+        custom = {"text": "line\u2028separator", "metadata": [True, None, {"number": 1.5}]}
+        manifest = store.mutate(RUN_ID, "custom", lambda m: m.update(block_reason=custom), payload=custom)
+        event = RunStore(fixture.root).read_events(RUN_ID, recover=False)[-1]
+        self.assertEqual(event["payload"], custom)
+        self.assertEqual(event["manifest_hash"], sha256_json(manifest))
+
     def test_advancing_clock_and_idempotent_operations_preserve_timing(self):
         fixture = self.fixture()
         now = datetime(2026, 9, 25, 12, tzinfo=timezone.utc)

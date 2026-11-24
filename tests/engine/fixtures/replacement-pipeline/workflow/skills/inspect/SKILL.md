@@ -2,7 +2,7 @@
 name: inspect
 description: Inspect a source value when the replacement pipeline requests inspection.
 license: MIT
-compatibility: Specromancy pipeline schema version 2.
+compatibility: Specromancy pipeline schema version 3.
 metadata:
   role: phase
 ---

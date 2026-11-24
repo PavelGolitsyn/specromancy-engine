@@ -44,14 +44,15 @@ class MultiPipelineFixture:
         path = self.root / "workflow/pipelines" / f"{pipeline_id}.toml"
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(
-            f'schema_version = 2\nid = "{pipeline_id}"\nversion = 1\nstart = "{phase}"\n'
+            f'schema_version = 3\nid = "{pipeline_id}"\nversion = 1\nstart = "{phase}"\n'
             'terminal_outcomes = ["done"]\nartifact_pattern = "artifacts/{visit:03}-{phase}.md"\n'
             f'[[phases]]\nid = "{phase}"\n'
             'skill = "compose"\nskill_source = "workflow/skills/compose/SKILL.md"\n'
             'inputs = ["request"]\noutput_name = "result.md"\n'
             'output_template = "../templates/shared.md"\nmutation = "read-only"\n'
-            'completion_criteria = ["Record a result."]\nvalidator = "markdown"\n'
-            'required_headings = ["Result"]\ntransition_approval_conditions = []\naction_approval_conditions = []\nstop_conditions = []\n'
+            'completion_criteria = ["Record a result."]\n'
+            'validator = { type = "markdown", required_headings = ["Result"] }\n'
+            'transition_approval_conditions = []\naction_approval_conditions = []\nstop_conditions = []\n'
             '[[phases.transitions]]\noutcome = "done"\n', encoding="utf-8",
         )
         return path

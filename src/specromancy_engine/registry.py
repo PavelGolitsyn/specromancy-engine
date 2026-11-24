@@ -5,14 +5,14 @@ from __future__ import annotations
 import json
 import re
 import tomllib
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import NoReturn
 
 from ._config.config_errors import PipelineConfigError
-from ._config.config_fields import FieldContext
-from ._config.config_loader import IDENTIFIER_PATTERN, _Loader, load_pipeline, read_pipeline_document
+from ._config.config_fields import FieldContext, IDENTIFIER_PATTERN
+from ._config.config_loader import _Loader, load_pipeline, read_pipeline_document
 from ._config.config_models import PipelineConfig
 from ._config.skill_sources import SkillBindings
 
@@ -97,25 +97,10 @@ class PipelineRegistry:
                 context.fail("unsafe-pipeline-path", "registered graph location has changed",
                              field="pipelines.path", value=declared,
                              remediation="restore the registered graph or reload the registry")
-        documents = [(item, read_pipeline_document(item.path, read_bytes=read_bytes)) for item in self.pipelines]
-        migrations = {}
-        for item, raw in documents:
-            phases = raw.get("phases")
-            if isinstance(phases, list):
-                missing = [phase.get("id") for phase in phases
-                           if isinstance(phase, Mapping) and "skill_source" not in phase]
-                if missing:
-                    migrations[item.id] = missing
-        if migrations:
-            context.fail(
-                "missing-skill-source", "adapter generation requires explicit skill_source declarations",
-                field="skill_source", value=migrations,
-                remediation="set skill_source to a workflow file for every listed pipeline and phase",
-            )
-
         bindings = SkillBindings()
         pipelines = []
-        for item, raw in documents:
+        for item in self.pipelines:
+            raw = read_pipeline_document(item.path, read_bytes=read_bytes)
             loader = _Loader(item.path, root, read_bytes=read_bytes)
             pipeline = self._check_id(item, loader.parse(raw, adapter_bindings=bindings))
             pipelines.append(pipeline)

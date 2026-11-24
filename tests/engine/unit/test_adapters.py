@@ -144,7 +144,7 @@ class AdapterFixture:
         self.pipeline_path.write_text(
             textwrap.dedent(
                 """
-                schema_version = 2
+                schema_version = 3
                 id = "adapter-fixture"
                 version = 1
                 start = "compose"
@@ -159,7 +159,7 @@ class AdapterFixture:
                 output_name = "{visit:03}-result.md"
                 mutation = "read-only"
                 completion_criteria = ["Write a result."]
-                validator = "file"
+                validator = { type = "file" }
                 transition_approval_conditions = []
                 action_approval_conditions = []
                 stop_conditions = []
@@ -194,7 +194,7 @@ class AdapterFixture:
                 name: {name}
                 description: Use when the fixture needs {name}.
                 license: MIT
-                compatibility: Specromancy pipeline schema version 2.
+                compatibility: Specromancy pipeline schema version 3.
                 metadata:
                   role: phase
                 ---
@@ -298,6 +298,55 @@ class AdapterGenerationTests(unittest.TestCase):
         with patch.object(adapter_ownership.tempfile, "mkstemp", side_effect=AssertionError("write")):
             self.fixture.generate(check=True)
         self.assertEqual(snapshot(), before)
+
+    def test_failed_file_replace_preserves_file_and_manifest_then_retry_converges(self) -> None:
+        self.fixture.generate()
+        old = self.fixture.snapshot()
+        (self.fixture.root / "workflow/instructions.md").write_text("Updated instructions\n")
+        interrupted = self.fixture.root.resolve() / ".github/copilot-instructions.md"
+        replace_file = adapter_ownership.os.replace
+
+        def fail_one_replace(source, target):
+            if target == interrupted:
+                raise OSError("interrupted")
+            replace_file(source, target)
+
+        with patch.object(adapter_ownership.os, "replace", side_effect=fail_one_replace):
+            with self.assertRaisesRegex(OSError, "interrupted"):
+                self.fixture.generate()
+        partial = self.fixture.snapshot()
+        self.assertNotEqual(partial[".claude/CLAUDE.md"], old[".claude/CLAUDE.md"])
+        self.assertEqual(interrupted.read_bytes(), old[".github/copilot-instructions.md"])
+        self.assertEqual(partial[MANIFEST_PATH], old[MANIFEST_PATH])
+        self.assertEqual(list(self.fixture.root.rglob("*.tmp")), [])
+        with self.assertRaises(AdapterError):
+            self.fixture.generate(check=True)
+        self.fixture.generate()
+        self.fixture.generate(check=True)
+
+    def test_interrupted_manifest_publication_leaves_new_paths_unowned(self) -> None:
+        select_harnesses(self.fixture.root, "hermes")
+        self.fixture.generate()
+        original = self.fixture.snapshot()
+        select_harnesses(self.fixture.root, "hermes", "opencode")
+        replace_file = adapter_ownership.os.replace
+
+        def interrupt_publication(source, target):
+            if target == self.fixture.root.resolve() / MANIFEST_PATH:
+                raise OSError("interrupted")
+            replace_file(source, target)
+
+        with patch.object(adapter_ownership.os, "replace", side_effect=interrupt_publication):
+            with self.assertRaisesRegex(OSError, "interrupted"):
+                self.fixture.generate()
+        self.assertEqual(self.fixture.snapshot(), original)
+        commands = sorted(self.fixture.root.glob(".opencode/commands/*.md"))
+        self.assertEqual(len(commands), 4)
+        with self.assertRaises(AdapterError) as caught:
+            self.fixture.generate()
+        self.assertEqual(caught.exception.details["unowned"],
+                         [path.relative_to(self.fixture.root).as_posix() for path in commands])
+        self.assertEqual(list(self.fixture.root.rglob("*.tmp")), [])
 
     def test_stale_file_changed_after_preflight_is_not_deleted(self) -> None:
         self.fixture.generate_with_extra_skill()
@@ -435,9 +484,9 @@ class AdapterGenerationTests(unittest.TestCase):
         manifest = json.loads(
             (self.fixture.root / MANIFEST_PATH).read_text(encoding="utf-8")
         )
-        self.assertEqual(manifest["schema_version"], 2)
+        self.assertEqual(manifest["schema_version"], 3)
         self.assertEqual(manifest["generator"], {
-            "name": "specromancy", "version": 4,
+            "name": "specromancy", "version": 5,
             "command": "specromancy adapters generate",
         })
         modes = {entry["name"]: entry["mode"] for entry in manifest["targets"]}

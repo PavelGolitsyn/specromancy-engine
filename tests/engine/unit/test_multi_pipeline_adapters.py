@@ -185,9 +185,10 @@ class WorkflowAdapterTests(unittest.TestCase):
         schema.write_text('{"type":"object"}')
         for registration in registry.pipelines:
             path = registration.path
-            path.write_text(path.read_text().replace('validator = "markdown"', 'validator = "json"\n'
-                                                     'validator_path = "../templates/schema.json"')
-                            .replace('required_headings = ["Result"]', 'required_headings = []'))
+            path.write_text(path.read_text().replace(
+                'validator = { type = "markdown", required_headings = ["Result"] }',
+                'validator = { type = "json", path = "../templates/schema.json" }',
+            ))
         # Registry parsing belongs to the caller. Guard its location again, but
         # use the same snapshot even if its on-disk contents subsequently change.
         registry.path.write_text("[broken")
@@ -203,7 +204,7 @@ class WorkflowAdapterTests(unittest.TestCase):
         rendered = render_workflow_sources(captured)
         manifest = workflow_manifest(captured, rendered)
         self.assertEqual(list(rendered), sorted(rendered))
-        self.assertEqual((manifest["schema_version"], manifest["generator"]["version"]), (2, 4))
+        self.assertEqual((manifest["schema_version"], manifest["generator"]["version"]), (3, 5))
         inputs = [entry["path"] for entry in manifest["canonical_source"]["inputs"]]
         self.assertEqual(inputs, sorted(set(inputs)))
         self.assertTrue(set(inputs).isdisjoint(rendered))
@@ -325,9 +326,10 @@ class WorkflowAdapterTests(unittest.TestCase):
         foreign.write_text("invalid TOML, schema, and skill frontmatter")
         validator = self.root / "workflow/schema.json"
         validator.write_text("{}")
-        self.graph.write_text(self.graph.read_text().replace('validator = "markdown"',
-                             'validator = "json"\nvalidator_path = "../schema.json"')
-                             .replace('required_headings = ["Result"]', 'required_headings = []'))
+        self.graph.write_text(self.graph.read_text().replace(
+            'validator = { type = "markdown", required_headings = ["Result"] }',
+            'validator = { type = "json", path = "../schema.json" }',
+        ))
         for path in (registry.path, self.graph, self.skill, self.root / "workflow/instructions.md",
                      self.root / "workflow/templates/shared.md", validator):
             content = path.read_bytes()
@@ -351,17 +353,20 @@ class WorkflowAdapterTests(unittest.TestCase):
         selection = self.root / "workflow/adapters.toml"
         select_harnesses(self.root)
         empty = selection.read_bytes()
+        generate_adapters(self.root, registry)
         selection.unlink()
         for relative in ("AGENTS.md", ".claude/CLAUDE.md", MANIFEST_PATH):
             target = self.root / relative
             target.parent.mkdir(exist_ok=True)
-            target.write_bytes(empty)
+            if relative != MANIFEST_PATH:
+                target.write_bytes(empty)
+            original = target.read_bytes()
             selection.symlink_to(target)
             for check in (False, True):
                 with self.subTest(path=relative), self.assertRaises(PipelineConfigError) as caught:
                     generate_adapters(self.root, registry, check=check)
                 self.assertEqual(caught.exception.diagnostic_code, "unsafe-path")
-                self.assertEqual(target.read_bytes(), empty)
+                self.assertEqual(target.read_bytes(), original)
             selection.unlink()
         workflow = self.root / "workflow"
         destination = self.root / ".claude/workflow"
@@ -372,7 +377,7 @@ class WorkflowAdapterTests(unittest.TestCase):
             generate_adapters(self.root, registry)
         self.assertEqual(caught.exception.diagnostic_code, "unsafe-path")
 
-    def test_identity_conflicts_and_legacy_migrations_precede_publication(self) -> None:
+    def test_identity_conflicts_and_missing_declarations_precede_publication(self) -> None:
         original = self.graph.read_text()
         alias = self.root / "workflow/alias.md"
         alias.symlink_to(self.skill)
@@ -395,5 +400,6 @@ class WorkflowAdapterTests(unittest.TestCase):
             path.write_text(path.read_text().replace(f'skill_source = "{source}"\n', ""))
         with self.assertRaises(PipelineConfigError) as caught:
             self.generate()
-        self.assertEqual(caught.exception.details["value"], {"alpha": ["compose"], "beta": ["inspect"]})
+        self.assertEqual(caught.exception.diagnostic_code, "missing-skill-source")
+        self.assertEqual(caught.exception.details["phase"], "compose")
         self.assertFalse((self.root / MANIFEST_PATH).exists())

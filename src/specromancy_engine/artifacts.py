@@ -297,7 +297,3 @@ def _fsync_directory(path: Path) -> None:
         os.fsync(descriptor)
     finally:
         os.close(descriptor)
-
-
-resolve_artifact_reference = resolve_input_reference
-verify_artifacts = verify_manifest_artifacts

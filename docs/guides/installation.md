@@ -163,23 +163,129 @@ validation work without this file. Adapter generation and check require it.
 
 ## Upgrade an existing consumer
 
-Finish unfinished runs with their original graph and recorded resource bytes,
-or keep the original checkout for those runs and migrate a separate checkout.
-Adding `skill_source` changes the graph hash. Replacing the old procedure with a
-wrapper changes the prepared visit's recorded skill hash.
+Pipeline graphs use schema 3. Run manifests and events each use schema 2.
+Finish older runs with their producing engine and original workflow resources,
+or initialize a separate run after upgrading. Move procedures and dependencies
+under `workflow/`, declare each phase's `skill_source` and both approval lists,
+and convert validators and commands to tables. The registry and harness
+selection keep their independent schema version 1. See the
+[graph upgrade instructions](authoring-pipelines.md#regeneration-and-active-runs).
 
-When upgrading from an all-target manifest, first save the desired harness list.
-Selecting all five preserves the previous output set. A smaller selection retires
-unchanged owned files that the project no longer needs.
+### Rebuild adapters from a previous ownership format
 
-Before generation, move hand-written root instructions to
-`workflow/instructions.md` and phase procedures into `workflow/skills/`.
-Update relative references, add the source declarations, and bring referenced
-templates and validators inside `workflow/`. Preserve any custom instructions
-from the former generic launch skill in the authored workflow before relocating
-that file. Keep the previous adapter manifest. The generator validates it using
-its original ownership rules and reports conflicts at occupied unowned paths,
-even if their contents match. Review the resulting manifest and run check mode.
+Generation and check accept ownership manifest schema 3 with generator 5.
+Both return adapter drift (11) for earlier identities, including when the
+desired harness list is empty. Upgrade in a fresh directory.
+
+1. Preserve the original project, including its manifest, generated files,
+   local edits and run data. Use the producing engine's check in that tree
+   to identify edits you want to keep.
+2. Copy the authored workflow into a clean destination. Merge hand-written
+   instructions into `workflow/instructions.md` and custom procedures into
+   `workflow/skills/`. Update relative references, graph source declarations,
+   templates and validators. Leave the old manifest and generated outputs in
+   the original tree.
+3. Set `workflow/adapters.toml` to the desired harness list. In the clean
+   directory, run `specromancy adapters generate`, then
+   `specromancy adapters generate --check`.
+4. Compare the new manifest's paths and file contents with the preserved tree.
+   Review additions, removals, edits and collisions with project files. Adopt
+   the reviewed outputs and their manifest together, then run check in the
+   adopted tree.
+
+Deleting the old manifest alone leaves occupied output paths unowned, even if
+their bytes match. Editing version fields or hashes cannot establish ownership.
+
+### Exercise an upgrade in disposable consumers
+
+Run these examples from the producer checkout with its pinned build environment
+active. Set `CANDIDATE_WHEEL` to the absolute path of the wheel you built.
+Both examples use the same shell and create their projects and environments
+under a new temporary directory.
+
+**Finish a run with its producing release.** The local tag supplies the
+0.1.3 source, example graph, procedures, templates and validator declarations.
+The first process starts a run. A second process resumes it from disk with the
+same installed wheel and original inputs.
+
+```sh
+set -e
+producer=$PWD
+demo=$(mktemp -d)
+mkdir "$demo/prior"
+git archive --output="$demo/prior.tar" v0.1.3
+tar -xf "$demo/prior.tar" -C "$demo/prior"
+python -m build --wheel --no-isolation --outdir "$demo/wheels" "$demo/prior"
+python -m venv "$demo/old-env"
+"$demo/old-env/bin/python" -m pip install --no-index --no-deps \
+  "$demo/wheels/specromancy_engine-0.1.3-py3-none-any.whl"
+cp -R "$demo/prior/examples/release-documentation" "$demo/old-project"
+git init --quiet "$demo/old-project"
+(
+  cd "$demo/old-project"
+  . "$demo/old-env/bin/activate"
+  specromancy adapters generate
+  python - > "$demo/old-id" <<'PY'
+from pathlib import Path
+from specromancy_engine import Engine, load_registry
+
+engine = Engine(load_registry(Path.cwd()).load("release-documentation"))
+print(engine.initialize(Path("sample-changes.md").read_text())["action"]["run_id"])
+PY
+  python - "$(cat "$demo/old-id")" <<'PY'
+import sys
+from pathlib import Path
+from specromancy_engine import Engine, load_registry
+
+run_id = sys.argv[1]
+engine = Engine(load_registry(Path.cwd()).load("release-documentation"))
+for phase, output in (
+    ("draft-release-notes",
+     "## Summary\nReport export and retry fixes.\n## Changes\nAdded CSV export.\n"
+     "## Upgrade Notes\nRename report_timeout to report_timeout_seconds.\n"),
+    ("review-release-notes",
+     "## Verdict\nApproved.\n## Findings\nClaims match the sample.\n"
+     "## Verification\nChecked the CSV change and setting rename.\n"),
+):
+    assert engine.resume(run_id)["action"]["phase"] == phase
+    action = engine.start_phase(run_id, phase)["action"]
+    Path(action["output"]["absolute_path"]).write_text(output, encoding="utf-8")
+    engine.validate(run_id, phase)
+status = engine.status(run_id)["status"]
+assert status["status"] == "completed"
+print(run_id, status["terminal_result"]["outcome"])
+PY
+)
+```
+
+**Start a separate run with current inputs.** The current example supplies
+the converted authored files. Generate adapters before starting its first
+visit. The two projects and their run directories remain independently usable.
+
+```sh
+python -m venv "$demo/new-env"
+"$demo/new-env/bin/python" -m pip install --no-index --no-deps "${CANDIDATE_WHEEL:?set the absolute candidate wheel path}"
+cp -R "$producer/examples/release-documentation" "$demo/new-project"
+git init --quiet "$demo/new-project"
+(
+  cd "$demo/new-project"
+  . "$demo/new-env/bin/activate"
+  specromancy adapters generate
+  specromancy adapters generate --check
+  python - <<'PY'
+from pathlib import Path
+from specromancy_engine import Engine, RunStore, load_registry
+
+root = Path.cwd()
+store = RunStore(root)
+engine = Engine(load_registry(root).load("release-documentation"), store)
+action = engine.initialize((root / "sample-changes.md").read_text())["action"]
+run_id = action["run_id"]
+assert store.load(run_id)["schema_version"] == 2
+print(run_id, action["phase"], action["visit_status"])
+PY
+)
+```
 
 ## Contributor environment
 

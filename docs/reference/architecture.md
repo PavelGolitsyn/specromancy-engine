@@ -89,7 +89,7 @@ it never imports or receives an `Engine`. The validation callback retains
 expected rejection. Successful evidence is committed with the request or
 transition. Both callbacks resolve their engine seams at the original call sites,
 so later instance hooks and `engine.utc_now` patches remain effective. Store time
-is independent. Existing Engine approval methods remain compatibility delegates.
+is independent. Public `Engine` approval commands dispatch to the service.
 Approval decisions return detached state plus an optional event and explicit
 request/grant/completion disposition. `RunStore.decide_approval` loads, resolves
 the full observed binding, and commits under one lock through the existing
@@ -115,9 +115,8 @@ response. A request after a saved grant retains its existing two validation pass
 `cli_commands` supplies explicit descriptions shared by parser construction and
 adapter metadata. `pipeline_selection` implements registered initialization and
 persisted-run selection; `cli` retains parsing, dispatch, stream routing, and
-formatting. Existing public facades, exception identities, and compatibility
-aliases remain available. The extracted modules are internal implementation
-details, not new public APIs.
+formatting. Both `responses` and `adapters` take the outer envelope version
+from `contracts`. The action and status builders own their nested versions.
 
 ## Configuration dependencies
 
@@ -141,17 +140,15 @@ registry -> config_loader / config_models / config_errors
 The loader owns TOML/root loading, repository discovery, pipeline assembly, and
 graph validation orchestration. `config_fields.FieldContext` carries the source
 path and repository root, emits diagnostics, checks scalar/list values and unknown
-keys, and resolves existing resource paths with repository containment checks.
-Graph-relative templates and validators may use parent segments within `workflow/`.
-Legacy phases retain their repository-wide resource boundary. `config_phase_parser` consumes that context explicitly for
+keys, and checks declared and resolved resource locations under `workflow/`.
+Graph-relative templates and validators may use parent segments within that directory.
+Every phase names its repository-relative procedure. `config_phase_parser` consumes that context for
 phase, validator, command, transition, input, and output-pattern parsing. Validator
 parsing reads schema files through `schema_validation` in the existing check order.
 
-`_Loader` retains its field methods through `FieldContext` inheritance and its
-phase-parser methods through delegates. Existing helpers/constants remain
-re-exported through the loader and public facade. Field parsing does not import
-phase parsing; neither parsing module imports the loader, facade, CLI, engine,
-or run storage. Graph analysis remains in `graph`, with diagnostic callbacks
+`_Loader` inherits its field context and calls the phase parser directly.
+The public config facade exposes the validated loader, records and diagnostics.
+Both parsing modules depend on lower-level records and diagnostics. Graph analysis remains in `graph`, with diagnostic callbacks
 supplied by the loader. Models, diagnostics, canonical serialization,
 and schema validation do not import the loader or public facade. Artifact
 validation owns artifact reads, Markdown/file checks, and `ValidationFailure`;
@@ -197,12 +194,11 @@ activate the successor. Direct phase and run commands cannot bypass the pause.
 
 ## Action packet boundary
 
-The action packet is the complete handoff from CLI to harness. It contains the
-resolved skill, literal input artifact records, output and template paths,
-mutation policy, completion criteria, validation contract, approval and stop
-codes, configured outcomes, and the exact final validation command. A harness
-may decide how to invoke an agent, but it must not infer or replace those
-fields.
+The version-2 action packet carries the resolved skill, input artifacts, output
+and template paths, mutation policy, completion criteria, and validation contract.
+It lists action and transition approval conditions separately, reports decided
+actions for the current visit in request order, and supplies stop codes, configured
+outcomes, and the exact final validation command.
 
 The CLI deliberately does not launch Codex, Claude Code, Copilot, OpenCode, or
 Hermes. Launch APIs, trust models, permissions, and interactive behavior differ
@@ -211,8 +207,8 @@ run and command contract portable and testable.
 
 ## Persistence and provenance
 
-`run_store` remains the compatibility entry point for `RunStore`, identity
-helpers, constants, exceptions, and aliases. Internally, `run_records` defines
+`run_store` exposes `RunStore`, run identity helpers, and storage exceptions.
+Internally, `run_records` defines
 dictionary annotations and pure selectors, `run_identity` owns injected
 clock/random helpers, `run_errors` defines shared exceptions, and
 `run_validation` checks persisted fields without filesystem mutation or
@@ -246,12 +242,13 @@ latest pending approval across the run, while engine approval decisions and
 next-command selection filter by visit. Approval invalidation and idempotency
 retain their separate matching rules.
 
-Annotations do not validate or fill missing fields. The existing runtime checks
-and published run/event schemas differ in several places; the
-[Stage 03 comparison](../implementation-history/refactoring/03-persisted-records.md#schema-comparison-and-deferred-validation-issues)
-records these differences and follow-up candidates. Artifact schema validation
-is a limited subset and cannot replace cross-record run checks. These internal
-modules are not public APIs.
+The manifest reader and approval decision code share the binding checks in
+`record_fields`. Published schemas describe approval variants, decision states
+and reserved audit payloads. The runtime also checks integer tokens, safe paths,
+calendar dates and references across records. The run and event schemas are
+versioned independently of each other and of project artifact validators. Both
+currently require version 2. The store checks both before repairing an event
+gap. See the [current format versions](contracts.md#current-format-versions).
 
 One run has this shape:
 
@@ -275,7 +272,7 @@ the next load adds a recovery event. Other disagreement is reported as corrupt
 state rather than guessed back into shape.
 
 For a store mutation, one lock spans loading, deciding, validating the manifest,
-replacing it, and appending its event. Artifact and command validation in the
+serializing the candidate event, replacing the manifest, and appending the event. Artifact and command validation in the
 engine occurs outside that store lock. Manifest replacement and event append are separate durable
 operations, not a transaction across two files. Completion and successor
 preparation share one manifest revision. Exact activation, transition, and resume
@@ -329,8 +326,8 @@ require a human to verify the owner has exited before removal.
 Approval locking covers request, grant, and invalidation decisions. It does not
 make validation and sealing atomic with external artifact or repository edits,
 nor establish general command-level concurrency safety. Duplicate continuations
-may execute validation commands more than once. Interrupted initialization and
-weakly accepted version-1 nested records also retain their existing limitations.
+may execute validation commands more than once. Interrupted initialization can leave a partial run. Low-level metadata and
+recorded evidence entries can contain arbitrary finite JSON.
 The [follow-on integration record](../implementation-history/refactoring/15-follow-on-integration.md)
 links the two intentional corrections to tests and defines the evidence and
 decisions required before these deferred areas can be changed.

@@ -16,10 +16,7 @@ from typing import Any
 from ._config.config_models import ValidatorConfig
 from .hashing import sha256_file
 from .schema_validation import (
-    SUPPORTED_JSON_TYPES,
-    SUPPORTED_SCHEMA_KEYWORDS,
     SchemaDefinitionError,
-    _matches_type,
     _validate_json_value,
     load_json_schema,
     validate_schema_definition,

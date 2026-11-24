@@ -8,8 +8,8 @@ from string import Template
 from typing import TYPE_CHECKING, Any
 
 from .adapter_contracts import (
-    ADAPTER_COMMANDS, ADAPTER_SCHEMA_VERSION, GENERATOR_VERSION,
-    MANIFEST_PATH, REGENERATION_COMMAND, AdapterCommand, AdapterError,
+    ADAPTER_COMMANDS, ADAPTER_SCHEMA_VERSION, generator_identity,
+    MANIFEST_PATH, AdapterCommand, AdapterError,
     COMMAND_PATHS, SKILL_CONSUMERS, INSTRUCTION_CONSUMERS, consumers_for_path, target_records,
 )
 from ..hashing import sha256_bytes, sha256_json
@@ -148,11 +148,7 @@ def workflow_manifest(bundle: AdapterSources, rendered: Mapping[str, bytes]) -> 
     sources = [source.record() for source in bundle.inputs]
     return {
         "schema_version": ADAPTER_SCHEMA_VERSION,
-        "generator": {
-            "name": "specromancy",
-            "version": GENERATOR_VERSION,
-            "command": REGENERATION_COMMAND,
-        },
+        "generator": generator_identity(),
         "canonical_source": {
             "sha256": sha256_json(sources),
             "inputs": sources,

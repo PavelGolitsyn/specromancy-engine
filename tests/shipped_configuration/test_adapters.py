@@ -40,7 +40,8 @@ class ShippedAdapterTests(unittest.TestCase):
         config = tomllib.loads((ROOT / "workflow/adapters.toml").read_text())
         self.assertEqual(config["harnesses"], sorted(HARNESS_MODES))
         self.assertEqual(list(targets), config["harnesses"])
-        self.assertEqual(self.manifest["generator"]["version"], 4)
+        self.assertEqual(self.manifest["schema_version"], 3)
+        self.assertEqual(self.manifest["generator"]["version"], 5)
         generated_by_target = {name: [] for name in HARNESS_MODES}
         for entry in self.manifest["generated"]:
             for target in entry["targets"]:
@@ -51,6 +52,12 @@ class ShippedAdapterTests(unittest.TestCase):
             with self.subTest(target=name):
                 self.assertEqual(targets[name]["mode"], mode)
                 self.assertEqual(targets[name]["paths"], generated_by_target[name])
+
+    def test_generated_instruction_files_include_the_authored_instructions(self) -> None:
+        instructions = (ROOT / "workflow/instructions.md").read_text(encoding="utf-8").strip()
+        for relative in ("AGENTS.md", ".claude/CLAUDE.md", ".github/copilot-instructions.md"):
+            with self.subTest(path=relative):
+                self.assertIn(instructions, (ROOT / relative).read_text(encoding="utf-8"))
 
     def test_generated_files_have_provenance_and_no_embedded_checkout_data(self) -> None:
         absolute = re.compile(r"(?:^|[\s'\"`(])/(?:Users|home|private|tmp)/")

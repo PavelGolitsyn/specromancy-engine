@@ -54,7 +54,7 @@ def write_consumer(root: Path, phase: str, *, allow_non_git: bool = False) -> No
         "workflow/instructions.md": "# Consumer instructions\n",
         "workflow/pipelines.toml": 'schema_version = 1\n[[pipelines]]\nid = "shared"\npath = "pipelines/flow.toml"\n',
         "workflow/pipelines/flow.toml": (
-            f'schema_version = 2\nid = "shared"\nversion = 1\nstart = "{phase}"\n'
+            f'schema_version = 3\nid = "shared"\nversion = 1\nstart = "{phase}"\n'
             'terminal_outcomes = ["done"]\nartifact_pattern = "artifacts/{visit:03}-{phase}.json"\n'
             f'allow_non_git = {str(allow_non_git).lower()}\n'
             f'[[phases]]\nid = "{phase}"\nskill = "compose"\n{source_field}inputs = ["request"]\n'
@@ -121,8 +121,21 @@ class ConsumerRootTests(unittest.TestCase):
         result = subprocess.run([*argv, "--json", *args], cwd=cwd, env=self.env,
                                 capture_output=True, text=True)
         self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
-        self.assertFalse(result.stdout and result.stderr, result.stdout + result.stderr)
-        return json.loads(result.stdout or result.stderr)
+        if expected in {0, 7, 8, 9, 13}:
+            self.assertEqual(result.stderr, "")
+            response = json.loads(result.stdout)
+            self.assertEqual(response["code"], expected)
+            if expected == 7 and response.get("details", {}).get("error_code") == "stale-approval":
+                self.assertEqual(set(response), {"code", "message", "details"})
+                return response
+            self.assertEqual(response["schema_version"], 2)
+            if response["kind"] in {"status", "approval"}:
+                self.assertEqual(response["status"]["schema_version"], 2)
+            elif response["kind"] == "action":
+                self.assertEqual(response["action"]["schema_version"], 2)
+            return response
+        self.assertEqual(result.stdout, "")
+        return json.loads(result.stderr)
 
     def assert_action(self, action: dict, root: Path, phase: str) -> None:
         self.assertEqual(action["phase"], phase)
@@ -323,9 +336,9 @@ class ConsumerRootTests(unittest.TestCase):
         self.assertEqual(snapshot(root), before)
         manifest = json.loads((root / "adapters/manifest.json").read_text())
         self.assertEqual(manifest["generator"], {
-            "name": "specromancy", "version": 4, "command": "specromancy adapters generate",
+            "name": "specromancy", "version": 5, "command": "specromancy adapters generate",
         })
-        self.assertEqual(manifest["schema_version"], 2)
+        self.assertEqual(manifest["schema_version"], 3)
         for entry in manifest["generated"]:
             content = (root / entry["path"]).read_bytes()
             self.assertEqual(hashlib.sha256(content).hexdigest(), entry["sha256"])
@@ -435,6 +448,69 @@ class ConsumerRootTests(unittest.TestCase):
                 result = subprocess.run(action["final_validation_command"], cwd=self.outside,
                                         env=self.env, capture_output=True, text=True)
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_consumer_executes_rendered_decisions_and_resumes_through_python(self) -> None:
+        root = self.first
+        graph = root / "workflow/pipelines/flow.toml"
+        graph.write_text(graph.read_text().replace(
+            "action_approval_conditions = []", 'action_approval_conditions = ["change"]'
+        ).replace(
+            "transition_approval_conditions = []", 'transition_approval_conditions = ["accept"]'
+        ).replace("stop_conditions = []", 'stop_conditions = ["unavailable"]'))
+
+        def human(*args: str, expected: int) -> str:
+            result = subprocess.run([str(self.console), *args], cwd=root, env=self.env,
+                                    capture_output=True, text=True)
+            self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
+            self.assertEqual(result.stderr, "")
+            return result.stdout
+
+        run = self.command(root, "init", "Review changes", "--pipeline", "shared", expected=8)["action"]["run_id"]
+        self.command(root, "amber", run, module=True, expected=8)
+        for number, verb in enumerate(("decline", "approve"), 1):
+            details = f'  Change "{number}" in café.  '
+            args = ("request-approval", run, "--reason", "change", "--details", details)
+            response = self.command(root, *args, module=True, expected=7)
+            approval = response["approval"]
+            self.assertEqual(response["status"]["pending_approval"], approval)
+            self.assertEqual(approval["request_number"], number)
+            self.assertEqual(approval["details"], details)
+            display = human(*args, expected=7)
+            self.assertIn(f"Details: {details}\n", display)
+            self.assertIn(f"Request {number}: change\n", display)
+            line = next(line for line in display.splitlines() if line.startswith(verb.capitalize() + ": "))
+            argv = shlex.split(line.split(": ", 1)[1])
+            self.assertEqual(argv, approval[verb + "_command"])
+            self.run_rendered([*argv, "--json"], cwd=root, expected=8)
+
+        # An embedding opens the CLI-created run and checks each version before using its fields.
+        engine = Engine(load_pipeline(graph, repository_root=root), RunStore(root))
+        resumed = engine.resume(run)
+        self.assertEqual(resumed["schema_version"], 2)
+        packet = resumed["action"]
+        self.assertEqual(packet["schema_version"], 2)
+        self.assertEqual(packet["action_approval_conditions"], ["change"])
+        self.assertEqual(packet["transition_approval_conditions"], ["accept"])
+        self.assertEqual([(item["request_number"], item["decision"]) for item in packet["action_decisions"]],
+                         [(1, "declined"), (2, "approved")])
+        Path(packet["output"]["absolute_path"]).write_text('{"consumer":"amber"}\n')
+        pending = self.command(root, "request-approval", run, "--reason", "accept", expected=7)["approval"]
+        display = human("status", run, expected=0)
+        self.assertIn("Outcome: done\n", display)
+        self.assertIn(f"Artifact SHA-256: {pending['artifact_sha256']}\n", display)
+        self.assertNotIn("Decline:", display)
+        self.assertNotIn("decline_command", pending)
+        argv = shlex.split(next(line.removeprefix("Approve: ") for line in display.splitlines()
+                                if line.startswith("Approve: ")))
+        self.assertEqual(argv, pending["approve_command"])
+        completed = self.run_rendered([*argv, "--json"], cwd=root, expected=0)
+        self.assertEqual(completed["status"]["status"], "completed")
+        self.command(root, "resume", run, module=True)
+
+        blocked = self.command(root, "init", "Missing input", "--pipeline", "shared", expected=8)["action"]
+        self.command(root, "phase", blocked["run_id"], "amber", expected=8)
+        result = self.command(root, "block", blocked["run_id"], "--reason", "unavailable", module=True, expected=9)
+        self.assertEqual(result["status"]["status"], "blocked")
 
     def test_adapter_generation_protects_existing_project_owned_instructions(self) -> None:
         root = self.first

@@ -1,4 +1,4 @@
-schema_version = 2
+schema_version = 3
 id = "compatibility"
 version = 1
 start = "compose"
@@ -9,11 +9,12 @@ allow_non_git = true
 [[phases]]
 id = "compose"
 skill = "compose"
+skill_source = "workflow/skills/compose/SKILL.md"
 inputs = ["request"]
 output_name = "{visit:03}-compose.md"
 mutation = "read-only"
 completion_criteria = ["Écrire un résultat 日本語."]
-validator = "file"
+validator = { type = "file" }
 transition_approval_conditions = ["accept-result"]
 action_approval_conditions = []
 stop_conditions = ["no-evidence"]
@@ -26,11 +27,12 @@ outcome = "a-stop"
 [[phases]]
 id = "seal"
 skill = "seal"
+skill_source = "workflow/skills/seal/SKILL.md"
 inputs = ["latest:compose", "request", "visit:1"]
 output_name = "{visit:03}-seal.md"
 mutation = "read-only"
 completion_criteria = ["Seal the result."]
-validator = "file"
+validator = { type = "file" }
 transition_approval_conditions = []
 action_approval_conditions = []
 stop_conditions = []

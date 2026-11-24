@@ -28,7 +28,7 @@ RUN_ID = "20260925T120000Z-01020304"
 
 
 PIPELINE = """
-schema_version = 2
+schema_version = 3
 id = "fixture"
 version = 1
 start = "compose"
@@ -43,7 +43,7 @@ inputs = ["request"]
 output_name = "{visit:03}-result.md"
 mutation = "read-only"
 completion_criteria = ["Write a result."]
-validator = "file"
+validator = { type = "file" }
 transition_approval_conditions = []
 action_approval_conditions = []
 stop_conditions = []
@@ -356,8 +356,8 @@ class RunStoreTests(unittest.TestCase):
         schemas = Path(__file__).resolve().parents[3] / "src" / "specromancy_engine" / "schemas"
         run_schema = json.loads((schemas / "run.schema.json").read_text())
         event_schema = json.loads((schemas / "event.schema.json").read_text())
-        self.assertEqual(run_schema["properties"]["schema_version"]["const"], 1)
-        self.assertEqual(event_schema["properties"]["schema_version"]["const"], 1)
+        self.assertEqual(run_schema["properties"]["schema_version"]["const"], 2)
+        self.assertEqual(event_schema["properties"]["schema_version"]["const"], 2)
         self.assertIn("paused", run_schema["$defs"]["status"]["enum"])
         self.assertEqual(set(run_schema["required"]), set(run_schema["properties"]))
         self.assertEqual(

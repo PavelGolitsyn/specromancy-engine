@@ -1,6 +1,39 @@
 # Staged refactoring plan
 
-## Current plan: generated harness files from canonical workflow sources
+## Current plan — current contracts throughout 0.x
+
+**Stages 23–27 are complete. Stage 28 passed its local release gates on both
+interpreters. The hosted platform matrix remains pending.** Baseline `f265780d2afa1782f18e22b990789c2eb7ccd719`,
+2026-11-21. Apply the [pre-1.0 contract policy](../../reference/contracts.md)
+to behavior inherited from earlier releases and to every future 0.x change,
+including patch releases. A breaking change is permitted when it serves the
+current design. Each release supports the contracts it publishes. Data produced
+by an older release can still conform to a current format.
+
+| Stage | Deliverable | Depends on |
+| --- | --- | --- |
+| [23 — Policy and contract inventory](23-pre-1-contract-policy.md) | Contributor and release rules, version decisions, and an audit of inherited compatibility promises | Current checkout |
+| [24 — Runs, events, and recovery](24-current-run-and-event-schemas.md) | Run and event schema 2, validated approval records, rejection before recovery | 23 |
+| [25 — CLI and Python contracts](25-cli-and-python-contracts.md) | Versioned approval projections and action packets, documented public API, removal of compatibility-only delegates | 24 |
+| [26 — Workflow-owned graph sources](26-current-pipeline-sources.md) | Pipeline schema 3, a single procedure source rule for runtime and generation, current graph fixtures | 25 |
+| [27 — Adapter ownership](27-current-adapter-ownership.md) | Manifest schema 3, generator 5, safe regeneration and refusal of obsolete ownership claims | 26 |
+| [28 — Fixtures, upgrades, and release verification](28-current-contract-verification.md) | Current reference fixtures, tested consumer instructions, clean direct-wheel and sdist-rebuild results | 27 |
+
+Execute in order. Deliver each format change with its readers, writers, published
+schema where applicable, fixtures, consumer guidance, and rejection tests in the
+same stage. Use a dedicated editable installation (`python -m pip install -e .`).
+Run the stage's focused checks, `python -m unittest discover`,
+`specromancy adapters generate --check`, and `git diff --check`. Record actual
+results and deviations in the stage before marking it complete.
+
+Earlier stages record the guarantees tested at their respective revisions.
+Stages 23–28 supersede their instructions to preserve legacy manifests, missing
+skill sources, weak record acceptance, private parser access, and cross-release
+byte identity. Historical results and published release artifacts retain their
+original meaning. Run integrity, read-only enforcement, approval invalidation,
+and manifest-bounded file ownership apply throughout the new work.
+
+## Completed generated harness work — stages 16–22
 
 **Stages 16–22 are complete.** Stage 16 recorded
 the source and ownership inventory and the unfinished-run migration constraint.
@@ -256,12 +289,12 @@ revision; reducing them is not an acceptance criterion.
 
 | Area | Current evidence | Refactoring priority |
 | --- | --- | --- |
-| Run persistence | [`run_store.py`](../../../specromancy/run_store.py), 1,413 lines: identity, record validation, locking, serialization, event recovery, visit creation, limits, and transitions | Separate validators, commit protocol, and state decisions in that order |
-| Configuration | [`config.py`](../../../specromancy/config.py), 1,134 lines: immutable records, field parsing, resource resolution, graph checks, canonicalization | Establish reusable models and explicit parsing/serialization boundaries |
-| Execution | [`engine.py`](../../../specromancy/engine.py), 951 lines: command orchestration, provenance, approval mutations, validation, response construction | Keep command methods as orchestration over focused collaborators |
-| Adapters | [`adapters.py`](../../../specromancy/adapters.py), 763 lines: discovery, rendering, hashes, ownership, drift detection, writes | Separate source capture, rendering, and filesystem ownership |
-| CLI | [`cli.py`](../../../specromancy/cli.py), 452 lines: parser, bootstrap, pipeline selection, dispatch, formatting; metadata reads argparse internals | Isolate selection and make command metadata explicit |
-| Hashing | Configuration uses `json.dumps` defaults for Unicode escaping; [`hashing.py`](../../../specromancy/hashing.py) explicitly uses `ensure_ascii=False` | Preserve each existing byte contract; do not merge serializers blindly |
+| Run persistence | [`run_store.py`](https://github.com/PavelGolitsyn/specromancy-engine/blob/594c2983895903f09ac15f4b1d12a9309d39bbf8/specromancy/run_store.py), 1,413 lines: identity, record validation, locking, serialization, event recovery, visit creation, limits, and transitions | Separate validators, commit protocol, and state decisions in that order |
+| Configuration | [`config.py`](https://github.com/PavelGolitsyn/specromancy-engine/blob/594c2983895903f09ac15f4b1d12a9309d39bbf8/specromancy/config.py), 1,134 lines: immutable records, field parsing, resource resolution, graph checks, canonicalization | Establish reusable models and explicit parsing/serialization boundaries |
+| Execution | [`engine.py`](https://github.com/PavelGolitsyn/specromancy-engine/blob/594c2983895903f09ac15f4b1d12a9309d39bbf8/specromancy/engine.py), 951 lines: command orchestration, provenance, approval mutations, validation, response construction | Keep command methods as orchestration over focused collaborators |
+| Adapters | [`adapters.py`](https://github.com/PavelGolitsyn/specromancy-engine/blob/594c2983895903f09ac15f4b1d12a9309d39bbf8/specromancy/adapters.py), 763 lines: discovery, rendering, hashes, ownership, drift detection, writes | Separate source capture, rendering, and filesystem ownership |
+| CLI | [`cli.py`](https://github.com/PavelGolitsyn/specromancy-engine/blob/594c2983895903f09ac15f4b1d12a9309d39bbf8/specromancy/cli.py), 452 lines: parser, bootstrap, pipeline selection, dispatch, formatting; metadata reads argparse internals | Isolate selection and make command metadata explicit |
+| Hashing | Configuration uses `json.dumps` defaults for Unicode escaping; [`hashing.py`](https://github.com/PavelGolitsyn/specromancy-engine/blob/594c2983895903f09ac15f4b1d12a9309d39bbf8/specromancy/hashing.py) explicitly uses `ensure_ascii=False` | Preserve each existing byte contract; do not merge serializers blindly |
 | Import direction | `config._Loader.parse_validator` imports schema helpers from `validation` locally; `validation` imports `ValidatorConfig` from `config` | Remove the structural cycle through leaf model/schema modules |
 | Test coverage boundaries | Architecture tests enumerate generic filenames; subprocess and dependency checks use top-level `glob("*.py")` | Cover newly extracted modules before moving implementation |
 | Repeated filesystem code | Run, artifact, and adapter writers have similar temporary-file code but different hooks, checks, and directory syncing | Preserve specialized policies; share primitives only where equivalent |

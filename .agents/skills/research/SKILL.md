@@ -4,7 +4,7 @@
 name: research
 description: Inspect repository evidence and uncertainties when the current Specromancy phase is research.
 license: MIT
-compatibility: Specromancy pipeline schema version 2.
+compatibility: Specromancy pipeline schema version 3.
 metadata:
   role: phase
 ---

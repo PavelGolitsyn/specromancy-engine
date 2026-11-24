@@ -526,6 +526,21 @@ class OverlappingAttemptTests(unittest.TestCase):
                     changed, observed, transition_target=None, decided_at=observed["requested_at"],
                 ))
 
+    def test_transition_store_requires_a_matching_saved_transition_grant(self):
+        self.prepare_approval()
+        pending = self.store.load(self.run_id)["approvals"][-1]
+        draft_action = {k: v for k, v in pending.items() if k not in ("artifact_sha256", "outcome")}
+        draft_action.update(kind="action", details="Install package")
+        for observed in (pending, draft_action, {**pending, "visit_number": True},
+                         {**pending, "status": "approved", "decision": "approved",
+                          "actor": "user", "decided_at": pending["requested_at"]}):
+            before = self.snapshot()
+            with self.subTest(observed=observed), self.assertRaises(EngineError) as caught:
+                self.store.transition_visit(self.run_id, self.fixture.pipeline, 2,
+                                            outcome="done", transition_target=None, approval=observed)
+            self.assertEqual(caught.exception.diagnostic_code, "approval-state-changed")
+            self.assertEqual(self.snapshot(), before)
+
     def test_completed_grant_rejects_conflicting_saved_outcome_or_target(self):
         self.prepare_approval()
         observed = self.store.load(self.run_id)["approvals"][0]
@@ -564,7 +579,7 @@ class OverlappingAttemptTests(unittest.TestCase):
         observed = approvals.build_approval_record(
             run_id=self.run_id, phase_id="publish", visit_number=2,
             reason="external-effect", details=None, outcome="done",
-            artifact_sha256=self.engine._artifact_hash(manifest, manifest["visits"][-1]),
+            artifact_sha256=sha256_file(self.store.run_directory(self.run_id) / manifest["visits"][-1]["output"]["path"]),
             pipeline_sha256=self.fixture.pipeline.config_hash,
             requested_at=manifest["updated_at"],
         )

@@ -7,11 +7,16 @@ from __future__ import annotations
 
 import copy
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Literal
 
 from .engine_errors import EngineError
 from ..exit_codes import ExitCode
-from .._runs.run_records import ApprovalRecord, RunRecord, VisitRecord, current_visit, latest_approval
+from .._runs.run_errors import RunCorruptionError
+from .._runs.record_fields import nonblank, positive_integer, validate_approval
+from .._runs.run_records import (
+    ActionApproval, ApprovalBinding, ApprovalRecord, RunRecord, TransitionApproval, VisitRecord,
+    current_visit, latest_approval,
+)
 
 
 def build_approval_record(
@@ -21,19 +26,17 @@ def build_approval_record(
     visit_number: int,
     reason: str,
     details: str | None,
-    kind: str = "transition",
+    kind: Literal["action", "transition"] = "transition",
     artifact_sha256: str | None = None,
     pipeline_sha256: str,
     outcome: str | None = None,
     requested_at: str,
 ) -> ApprovalRecord:
-    record: ApprovalRecord = {
+    binding: ApprovalBinding = {
         "run_id": run_id,
         "phase_id": phase_id,
         "visit_number": visit_number,
         "reason": reason,
-        "details": details,
-        "kind": kind,
         "pipeline_sha256": pipeline_sha256,
         "status": "pending",
         "decision": None,
@@ -41,11 +44,12 @@ def build_approval_record(
         "requested_at": requested_at,
         "decided_at": None,
     }
-    if kind == "transition":
-        if artifact_sha256 is None or outcome is None:
-            raise ValueError("transition approval needs an artifact hash and outcome")
-        record.update(artifact_sha256=artifact_sha256, outcome=outcome)
-    return record
+    if kind == "action" and nonblank(details):
+        return ActionApproval(**binding, kind="action", details=details)
+    if kind == "transition" and artifact_sha256 is not None and outcome is not None:
+        return TransitionApproval(**binding, kind="transition", details=details,
+                                  artifact_sha256=artifact_sha256, outcome=outcome)
+    raise ValueError("approval is missing the binding required for its kind")
 
 
 def approval_integrity_errors(
@@ -54,7 +58,7 @@ def approval_integrity_errors(
     """Return stable mismatch labels for an approval's bound inputs."""
 
     errors: list[str] = []
-    if approval.get("kind") != "action" and approval.get("artifact_sha256") != artifact_sha256:
+    if approval["kind"] == "transition" and approval.get("artifact_sha256") != artifact_sha256:
         errors.append("artifact")
     if approval.get("pipeline_sha256") != pipeline_sha256:
         errors.append("pipeline")
@@ -68,7 +72,7 @@ def pending_approval(manifest: RunRecord, visit_number: int) -> ApprovalRecord |
 def approved_record(manifest: RunRecord, visit_number: int) -> ApprovalRecord | None:
     return next((a for a in reversed(manifest["approvals"])
                  if a.get("visit_number") == visit_number and a.get("status") == "approved"
-                 and a.get("kind") == "transition"), None)
+                 and a["kind"] == "transition"), None)
 
 
 def approved_for_phase(manifest: RunRecord, phase_id: str) -> ApprovalRecord | None:
@@ -77,7 +81,7 @@ def approved_for_phase(manifest: RunRecord, phase_id: str) -> ApprovalRecord | N
             item
             for item in reversed(manifest["approvals"])
             if item.get("phase_id") == phase_id and item.get("status") == "approved"
-            and item.get("kind") == "transition"
+            and item["kind"] == "transition"
         ),
         None,
     )
@@ -97,7 +101,7 @@ def requested_state(
     current = current_visit(updated)
     assert current is not None
     current["status"] = "awaiting-approval"
-    if approval.get("kind") != "action":
+    if approval["kind"] == "transition":
         current["validation_checks"] = copy.deepcopy(validation_checks)
         current["mutation_result"] = copy.deepcopy(mutation_result)
         current["command_results"] = copy.deepcopy(command_results)
@@ -146,30 +150,18 @@ def conflict(observed: ApprovalRecord) -> EngineError:
 def require_binding(manifest: RunRecord, observed: ApprovalRecord) -> VisitRecord:
     """Reject incomplete identities or a mismatched containing run/visit."""
 
-    kind = observed.get("kind")
-    fields = COMMON_FIELDS if kind == "action" else IDENTITY_FIELDS
-    if (kind not in {"transition", "action"} or any(key not in observed for key in fields)
-            or manifest["pipeline"]["sha256"] != observed["pipeline_sha256"]):
-        raise conflict(observed)
-    visits = [v for v in manifest["visits"]
-              if v["ordinal"] == observed["visit_number"]]
-    if (manifest["run_id"] != observed["run_id"] or len(visits) != 1
-            or visits[0]["phase_id"] != observed["phase_id"]):
-        raise conflict(observed)
-    if kind == "action" and (
-        not isinstance(observed["details"], str) or not observed["details"].strip()
-        or "artifact_sha256" in observed or "outcome" in observed
-    ):
-        raise conflict(observed)
-    return visits[0]
+    try:
+        return validate_approval(observed, manifest)
+    except RunCorruptionError as exc:
+        raise conflict(observed) from exc
 
 
 def _matches(
     record: ApprovalRecord, observed: ApprovalRecord, *, creation: bool = False,
 ) -> bool:
-    if record.get("kind") != observed.get("kind"):
+    if record.get("kind") != observed["kind"]:
         return False
-    fields = COMMON_FIELDS if observed.get("kind") == "action" else IDENTITY_FIELDS
+    fields = COMMON_FIELDS if observed["kind"] == "action" else IDENTITY_FIELDS
     return all(key in record and record[key] == observed[key]
                for key in fields if not (creation and key == "requested_at"))
 
@@ -201,7 +193,7 @@ def request_decision(
             raise conflict(approval)
         return ApprovalDecision(manifest, pending, "pending")
 
-    is_action = approval.get("kind") == "action"
+    is_action = approval["kind"] == "action"
     if is_action:
         if visit["status"] != "active":
             raise conflict(approval)
@@ -217,7 +209,7 @@ def request_decision(
         manifest, approval, validation_checks=validation_checks,
         command_results=command_results, mutation_result=mutation_result,
     )
-    payload = {"reason": approval["reason"]}
+    payload: dict[str, Any] = {"kind": approval["kind"], "reason": approval["reason"]}
     if is_action:
         payload["request_number"] = len(updated["approvals"])
     else:
@@ -240,7 +232,7 @@ def _identified(
             raise conflict(observed)
         record = matches[0]
     else:
-        if not 1 <= request_number <= len(records):
+        if not positive_integer(request_number) or request_number > len(records):
             raise conflict(observed)
         record = records[request_number - 1]
         if not _matches(record, observed):
@@ -256,7 +248,7 @@ def action_decision(
 ) -> ApprovalDecision:
     updated = copy.deepcopy(manifest)
     visit, record = _identified(updated, observed, request_number)
-    if updated["current_visit"] != visit["ordinal"] or record.get("kind") != "action":
+    if updated["current_visit"] != visit["ordinal"] or record["kind"] != "action":
         raise conflict(observed)
     if record["status"] == status and updated["status"] == visit["status"] == "active":
         return ApprovalDecision(updated, record, "decided")
@@ -266,7 +258,7 @@ def action_decision(
     updated["status"] = visit["status"] = "active"
     event = "approval-granted" if status == "approved" else "approval-declined"
     return ApprovalDecision(updated, record, "decided", event, visit["ordinal"],
-                            {"request_number": request_number, "actor": "user"})
+                            {"kind": "action", "request_number": request_number, "actor": "user"})
 
 
 def grant_decision(
@@ -277,7 +269,7 @@ def grant_decision(
 
     updated = copy.deepcopy(manifest)
     visit, record = _identified(updated, observed, request_number)
-    if record.get("kind") == "action":
+    if record["kind"] == "action":
         raise conflict(observed)
     if record.get("status") == "approved" and visit["status"] == "completed":
         if (visit["chosen_outcome"] != record["outcome"]
@@ -293,7 +285,7 @@ def grant_decision(
     record.update(status="approved", decision="approved", actor="user", decided_at=decided_at)
     return ApprovalDecision(
         updated, copy.deepcopy(record), "granted", "approval-granted",
-        visit["ordinal"], {"phase_id": visit["phase_id"], "actor": "user"},
+        visit["ordinal"], {"kind": "transition", "phase_id": visit["phase_id"], "actor": "user"},
     )
 
 
@@ -316,8 +308,8 @@ def invalidate_decision(
     if record.get("status") not in ("pending", "approved"):
         raise conflict(observed)
     record.update(status="stale", decision="invalidated", actor="system", decided_at=decided_at)
-    payload = {"mismatches": list(mismatches)}
-    if record.get("kind") == "action":
+    payload: dict[str, Any] = {"kind": record["kind"], "mismatches": list(mismatches)}
+    if record["kind"] == "action":
         updated["status"] = visit["status"] = "active"
         payload["request_number"] = updated["approvals"].index(record) + 1
     return ApprovalDecision(

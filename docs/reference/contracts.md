@@ -1,16 +1,86 @@
 # Specromancy Engine public contracts
 
-Before v1.0.0, Specromancy supports only the current contracts and schemas.
-Breaking changes may ship in any pre-1.0.0 release. Update the schema version
-and fixtures when changing a stored representation incompatibly.
+## Changing a contract before 1.0
+
+Any 0.x release, including a patch, may change a public contract. Each release
+supports one current representation per surface. An older producer's data is
+usable if it satisfies that contract. Apply the rule to inherited behavior too.
+Retire superseded readers, writers, compatibility-only aliases, migration
+paths, and tests that require obsolete inputs to succeed.
+
+Classify a change from the documented reader and writer behavior. Removing a
+required field, narrowing previously supported input, or changing what a stored
+value authorizes is incompatible. For example, a change to which files an
+ownership record permits the generator to replace requires a version change
+even if its keys stay the same. An additive change can keep its version when
+existing conforming inputs and outputs still meet the documented contract.
+
+Advance each affected stored format or explicitly versioned CLI output
+independently, including nested objects and their envelopes when both change.
+Update the schema where published, readers, writers, current fixtures and
+consumer instructions together. Readers must reject an unsupported version
+before recovery or writes. Test the version and shape at the emission point
+for output-only contracts. For unversioned Python APIs and CLI commands,
+document the changed names or behavior and update callers, examples and tests.
+Package releases, project-owned graph revisions and artifact validator schemas
+have independent versions.
+
+The sections below describe the current implementation. The
+[Stage 23 inventory](../implementation-history/refactoring/23-pre-1-contract-policy.md)
+records inherited exceptions and the stages responsible for retiring them.
+
+## Current format versions
+
+| Surface | Version | Consumer action |
+| --- | --- | --- |
+| Registry and harness selection TOML | 1 each | Keep the registry and desired harness list in the authored workflow. |
+| Pipeline graph | 3 | Declare the procedure source and both approval lists for every phase. Use the current validator and command tables. |
+| Run manifest and event log | 2 each | Finish an incompatible run with its producing engine and original workflow resources. Start new work in a separate run. |
+| CLI success/actionable envelope, action packet and status | 2 each | Check the outer and applicable nested versions before interpreting approval bindings. Errors have an unversioned diagnostic shape. |
+| Adapter ownership | Manifest 3, generator 5 | Generate in a fresh consumer and review the resulting files and manifest together. |
+
+Dynamic phase commands, implicit transition request selection where unambiguous,
+explicit and discovered roots, injected stores, same-format replay and crash
+recovery remain supported. The command-line entry points and render-only adapter
+API serve current callers. The table below lists the removed Python spellings.
+See the [executable consumer upgrades](../guides/installation.md#exercise-an-upgrade-in-disposable-consumers).
 
 ## Python import surface
 
-Public imports use the `specromancy_engine` package-level exports and the
-`specromancy_engine.config`, `specromancy_engine.engine`, `specromancy_engine.run_store`,
-`specromancy_engine.registry`, `specromancy_engine.adapters`, and `specromancy_engine.cli` facades.
-Facade re-exports and compatibility aliases refer to the defining objects.
-For example, use `from specromancy_engine import Engine`.
+Import `Engine`, `RunStore`, `ExitCode`, `PipelineConfig`, `PipelineRegistry`,
+`PipelineRegistration`, `load_pipeline`, `load_registry`, `generate_run_id`,
+and `validate_run_id` from `specromancy_engine`. The package also exports
+`EngineError`, `PipelineConfigError`, `RunCorruptionError`, and `RunNotFoundError`.
+Catching these classes handles exceptions raised through the corresponding
+`engine`, `config`, and `run_store` modules.
+
+Use `specromancy_engine.config` for the loader, `require_pipeline_hash` and the
+configuration records (`PipelineConfig`, `PhaseConfig`, `TransitionConfig`,
+`ValidatorConfig`, and `ValidationCommand`). Use `schema_validation` for schema
+loading and validation, `adapters` for generation and rendering, and `cli` for
+in-process command invocation.
+
+When upgrading Python callers, replace the following retired spellings.
+
+| Previous API | Current API |
+| --- | --- |
+| `config.load_config`, `load_pipeline(..., root=...)` | `load_pipeline(path, repository_root=...)`. The root can also be positional or discovered from Git. |
+| `PhaseConfig.validation_commands` | `PhaseConfig.commands` |
+| `PipelineConfig.hash`, `config.hash_pipeline(pipeline)`, `config.canonicalize_pipeline(pipeline)` | `pipeline.config_hash` for the SHA-256, `pipeline.canonical_json` for its input text |
+| `hashing.hash_bytes/text/json/file` | `hashing.sha256_bytes`, `sha256_text`, `sha256_json`, `sha256_file` |
+| `artifacts.resolve_artifact_reference`, `artifacts.verify_artifacts` | `resolve_input_reference`, `verify_manifest_artifacts` in `artifacts` |
+| `git.snapshot_repository`, `engine.capture_git_metadata` | `git.capture_repository_snapshot`. Select the required fields from the snapshot. |
+| Module-level `run_store.new_run_id`, `CorruptRunError` | `generate_run_id`, `RunCorruptionError`. The instance method `RunStore.new_run_id()` uses the store's injected clock and random source. |
+| `RunStore.create_run`, `load_run`, `create_visit`, `update` | `create`, `load`, `start_visit`, `mutate`, respectively |
+| `engine.RESPONSE_SCHEMA_VERSION`, `config.RESERVED_COMMANDS` | `contracts.RESPONSE_SCHEMA_VERSION`, `contracts.RESERVED_COMMANDS` |
+
+Replace imports of `config.SUPPORTED_SCHEMA_VERSION`, `IDENTIFIER_PATTERN`,
+`MUTATION_POLICIES`, and `VALIDATOR_TYPES` with the version, pattern and enums
+in the published pipeline schema. Schema-subset constants live in
+`schema_validation`. Import artifact path and reference helpers from
+`artifacts`, and path resolution and SHA-256 helpers from `hashing`.
+Use `load_pipeline` for full graph and resource validation. The config
+facade no longer exports parser constants, private helpers or a loader class.
 The source tree lives under `src/specromancy_engine/`; its four JSON schemas are
 packaged under `specromancy_engine/schemas/` in the installed distribution.
 
@@ -58,7 +128,7 @@ Each root owns its registry, graphs, skills, templates, validator schemas, and
 `.specromancy/runs/`. Graph and resource resolution is scoped to that root on
 each load; identical pipeline IDs in different projects do not share state.
 Skills resolve from the root; templates and validator schemas resolve from the
-graph's directory. Explicit workflow sources use the containment rules below.
+graph's directory. All three use the workflow containment rules below.
 No installed command
 requires writes to the package, the producer checkout, or home-directory
 configuration. Python bytecode caching can be disabled independently with
@@ -163,7 +233,7 @@ unique supported identifiers. Missing configuration reports the supported names
 and an example. Both commands are non-interactive and reject `--pipeline`.
 For nonempty selection generation validates every registration. With an empty
 selection it checks prior ownership and reconciles to zero generated files.
-Generator version 4 writes schema 2 and carries the generator name `specromancy`.
+Generator version 5 writes ownership schema 3 and carries the generator name `specromancy`.
 `--check` compares expected output and ownership without writing. It reports
 drift when the generated tree or manifest differs.
 
@@ -200,7 +270,7 @@ Phase wrappers retain the validated frontmatter and load the declared procedure 
 An action packet identifies the authoritative file. A missing file or a mismatch
 stops the visit. Relative references inside the procedure use its own directory.
 
-In generator v4 each output has one `path`, one `sha256`, and a sorted
+In generator v5 each output has one `path`, one `sha256`, and a sorted
 `targets` list of its selected consumers. Each selected target lists all its required paths. Root `AGENTS.md`
 serves Codex, Hermes, and OpenCode. Shared `.agents/skills` serve those three
 and Copilot. Claude has its own instructions, skills, and commands. Copilot
@@ -208,13 +278,12 @@ also requires its instructions and prompts, and OpenCode its commands. Codex
 and Hermes list the shared skills in `discovery_paths`. Each launch embeds the
 coordination procedure with the registered pipeline ID.
 
-Generation and check validate the previous manifest's generator identity and
-ownership records. Schema 1 generators 1 and 2 use their original single-target
-mapping. Under `.agents` they own only recorded `skills/specromancy-*/SKILL.md`
-outputs. Their Claude mirrors retain the original `.claude/skills/*/SKILL.md`
-grammar. Generator 3 requires the original all-target mapping. Generator 4
-validates attribution against its recorded selection. Both schema-2 versions
-check the consuming targets in both directions. Unrelated
+Generation and check first require any existing ownership manifest to identify
+schema 3, generator 5 and the command `specromancy adapters generate`. Missing,
+mixed, older and future identities return adapter drift (11) before rendering
+or cleanup. Both commands verify the recorded selection input and its hash,
+each path's selected consumers, and each target's paths and native discovery
+paths. Only then does today's selection determine the desired outputs. Unrelated
 skills beside expected outputs are ignored. An existing expected file requires
 valid prior ownership even when its bytes match. Regeneration restores edited
 current outputs and removes stale owned outputs only while their recorded hashes
@@ -254,19 +323,20 @@ original files exist. Registry ordering and unrelated graph edits do not alter
 another pipeline's run. Every workflow command requires a valid registry;
 help remains available without one.
 
-### Workflow-owned procedures (pipeline schema 2)
+### Workflow-owned procedures (pipeline schema 3)
 
-A phase may declare `skill_source = "workflow/skills/compose/SKILL.md"` alongside
+Each phase declares `skill_source = "workflow/skills/compose/SKILL.md"` alongside
 `skill = "compose"`. The identifier remains lowercase kebab-case. The source
 is a repository-relative POSIX file path with no parent segments. The parser
 normalizes redundant separators and current-directory segments, stores this
 declared path as `PhaseConfig.skill_source`, and includes it in canonical JSON.
+Callers constructing `PhaseConfig` directly must supply the `skill_source` keyword.
 `PhaseConfig.skill_path` holds the resolved regular file. Both the declared
 location and the symlink target of each procedure, output template, and validator
 must be inside a non-symlinked `workflow/` directory. Templates and validators
 retain their graph-relative bases, including safe `../templates/` references.
 
-Each explicit skill has portable UTF-8 frontmatter with a matching `name` and a
+Each skill has portable UTF-8 frontmatter with a matching `name` and a
 nonempty `description`. See [authoring pipelines](../guides/authoring-pipelines.md#skills-and-templates)
 for the supported fields. Each identifier binds to one normalized declaration
 and one resolved file. A file can serve multiple phases under the same identifier.
@@ -276,10 +346,19 @@ path checks bindings across the registry and requires explicit sources in every 
 the registry. Its `load_adapter_pipelines(root)` method rechecks the supplied
 registry and registration paths before loading graphs and reuses the parsed registry.
 
-When the field is omitted, the engine resolves the procedure at
-`.agents/skills/<skill>/SKILL.md` and checks that templates and validators
-stay inside the repository. Adding the field changes pipeline identity. Keep the original checkout,
-graph and recorded resource bytes available to finish an existing run.
+Graph schema 3 requires `skill_source`, `transition_approval_conditions`, and
+`action_approval_conditions` on every phase. The loader checks `schema_version`
+before it interprets graph fields. A missing source declaration in schema 3
+reports `missing-skill-source` with the pipeline, phase and field. The registry
+and harness-selection documents each use their own schema version 1.
+
+The graph author controls the positive integer `version`. A run saves the graph
+ID, path, author revision, and SHA-256 of the canonical configuration, including
+its schema version and normalized procedure declarations. A semantic graph edit
+changes the hash even at the same revision. Finish runs created under a retired
+graph schema with the producing engine and original resources, or initialize
+a separate run under schema 3.
+
 Prepared visits seal the raw bytes at the resolved procedure path and return
 that path and digest in `action.skill`. A missing declared source is an error,
 even when a same-named discovery file exists. A retained Python configuration
@@ -330,9 +409,8 @@ it is not guaranteed to leave every run byte-identical.
 Graph and artifact drift can invalidate approval. Prepared skill/template drift
 produces provenance warnings and prevents continuation. Editing an approved output
 before advancement marks the approval stale and requires a fresh decision.
-Finish active runs before changing their graph or consumed resources, or retain
-the exact resources recorded by those runs. There is no automatic active-run
-conversion; initialize a new run when adopting changed configuration.
+Finish active runs with their producing engine and recorded resources, or
+initialize a separate run when adopting the new graph.
 
 Configuration and adapter changes are separate from installing the engine.
 Preserve project instructions and the adapter manifest, and follow the ownership
@@ -346,9 +424,9 @@ Run IDs use a UTC timestamp and eight lowercase hexadecimal characters, for
 example `20260922T142501Z-a1b2c3d4`. Only IDs matching that form may be used to
 address `.specromancy/runs/`.
 
-The `specromancy_engine.run_store` imports and compatibility aliases remain available,
-including the same exception classes re-exported from `run_errors`. Run and
-event schema versions remain 1. `RunStore` returns ordinary, defensively copied
+The `specromancy_engine.run_store` module exposes `RunStoreError`,
+`RunNotFoundError`, and `RunCorruptionError` for storage failures. Run and
+event records each use schema version 2. `RunStore` returns ordinary, defensively copied
 dictionaries; record annotations neither construct defaults nor validate
 external data. Generation accepts injected clocks and zero-argument or sized
 random sources, and timestamp formatting remains UTC with microseconds and `Z`.
@@ -361,18 +439,42 @@ after replacement but before the event append, the next load appends a
 event sequence, or any other manifest/event disagreement is corrupt state and
 is not repaired heuristically.
 
-### Malformed persisted statuses
+### Stored versions and fields
 
-Run and visit statuses must be recognized strings. Invalid JSON status values,
-including arrays and objects, raise `RunCorruptionError` with exit code 12 and
-details `{"error_code": "corrupt-run", "run_id": "<run-id>"}`. The messages are
-`manifest status is invalid` and `visit identity or status is invalid`,
-respectively, subject to earlier validation failures. Manifest validation occurs
-before event reconciliation: malformed statuses leave `run.json` and
-`events.jsonl` unchanged even when the log is one revision behind. Version-1
-acceptance of numeric quirks, open approval dictionaries, and weak nested metadata
-is unchanged; the [compatibility decision matrix](../implementation-history/refactoring/14-persisted-data-diagnostics.md#nested-validation-decision-matrix)
-records the separately deferred hardening work.
+All reads validate the manifest and every event under the run lock before
+reconciliation. An unsupported positive integer version raises `RunStoreError`
+with exit code 12 and diagnostic `unsupported-schema-version`. Its details
+include `run_id`, `surface` (run or event), `observed_version`, and
+`expected_version`. Finish an older run with its producing engine and the
+original graph, skills, templates, and validators. To adopt the new engine,
+start a separate run. Preserve the archived log with its manifest and artifacts.
+
+Missing or malformed version tags and malformed current records raise
+`RunCorruptionError` (`corrupt-run`, exit 12). For example, an invalid run
+status reports `manifest status is invalid`. An invalid visit status reports
+`visit identity or status is invalid`. A one-event gap permits recovery only
+after these checks pass.
+
+Versions, counters and ordinals require positive JSON integer tokens. A
+decimal point or exponent is invalid even when the number is mathematically
+integral. JSON Schema treats `2.0` as equal to `2` and as an integer. Consumers
+must also check token types when decoding. Booleans are a distinct JSON type,
+including in Python callers where `True == 1`. Timestamps are UTC calendar
+date-times ending in `Z`, with optional fractional seconds.
+
+Pipeline and phase identifiers, input references, and non-null visit outcomes
+and targets must contain non-whitespace text. Each visit records a mutation
+policy of `read-only`, `repository-write`, or `allowlist`. The loader checks
+ordinal and per-phase attempt ordering, current-visit bounds, start/completion
+timestamps for started/completed visits, and output sealing. Run status and
+visit status can differ. For example, low-level completion seals a visit
+without advancing the run, and a paused run can point to a pending successor.
+
+Git base/head, mutation baseline/result, terminal result, block reason and
+the entries in the validation-check, command-result and deviation arrays can
+hold arbitrary finite JSON. These fields support low-level store operations
+and historical evidence. Engine gates collect and check the evidence needed
+for the requested operation.
 
 ### Durable operations and visit preparation
 
@@ -384,8 +486,11 @@ no-op); they do not read files or clocks, assign revisions, or acquire locks.
 One lock spans manifest/event loading, the
 change, validation, replacement, and append; internal commit helpers do not
 reacquire it. Idempotent activation, transition, and resume returns do not add
-a revision or event. The general `mutate` API always commits, even if its callback
-leaves the record unchanged.
+a revision or event. The general `mutate` API always commits a valid proposal,
+even if its callback leaves the record unchanged. Custom event types accept
+object payloads containing arbitrary finite JSON. The store validates and
+serializes the candidate audit event before it replaces the manifest. A
+rejected candidate therefore preserves the previous revision and log.
 
 Visit preparation resolves symbolic inputs and hashes skill/template provenance
 immediately, including for a pending successor at a paused edge. Activation
@@ -398,7 +503,11 @@ their separate semantics: start appends an active visit, and completion seals a
 visit without advancing the run. Completion rejects an already completed visit;
 transition accepts an exact outcome/target retry without another commit.
 
-`load(recover=False)` checks consistency without appending recovery events.
+`read_pipeline(run_id)` returns a detached copy of the saved pipeline record.
+It checks manifest and log consistency and permits a one-revision gap without
+repairing it. The CLI uses this lookup to select and validate the saved graph
+before a command's normal load can recover. Both `load(recover=False)` and
+`read_events(recover=False)` require a synchronized manifest and log.
 `load(verify_artifacts=False)` skips artifact verification independently and
 still permits recovery by default. Normal loads, including those invoked by
 `status`, may append the allowed recovery event; recovery precedes artifact
@@ -439,15 +548,26 @@ record.
 | 12 | `INTERNAL_ERROR` | Internal or corrupt-state error |
 | 13 | `RUN_PAUSED` | Run paused at a configured checkpoint |
 
-Human-readable successful and actionable responses use stdout; errors use stderr. With `--json`, every response is exactly one JSON object. Expected errors contain `code`, `message`, and, when relevant, `details`.
+Successful and actionable command results use stdout. With `--json`, the
+outer object has `schema_version: 2`, `kind`, `code`, and `message`.
+Dispatch on that version and kind first. For `action`, check
+`action.schema_version` before consuming the packet. For `status` and
+`approval`, check `status.schema_version` before using the status projection.
+Both nested versions are 2. The `adapters` result uses the common outer
+version for generation and check.
 
-Successful and actionable JSON responses use response schema version 1 and
-contain stable `schema_version`, `kind`, `code`, and `message` keys. An
-actionable phase response additionally contains `action`; approval boundaries
-contain `approval` and `status`; paused, read-only, and terminal responses
-contain `status`.
+Diagnostics carry `code`, `message`, and optional `details` without a version
+or kind. They use stderr, except actionable diagnostics such as
+`stale-approval` (7), which use stdout.
 
-An action packet uses schema version 1 and contains stable keys for `run_id`,
+Upgrade harnesses that consumed version 1 by reading the two kind-specific
+approval lists and the current visit's `action_decisions` in request order.
+Pending approvals in `approval` and `status.pending_approval` carry the stored
+record, its one-based `request_number`, and a numbered `approve_command`.
+Only actions carry `decline_command`. Only transitions carry `outcome` and
+`artifact_sha256`. Status uses null for an absent pending approval.
+
+An action packet uses schema version 2 and contains stable keys for `run_id`,
 `visit_id`, `visit_attempt`, `visit_status`, `phase`, `skill`, `inputs`,
 `output`, `template`, `mutation`, `completion_criteria`, `validation`,
 `action_approval_conditions`, `transition_approval_conditions`, `action_decisions`,
@@ -488,7 +608,16 @@ the visit remains retriable.
 The ordered `approvals` array gives each request a one-based number. Every
 record stores `kind` as `action` or `transition`. Both kinds bind the run, visit, phase, pipeline hash, reason,
 exact details, and request timestamp. A transition also binds the validated
-artifact hash and outcome. A visit can have one pending request across both kinds.
+artifact hash and outcome. The stored phase must match the referenced visit
+ordinal in that run, and the pipeline digest must match its saved provenance.
+A visit can have one pending request across both kinds. The array position
+identifies a request even when a clock repeats a timestamp.
+
+Pending records have null `decision`, `actor`, and `decided_at`. A user grant
+records `approved` for both status and decision, actor `user`, and a decision
+timestamp. An action decline uses `declined` for status and decision. A stale
+request records decision `invalidated`, actor `system`, and a decision timestamp.
+A transition's details may be text or null.
 
 Action requests require nonblank details and preserve the visit's original
 mutation baseline and completion evidence. Request and grant check sealed
@@ -499,6 +628,17 @@ for `approval-requested`, `approval-granted`, `approval-declined`, and
 `approval-invalidated`. A pending action with a changed graph becomes stale
 and returns the visit to active. Restoring the graph permits a fresh request.
 
+Approval events require a positive `visit_number`. Each payload includes
+`kind`. The table lists its remaining fields. Every action payload also
+requires the positive one-based `request_number`.
+
+| Event | Action | Transition |
+| --- | --- | --- |
+| `approval-requested` | `reason` | `reason`, `outcome` |
+| `approval-granted` | `actor: "user"` | `actor: "user"`, `phase_id` |
+| `approval-declined` | `actor: "user"` | Unsupported |
+| `approval-invalidated` | `mismatches: ["pipeline"]` | Nonempty `mismatches` containing `artifact`, `pipeline`, or both in that order |
+
 Under the run lock, a pending request takes priority over a replay. An exact
 pending request returns exit 7. A different request or a decision aimed at
 another record conflicts (5). On the active visit, an exact decided action or
@@ -506,6 +646,8 @@ matching decision returns the recorded result (8). An opposite decision
 conflicts. Replays and conflicts leave the revision and event log intact.
 
 Transition approval and advancement remain separate durable operations.
+A caller supplying `approval` to `RunStore.transition_visit` must supply the
+stored transition grant for that visit and outcome and its configured target.
 After an interruption, only a granted transition can resume advancement.
 Revalidation failure records evidence and retains the grant. A matching
 continuation of a completed transition leaves the successor untouched.

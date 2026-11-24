@@ -9,20 +9,20 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
-from .adapter_config import SELECTION_PATH, selection_bytes
+from .adapter_config import SELECTION_KIND, SELECTION_PATH, selection_bytes
 from .adapter_contracts import (
-    COMMAND_PATHS, HARNESS_MODES, MANIFEST_PATH, REGENERATION_COMMAND, AdapterError,
-    consumers_for_path, target_records,
+    ADAPTER_SCHEMA_VERSION, COMMAND_PATHS, HARNESS_MODES, MANIFEST_PATH, AdapterError,
+    consumers_for_path, generator_identity, target_records,
 )
-from ..hashing import SHA256_PATTERN, normalize_relative_path, sha256_bytes
+from ..hashing import SHA256_PATTERN, normalize_relative_path, sha256_bytes, sha256_json
 
 
 def write_adapters(
     root: Path, rendered: Mapping[str, bytes], manifest_bytes: bytes, harnesses: tuple[str, ...],
+    owned: Mapping[str, str],
 ) -> tuple[str, ...]:
     """Preflight ownership, replace outputs, recheck stale hashes, then write manifest."""
 
-    owned = _read_ownership(root)
     conflicts, stale = _preflight_generation(root, rendered, owned, harnesses)
     if conflicts:
         raise AdapterError(
@@ -86,12 +86,11 @@ def _owned_paths(manifest: Any) -> dict[str, str]:
     if not isinstance(generator, dict):
         raise AdapterError("invalid adapter manifest generator", {"path": MANIFEST_PATH})
     schema, version = manifest.get("schema_version"), generator.get("version")
-    command = "bin/specromancy adapters generate" if version == 1 else REGENERATION_COMMAND
-    if (type(schema) is not int or type(version) is not int or (schema, version) not in ((1, 1), (1, 2), (2, 3), (2, 4))
-            or generator.get("name") != "specromancy" or generator.get("command") != command):
+    if (type(schema) is not int or schema != ADAPTER_SCHEMA_VERSION
+            or type(version) is not int or generator != generator_identity()):
         raise AdapterError("unsupported adapter manifest generator identity",
                            {"schema_version": schema, "generator": generator})
-    harnesses = _recorded_selection(manifest) if version == 4 else tuple(HARNESS_MODES)
+    harnesses = _recorded_selection(manifest)
     generated = manifest.get("generated")
     if not isinstance(generated, list):
         raise AdapterError("adapter manifest has no generated path list", {"path": MANIFEST_PATH})
@@ -118,18 +117,11 @@ def _owned_paths(manifest: Any) -> dict[str, str]:
             )
         if any(ord(c) < 32 for c in normalized):
             raise AdapterError("adapter manifest contains an unsafe path", {"path": normalized})
-        if schema == 1:
-            target = _legacy_target(normalized)
-            allowed = target is not None
-            attribution = set(item) == {"path", "sha256", "target"} and item.get("target") == target
-        else:
-            consumers = sorted(set(harnesses).intersection(consumers_for_path(normalized)))
-            allowed = bool(consumers)
-            attribution = set(item) == {"path", "sha256", "targets"} and item.get("targets") == consumers
-        if not allowed:
+        consumers = sorted(set(harnesses).intersection(consumers_for_path(normalized)))
+        if not consumers:
             raise AdapterError("adapter manifest contains a path outside generated adapter locations",
                                {"path": normalized})
-        if not attribution:
+        if set(item) != {"path", "sha256", "targets"} or item.get("targets") != consumers:
             raise AdapterError("adapter manifest target does not match its generated path", {"path": normalized})
         if not isinstance(digest, str) or not SHA256_PATTERN.fullmatch(digest):
             raise AdapterError(
@@ -137,8 +129,7 @@ def _owned_paths(manifest: Any) -> dict[str, str]:
                 {"path": normalized, "sha256": digest},
             )
         owned[normalized] = digest
-    expected = target_records(owned, harnesses) if schema == 2 else _legacy_target_records(owned)
-    if manifest.get("targets") != expected:
+    if manifest["targets"] != target_records(owned, harnesses):
         raise AdapterError("adapter manifest target paths or discovery paths disagree", {"path": MANIFEST_PATH})
     return owned
 
@@ -156,25 +147,21 @@ def _recorded_selection(manifest: Mapping[str, Any]) -> tuple[str, ...]:
     harnesses = tuple(sorted(names))
     source = manifest.get("canonical_source")
     inputs = source.get("inputs") if isinstance(source, dict) else None
-    selection = {"kind": "adapter-selection", "path": SELECTION_PATH,
+    selection = {"kind": SELECTION_KIND, "path": SELECTION_PATH,
                  "sha256": sha256_bytes(selection_bytes(harnesses))}
-    if not isinstance(inputs, list) or [
-        item for item in inputs if isinstance(item, dict) and item.get("path") == SELECTION_PATH
-    ] != [selection]:
+    if not isinstance(inputs, list):
+        raise AdapterError("adapter manifest has no canonical inputs", {"path": MANIFEST_PATH})
+    recorded = [item for item in inputs if isinstance(item, dict)
+                and (item.get("path") == SELECTION_PATH or item.get("kind") == SELECTION_KIND)]
+    if recorded != [selection] or (not harnesses and inputs != recorded):
         raise AdapterError("adapter manifest targets disagree with selection input", {"path": SELECTION_PATH})
+    try:
+        digest = sha256_json(inputs)
+    except ValueError as exc:
+        raise AdapterError("invalid adapter manifest canonical inputs", {"path": MANIFEST_PATH}) from exc
+    if source.get("sha256") != digest:
+        raise AdapterError("adapter manifest canonical input hash disagrees", {"path": MANIFEST_PATH})
     return harnesses
-
-
-def _legacy_target_records(owned: Mapping[str, str]) -> list[dict[str, Any]]:
-    discovery = sorted(path for path in owned if path.startswith(".agents/"))
-    records = []
-    for name, mode in sorted(HARNESS_MODES.items()):
-        record = {"name": name, "mode": mode,
-                  "paths": sorted(path for path in owned if _legacy_target(path) == name)}
-        if mode == "native":
-            record["discovery_paths"] = discovery
-        records.append(record)
-    return records
 
 
 def _preflight_generation(
@@ -230,8 +217,8 @@ def _preflight_generation(
 
 def _compare(
     root: Path, rendered: Mapping[str, bytes], manifest_bytes: bytes, harnesses: tuple[str, ...],
+    owned: Mapping[str, str],
 ) -> dict[str, Any]:
-    owned = _read_ownership(root)
     missing = []
     modified = []
     for path, expected in (*rendered.items(), (MANIFEST_PATH, manifest_bytes)):
@@ -280,28 +267,6 @@ def _managed_paths(root: Path, harnesses: tuple[str, ...]) -> set[str]:
             if candidate.is_symlink() or candidate.is_file():
                 paths.add(candidate.relative_to(root).as_posix())
     return paths
-
-
-def _legacy_target(path: str) -> str | None:
-    """Original v1/v2 ownership grammar, including their wider Claude skill names."""
-    parts = path.split("/")
-    if path == ".claude/CLAUDE.md":
-        return "claude"
-    if path == ".github/copilot-instructions.md":
-        return "copilot"
-    if len(parts) == 4 and parts[3] == "SKILL.md":
-        if parts[:2] == [".agents", "skills"] and parts[2].startswith("specromancy-"):
-            return "codex"
-        if parts[:2] == [".claude", "skills"]:
-            return "claude"
-    if len(parts) == 4 and parts[:3] == [".claude", "commands", "specromancy"] and parts[3].endswith(".md"):
-        return "claude"
-    if len(parts) == 3 and parts[2].startswith("specromancy-"):
-        if parts[:2] == [".github", "prompts"] and parts[2].endswith(".prompt.md"):
-            return "copilot"
-        if parts[:2] == [".opencode", "commands"] and parts[2].endswith(".md"):
-            return "opencode"
-    return None
 
 
 def _unsafe_directory(root: Path, directory: Path) -> str | None:

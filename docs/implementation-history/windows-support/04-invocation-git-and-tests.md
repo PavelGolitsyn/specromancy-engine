@@ -98,11 +98,11 @@ read-only enforcement, byte integrity, and usable PowerShell instructions.
 
 ## Compatibility-fixture policy
 
-The current `states.json` includes mode observations and their resulting hashes;
+Lifecycle fixtures include mode observations and their resulting hashes;
 `chmod(0644)` cannot establish identical native Windows observations. Handle this
 explicitly, not by deleting mode fields or ignoring hashes in comparisons:
 
-1. Keep every original fixture unchanged and retain exact POSIX lifecycle replay.
+1. Retain exact POSIX lifecycle replay for the candidate's current formats.
    Run host-independent canonical/schema/adapter comparisons on every platform.
 2. Add separately named, reviewed Windows state expectations for the same
    deterministic scenario. Document each allowed difference: native mode values
@@ -114,8 +114,9 @@ explicitly, not by deleting mode fields or ignoring hashes in comparisons:
 4. Normalize only known machine-specific response fields such as absolute roots
    and interpreter locations. Handle their native separators deliberately; never
    blanket-replace backslashes in arbitrary strings, stored paths, or hashes.
-5. On Windows, verify original records can still be read and the historical
-   one-revision gap recovered without rewriting their snapshots. Continue the
+5. On Windows, restore a current-format one-revision gap and verify exactly one
+   recovery append. Restore obsolete records separately and verify refusal with
+   every file byte intact, including when an event is missing. Continue the
    native Windows lifecycle against its matching expectations. Do not silently
    promise approval/read-only continuity for a POSIX run moved to Windows.
 6. Exercise the Windows records and actual native snapshot behavior on both

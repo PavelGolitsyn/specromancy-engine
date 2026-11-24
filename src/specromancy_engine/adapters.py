@@ -10,9 +10,10 @@ from ._adapters.adapter_contracts import (
     ADAPTER_COMMANDS, ADAPTER_SCHEMA_VERSION, GENERATOR_VERSION, HARNESS_MODES,
     MANIFEST_PATH, REGENERATION_COMMAND, AdapterCommand, AdapterError,
 )
-from ._adapters.adapter_ownership import _compare, _has_drift, write_adapters
+from ._adapters.adapter_ownership import _compare, _has_drift, _read_ownership, write_adapters
 from ._adapters.adapter_rendering import render_workflow_sources, workflow_manifest
 from ._adapters.adapter_sources import capture_workflow_sources
+from .contracts import RESPONSE_SCHEMA_VERSION
 from .exit_codes import ExitCode
 from .hashing import canonical_json_bytes
 from .registry import PipelineRegistry, load_adapter_registry
@@ -38,13 +39,14 @@ def _generate_adapters(
     root: Path, registry: PipelineRegistry | Callable[[Path], PipelineRegistry] = load_adapter_registry,
     command_metadata: Mapping[str, Any] | None = None, *, check: bool,
 ) -> dict[str, Any]:
+    owned = _read_ownership(root)
     sources = capture_workflow_sources(root, registry, command_metadata)
     rendered = render_workflow_sources(sources)
     manifest = workflow_manifest(sources, rendered)
     manifest_bytes = canonical_json_bytes(manifest) + b"\n"
 
     if check:
-        drift = _compare(root, rendered, manifest_bytes, sources.harnesses)
+        drift = _compare(root, rendered, manifest_bytes, sources.harnesses, owned)
         if _has_drift(drift):
             raise AdapterError("generated adapter drift detected", drift)
         return _result(
@@ -54,7 +56,7 @@ def _generate_adapters(
             canonical_source_sha256=manifest["canonical_source"]["sha256"],
         )
 
-    removed = write_adapters(root, rendered, manifest_bytes, sources.harnesses)
+    removed = write_adapters(root, rendered, manifest_bytes, sources.harnesses, owned)
     return _result(
         f"generated {len(rendered)} harness adapter files",
         checked=False,
@@ -87,7 +89,7 @@ def _result(
     removed: tuple[str, ...] = (),
 ) -> dict[str, Any]:
     return {
-        "schema_version": 1,
+        "schema_version": RESPONSE_SCHEMA_VERSION,
         "kind": "adapters",
         "code": int(ExitCode.SUCCESS),
         "message": message,

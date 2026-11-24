@@ -1,4 +1,4 @@
-schema_version = 2
+schema_version = 3
 id = "replacement"
 version = 1
 start = "inspect"
@@ -15,8 +15,7 @@ output_name = "{visit:03}-observations.md"
 output_template = "../templates/observations.md"
 mutation = "read-only"
 completion_criteria = ["Identify the source value and selected operation."]
-validator = "markdown"
-required_headings = ["Observations", "Selected Operation"]
+validator = { type = "markdown", required_headings = ["Observations", "Selected Operation"] }
 transition_approval_conditions = []
 action_approval_conditions = []
 stop_conditions = ["unreadable-source"]
@@ -39,8 +38,7 @@ output_template = "../templates/result.md"
 mutation = "allowlist"
 allowlist = ["workspace/**"]
 completion_criteria = ["Apply the selected operation and record its result."]
-validator = "markdown"
-required_headings = ["Operation", "Result"]
+validator = { type = "markdown", required_headings = ["Operation", "Result"] }
 transition_approval_conditions = []
 action_approval_conditions = []
 stop_conditions = ["unsupported-operation"]
@@ -62,8 +60,7 @@ output_name = "{visit:03}-decision.md"
 output_template = "../templates/decision.md"
 mutation = "read-only"
 completion_criteria = ["Check the transformation and record a decision."]
-validator = "markdown"
-required_headings = ["Checks", "Decision"]
+validator = { type = "markdown", required_headings = ["Checks", "Decision"] }
 transition_approval_conditions = []
 action_approval_conditions = []
 stop_conditions = ["inconclusive"]

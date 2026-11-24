@@ -9,7 +9,7 @@ from importlib.resources import files
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from .adapter_config import SELECTION_PATH, load_selection, selection_bytes
+from .adapter_config import SELECTION_KIND, SELECTION_PATH, load_selection, selection_bytes
 from .adapter_contracts import ADAPTER_COMMANDS, COMMAND_PATHS, AdapterError
 from .._config.config_fields import FieldContext
 from .._cli.cli_commands import adapter_command_metadata
@@ -108,7 +108,7 @@ def capture_workflow_sources(
     Render-only still validates graphs but skips bytes needed only for provenance.
     """
     harnesses = load_selection(root)
-    selection = SourceInput("adapter-selection", SELECTION_PATH, selection_bytes(harnesses))
+    selection = SourceInput(SELECTION_KIND, SELECTION_PATH, selection_bytes(harnesses))
     if callable(registry):
         registry = registry(root)
     if not harnesses:
@@ -136,7 +136,6 @@ def capture_workflow_sources(
     for pipeline in pipelines:
         for phase in pipeline.phases:
             if phase.skill not in skills:
-                assert phase.skill_source is not None  # checked across all registrations
                 source = _workflow_text("canonical-skill", phase.skill_source, phase.skill_path, read)
                 lines = source.content.decode("utf-8").splitlines()
                 frontmatter = "\n".join(lines[1:lines.index("---", 1)])

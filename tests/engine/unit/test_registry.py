@@ -150,7 +150,7 @@ class RegistryTests(unittest.TestCase):
             load_adapter_registry(self.root)
         self.assertEqual(caught.exception.diagnostic_code, "unsafe-path")
 
-    def test_adapter_graph_precheck_reports_legacy_source_before_legacy_lookup(self) -> None:
+    def test_adapter_graph_loader_identifies_phase_missing_its_source(self) -> None:
         registry = load_adapter_registry(self.root)
         for registration in registry.pipelines:
             path = registration.path

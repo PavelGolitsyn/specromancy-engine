@@ -32,7 +32,7 @@ class CliContractTests(unittest.TestCase):
         self.pipeline.write_text(
             textwrap.dedent(
                 """
-                schema_version = 2
+                schema_version = 3
                 id = "cli-fixture"
                 version = 1
                 start = "compose"
@@ -47,7 +47,7 @@ class CliContractTests(unittest.TestCase):
                 output_name = "{visit:03}-result.md"
                 mutation = "read-only"
                 completion_criteria = ["Write a result."]
-                validator = "file"
+                validator = { type = "file" }
                 transition_approval_conditions = []
                 action_approval_conditions = []
                 stop_conditions = []
@@ -85,7 +85,7 @@ class CliContractTests(unittest.TestCase):
         initialized = self.command("init", "Build the fixture")
         self.assertEqual(initialized.returncode, ExitCode.AGENT_ACTION_REQUIRED)
         init_payload = json.loads(initialized.stdout)
-        self.assertEqual(init_payload["schema_version"], 1)
+        self.assertEqual(init_payload["schema_version"], 2)
         self.assertEqual(init_payload["action"]["visit_status"], "pending")
         run_id = init_payload["action"]["run_id"]
 

@@ -116,6 +116,31 @@ class WorkflowOnlyContractTests(PipelineCLICase):
                 self.assertEqual(payload["status"]["terminal_result"]["outcome"], "done")
         self.assertEqual({p.name for p in self.root.iterdir()}, {".git", "workflow", ".specromancy"})
 
+    def test_unsupported_graph_versions_refuse_init_and_selected_generation(self) -> None:
+        graph = self.root / "workflow/pipelines/alpha.toml"
+        current = graph.read_text()
+        for version, token in ((1, "1"), (2, "2"), (4, "4"), (False, "false")):
+            obsolete = current.replace("schema_version = 3", f"schema_version = {token}")
+            # Obsolete fields and a missing source must not mask the version error.
+            graph.write_text(obsolete.replace("transition_approval_conditions", "approval_conditions")
+                             .replace('skill_source = "workflow/skills/compose/SKILL.md"\n', ""))
+            before = {p: p.read_bytes() for p in self.root.rglob("*") if p.is_file()}
+            for args in (("init", "Record evidence", "--pipeline", "alpha"),
+                         ("adapters", "generate"), ("adapters", "generate", "--check")):
+                with self.subTest(version=version, command=args):
+                    code, error = self.command(*args)
+                    self.assertEqual(code, ExitCode.INVALID_PIPELINE, error)
+                    details = error["details"]
+                    diagnostic = "invalid-field-type" if token == "false" else "unsupported-schema-version"
+                    self.assertEqual(details["error_code"], diagnostic)
+                    self.assertEqual(details["value"], version)
+                    self.assertEqual(details["path"], str(graph))
+                    if token != "false":
+                        for field in ("skill_source", "transition_approval_conditions", "action_approval_conditions"):
+                            self.assertIn(field, details["remediation"])
+                    self.assertEqual({p: p.read_bytes() for p in self.root.rglob("*") if p.is_file()}, before)
+                    self.assertEqual({p.name for p in self.root.iterdir()}, {".git", "workflow"})
+
     def test_missing_or_escaped_canonical_procedure_blocks_init_despite_wrapper(self) -> None:
         generate_adapters(self.root, load_adapter_registry(self.root))
         skill = self.root / "workflow/skills/compose/SKILL.md"

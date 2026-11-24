@@ -16,8 +16,8 @@ CI and local verification can detect missing, modified, extra, or source-stale a
 specromancy adapters generate --check
 ```
 
-The ownership record is `adapters/manifest.json`, schema version 2. Generator
-version 4 records every selected consumer of a shared path in one ownership entry. Generation
+The ownership record is `adapters/manifest.json`, schema version 3. Generator
+version 5 records every selected consumer of a shared path in one ownership entry. Generation
 uses normalized UTF-8 input, stable ordering and newlines, no timestamps or
 absolute paths, and atomic per-file replacement with the manifest written last.
 It is not a transaction across all generated files. A file may be removed as
@@ -26,8 +26,12 @@ matches. Unowned and edited stale files are preserved and reported as conflicts.
 Generation restores current manifest-owned output even if edited; `--check`
 reports those edits without writing. Preserve intentional edits before
 regenerating and incorporate their intended changes into canonical sources.
-During migration, first relocate hand-written instructions and phase skills.
-Older manifests retain the ownership limits of their own versions.
+For graph schema 3, move hand-written instructions and procedures under
+`workflow/` and declare a `skill_source` for every phase before generating wrappers.
+Generation and check return drift (11) for older or unknown ownership identities.
+Rebuild older adapters from preserved authored inputs in a fresh directory and
+review the resulting files and manifest together. See the
+[consumer upgrade procedure](../guides/installation.md#rebuild-adapters-from-a-previous-ownership-format).
 
 All harnesses need the installed command on their process's `PATH`; terminal
 activation does not update an already-running GUI harness. See

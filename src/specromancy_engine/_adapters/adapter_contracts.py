@@ -11,10 +11,14 @@ from ..errors import SpecromancyError
 from ..exit_codes import ExitCode
 
 
-ADAPTER_SCHEMA_VERSION = 2
-GENERATOR_VERSION = 4
+ADAPTER_SCHEMA_VERSION = 3
+GENERATOR_VERSION = 5
 MANIFEST_PATH = "adapters/manifest.json"
 REGENERATION_COMMAND = "specromancy adapters generate"
+
+
+def generator_identity() -> dict[str, str | int]:
+    return {"name": "specromancy", "version": GENERATOR_VERSION, "command": REGENERATION_COMMAND}
 
 
 @dataclass(frozen=True, slots=True)

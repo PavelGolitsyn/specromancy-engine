@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 
+RESPONSE_SCHEMA_VERSION = 2
+
+
 RESERVED_COMMANDS = frozenset(
     {
         "init",

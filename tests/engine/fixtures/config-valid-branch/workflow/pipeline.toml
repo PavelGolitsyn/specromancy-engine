@@ -1,4 +1,4 @@
-schema_version = 2
+schema_version = 3
 id = "branch"
 version = 1
 start = "inspect"
@@ -13,7 +13,7 @@ inputs = ["request"]
 output_name = "{visit:03}-inspection.md"
 mutation = "read-only"
 completion_criteria = ["Choose a configured branch."]
-validator = "file"
+validator = { type = "file" }
 transition_approval_conditions = []
 action_approval_conditions = []
 stop_conditions = []
@@ -35,7 +35,7 @@ inputs = ["latest:inspect"]
 output_name = "{visit:03}-transformation.md"
 mutation = "repository-write"
 completion_criteria = ["Record the transformation."]
-validator = "file"
+validator = { type = "file" }
 transition_approval_conditions = []
 action_approval_conditions = []
 stop_conditions = []
@@ -52,7 +52,7 @@ inputs = ["latest:inspect"]
 output_name = "{visit:03}-verification.md"
 mutation = "read-only"
 completion_criteria = ["Record the verification."]
-validator = "file"
+validator = { type = "file" }
 transition_approval_conditions = []
 action_approval_conditions = []
 stop_conditions = []

@@ -2,7 +2,7 @@
 name: transform
 description: Transform an inspected value when the replacement pipeline requests it.
 license: MIT
-compatibility: Specromancy pipeline schema version 2.
+compatibility: Specromancy pipeline schema version 3.
 metadata:
   role: phase
 ---

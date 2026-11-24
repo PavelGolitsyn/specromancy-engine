@@ -7,12 +7,10 @@ from typing import Any
 from ..actions import build_action_packet
 from .approvals import pending_approval
 from .._config.config_models import PipelineConfig
+from ..contracts import RESPONSE_SCHEMA_VERSION
 from ..exit_codes import ExitCode
 from .._runs.run_records import ApprovalRecord, RunRecord, VisitRecord, current_visit
 from ..status import build_status, describe_approval
-
-
-RESPONSE_SCHEMA_VERSION = 1
 
 
 def after_transition(

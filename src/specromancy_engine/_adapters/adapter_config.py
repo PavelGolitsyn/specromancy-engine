@@ -10,6 +10,7 @@ from .._config.config_errors import PipelineConfigError
 from .._config.config_fields import FieldContext
 from ..hashing import canonical_json_bytes
 
+SELECTION_KIND = "adapter-selection"
 SELECTION_PATH = "workflow/adapters.toml"
 
 

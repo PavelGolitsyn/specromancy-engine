@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import json
 import subprocess
 import sys
@@ -8,12 +9,128 @@ import textwrap
 import unittest
 from pathlib import Path
 
+from specromancy_engine.cli import main
 from specromancy_engine.config import load_pipeline
-from specromancy_engine.run_store import RunStore
+from specromancy_engine.run_store import RunStore, RunStoreError
+from tests.engine.contract.current_contract_support import (
+    CurrentContractFixture, REFUSED_FIXTURES, RUN_ID as CAPTURED_ID, read_record,
+)
 
 
 ROOT = Path(__file__).resolve().parents[3]
 RUN_ID = "20260925T120000Z-a1b2c3d4"
+
+
+class VersionedRecoveryTests(unittest.TestCase):
+    def restore(self, files):
+        fixture = CurrentContractFixture(pause=True)
+        self.addCleanup(fixture.close)
+        fixture.restore(files)
+        return fixture
+
+    def snapshot(self, fixture):
+        directory = fixture.store.run_directory(CAPTURED_ID)
+        return {p.relative_to(directory): p.read_bytes() for p in directory.rglob("*") if p.is_file()}
+
+    def cli(self, fixture, command, *args):
+        out, err = io.StringIO(), io.StringIO()
+        code = main(["--root", str(fixture.root), "--json", command, CAPTURED_ID, *args],
+                    stdout=out, stderr=err)
+        return code, json.loads(err.getvalue() or out.getvalue())
+
+    def assert_refused(self, fixture, surface, version, command, *args):
+        before = self.snapshot(fixture)
+        store = fixture.store
+        details = {"error_code": "unsupported-schema-version", "surface": surface,
+                   "observed_version": version, "expected_version": 2, "run_id": CAPTURED_ID}
+        for operation in (
+            lambda: store.load(CAPTURED_ID), lambda: store.load(CAPTURED_ID, recover=False),
+            lambda: store.read_events(CAPTURED_ID), lambda: store.read_events(CAPTURED_ID, recover=False),
+            lambda: store.read_pipeline(CAPTURED_ID), lambda: store.block(CAPTURED_ID, "test"),
+        ):
+            with self.assertRaises(RunStoreError) as caught:
+                operation()
+            self.assertEqual(caught.exception.details, details)
+            self.assertEqual(self.snapshot(fixture), before)
+        code, response = self.cli(fixture, command, *args)
+        self.assertEqual(code, 12)
+        self.assertEqual(response["details"], details)
+        self.assertIn("engine that produced the run", response["message"])
+        self.assertEqual(self.snapshot(fixture), before)
+
+    def test_original_approval_and_interrupted_v1_runs_are_refused_before_writes(self):
+        old = json.loads((REFUSED_FIXTURES / "runs-v1.json").read_bytes())
+        approval = json.loads(old["awaiting-approval"]["run.json"])["approvals"][0]
+        self.assertNotIn("kind", approval)
+        self.assert_refused(self.restore(old["awaiting-approval"]), "run", 1, "approve", "compose")
+        self.assert_refused(self.restore(old["recoverable"]), "run", 1, "resume")
+
+    def test_old_mixed_and_future_versions_are_refused_even_with_recoverable_gap(self):
+        current = read_record("states.json")
+        old_log = json.loads((REFUSED_FIXTURES / "runs-v1.json").read_bytes())["recoverable"]["events.jsonl"]
+        for state in ("active", "recoverable"):
+            files = current[state]
+            lines = files["events.jsonl"].splitlines(keepends=True)
+            for version, log in ((1, old_log), (1, old_log.splitlines(keepends=True)[0] + "".join(lines[1:])),
+                                 (3, lines[0].replace('"schema_version":2', '"schema_version":3') + "".join(lines[1:]))):
+                with self.subTest(state=state, log=log):
+                    fixture = self.restore({**files, "events.jsonl": log})
+                    self.assert_refused(fixture, "event", version, "resume")
+        files = current["recoverable"]
+        future = json.loads(files["run.json"])
+        future["schema_version"] = 3
+        self.assert_refused(self.restore({**files, "run.json": json.dumps(future)}), "run", 3, "resume")
+
+    def test_malformed_versions_and_nested_records_refuse_before_recovery(self):
+        original = read_record("states.json")["recoverable"]
+        for name, path, invalid in (
+            ("run.json", ("schema_version",), True),
+            ("events.jsonl", ("schema_version",), "2"),
+            ("run.json", ("visits", 0, "skill", "sha256"), []),
+            ("events.jsonl", ("payload",), []),
+        ):
+            with self.subTest(file=name, path=path):
+                prefix = ""
+                content = original[name]
+                if name == "events.jsonl":
+                    prefix, content = content.rstrip("\n").rsplit("\n", 1)
+                    prefix += "\n"
+                record = json.loads(content)
+                target = record
+                for key in path[:-1]:
+                    target = target[key]
+                target[path[-1]] = invalid
+                fixture = self.restore({**original, name: prefix + json.dumps(record) + "\n"})
+                before = self.snapshot(fixture)
+                code, error = self.cli(fixture, "resume")
+                self.assertEqual(code, 12, error)
+                self.assertEqual(error["details"]["error_code"], "corrupt-run")
+                self.assertEqual(self.snapshot(fixture), before)
+
+    def test_cli_loads_saved_graph_before_recovering_once(self):
+        fixture = self.restore(read_record("states.json")["recoverable"])
+        before = self.snapshot(fixture)
+        graph = fixture.path.read_text()
+        for version in (1, 2, 4, False):
+            with self.subTest(version=version):
+                token = json.dumps(version)
+                fixture.path.write_text(graph.replace("schema_version = 3", f"schema_version = {token}"))
+                inputs = {p: p.read_bytes() for p in fixture.root.rglob("*") if p.is_file()}
+                code, error = self.cli(fixture, "resume")
+                self.assertEqual(code, 3)
+                diagnostic = "invalid-field-type" if version is False else "unsupported-schema-version"
+                self.assertEqual(error["details"]["error_code"], diagnostic)
+                self.assertEqual(error["details"]["value"], version)
+                self.assertEqual({p: p.read_bytes() for p in fixture.root.rglob("*") if p.is_file()}, inputs)
+        fixture.path.write_text(graph)
+        self.assertEqual(self.cli(fixture, "resume")[0], 8)
+        events = fixture.store.read_events(CAPTURED_ID, recover=False)
+        self.assertEqual(events[-1]["type"], "recovery")
+        self.assertEqual(sum(e["type"] == "recovery" for e in events), 1)
+        recovered = self.snapshot(fixture)
+        self.assertEqual(recovered[Path("run.json")], before[Path("run.json")])
+        self.assertEqual(self.cli(fixture, "resume")[0], 8)
+        self.assertEqual(self.snapshot(fixture), recovered)
 
 
 class RecoveryContractTests(unittest.TestCase):
@@ -30,7 +147,7 @@ class RecoveryContractTests(unittest.TestCase):
             pipeline_path.write_text(
                 textwrap.dedent(
                     """
-                    schema_version = 2
+                    schema_version = 3
                     id = "recovery"
                     version = 1
                     start = "compose"
@@ -45,7 +162,7 @@ class RecoveryContractTests(unittest.TestCase):
                     output_name = "{visit:03}-result.md"
                     mutation = "read-only"
                     completion_criteria = ["Write."]
-                    validator = "file"
+                    validator = { type = "file" }
                     transition_approval_conditions = []
                     action_approval_conditions = []
                     stop_conditions = []

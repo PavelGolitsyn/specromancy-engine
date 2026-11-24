@@ -69,7 +69,7 @@ def perform_validation(
 
     checks = [check]
     command_results = execute_validation_commands(
-        phase.validation_commands,
+        phase.commands,
         pipeline.repository_root,
         run_directory,
         visit["ordinal"],

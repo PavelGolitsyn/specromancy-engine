@@ -10,7 +10,7 @@ from ._config.config_models import PipelineConfig
 from ._runs.run_records import RunRecord, SealedArtifactRecord, VisitRecord
 
 
-ACTION_PACKET_SCHEMA_VERSION = 1
+ACTION_PACKET_SCHEMA_VERSION = 2
 
 
 def build_action_packet(
@@ -72,7 +72,7 @@ def build_action_packet(
                     "timeout_seconds": command.timeout_seconds,
                     "required": command.required,
                 }
-                for command in phase.validation_commands
+                for command in phase.commands
             ],
         },
         "action_approval_conditions": list(phase.action_approval_conditions),
@@ -80,8 +80,9 @@ def build_action_packet(
         "action_decisions": [
             {**record, "request_number": number}
             for number, record in enumerate(manifest["approvals"], 1)
-            if record.get("kind") == "action" and record.get("visit_number") == visit["ordinal"]
-            and record.get("status") in {"approved", "declined"}
+            if record["kind"] == "action"
+            and record["visit_number"] == visit["ordinal"]
+            and record["status"] in {"approved", "declined"}
         ],
         "stop_conditions": list(phase.stop_conditions),
         "outcomes": [transition.outcome for transition in phase.transitions],

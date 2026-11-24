@@ -69,7 +69,9 @@ must not establish Windows support.
    Require successful tests with no skipped installed-consumer cases. Keep
    missing Git/build tools/artifacts as failures. The copied bundle must exercise
    lifecycle completion, approvals, recovery, read-only enforcement, adapters,
-   immutable artifacts, and resource provenance on native Windows.
+   immutable artifacts, and resource provenance on native Windows. Use current
+   positive fixtures for both wheels and test obsolete run, graph and ownership
+   refusal against disposable consumers.
 10. Add a real verification run from an artifact/output directory containing
     spaces and Unicode. Preserve the evidence log and artifact hashes. Use a new
     directory and log path for each run; do not glob stale versioned artifacts.

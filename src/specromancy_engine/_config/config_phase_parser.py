@@ -18,7 +18,7 @@ MUTATION_POLICIES = frozenset({"read-only", "repository-write", "allowlist"})
 VALIDATOR_TYPES = frozenset({"markdown", "json", "file"})
 
 
-def parse_phase(context: FieldContext, value: Any) -> PhaseConfig:
+def parse_phase(context: FieldContext, value: Any, pipeline_id: str) -> PhaseConfig:
     raw = context.require_mapping(value, "phases")
     phase_id = context.require_identifier(raw.get("id"), "id")
     allowed = {
@@ -30,14 +30,9 @@ def parse_phase(context: FieldContext, value: Any) -> PhaseConfig:
         "output_template",
         "mutation",
         "allowlist",
-        "mutation_allowlist",
         "completion_criteria",
         "validator",
-        "validator_path",
-        "required_headings",
-        "heading_occurrence",
         "commands",
-        "validation_commands",
         "transition_approval_conditions",
         "action_approval_conditions",
         "stop_conditions",
@@ -55,15 +50,15 @@ def parse_phase(context: FieldContext, value: Any) -> PhaseConfig:
             remediation="choose a phase id that is not a CLI command",
         )
     skill = context.require_identifier(raw.get("skill"), "skill", phase=phase_id)
-    skill_source = None
-    if "skill_source" in raw:
-        declared = context.require_string(raw["skill_source"], "skill_source", phase=phase_id)
-        skill_path = context.workflow_path(declared, "skill_source", phase=phase_id)
-        skill_source = Path(declared).as_posix()
-    else:
-        skill_path = context.existing_path(
-            f".agents/skills/{skill}/SKILL.md", "skill", phase=phase_id, base=context.repository_root,
+    if "skill_source" not in raw:
+        context.fail(
+            "missing-skill-source", f"pipeline {pipeline_id!r} phase {phase_id!r} requires skill_source",
+            phase=phase_id, field="skill_source",
+            remediation="declare skill_source as the repository-relative path to a procedure under workflow/",
         )
+    declared = context.require_string(raw["skill_source"], "skill_source", phase=phase_id)
+    skill_path = context.workflow_path(declared, "skill_source", phase=phase_id)
+    skill_source = Path(declared).as_posix()
     inputs = context.string_list(raw.get("inputs"), "inputs", phase=phase_id)
     _validate_inputs(inputs, phase_id, context.fail)
     output_name = context.require_string(
@@ -80,7 +75,7 @@ def parse_phase(context: FieldContext, value: Any) -> PhaseConfig:
             output_template_raw, "output_template", phase=phase_id
         )
         output_template_path = context.phase_dependency(
-            output_template, "output_template", phase=phase_id, workflow_owned=skill_source is not None,
+            output_template, "output_template", phase=phase_id,
         )
     mutation = context.require_string(raw.get("mutation"), "mutation", phase=phase_id)
     if mutation not in MUTATION_POLICIES:
@@ -92,18 +87,8 @@ def parse_phase(context: FieldContext, value: Any) -> PhaseConfig:
             value=mutation,
             remediation=f"choose one of {', '.join(sorted(MUTATION_POLICIES))}",
         )
-    if "allowlist" in raw and "mutation_allowlist" in raw:
-        context.fail(
-            "conflicting-fields",
-            "allowlist and mutation_allowlist cannot both be declared",
-            phase=phase_id,
-            field="allowlist",
-            value=raw["allowlist"],
-            remediation="declare only allowlist",
-        )
-    allowlist_value = raw.get("allowlist", raw.get("mutation_allowlist", []))
     allowlist = context.string_list(
-        allowlist_value, "allowlist", phase=phase_id, allow_empty=mutation != "allowlist"
+        raw.get("allowlist", []), "allowlist", phase=phase_id, allow_empty=mutation != "allowlist"
     )
     for pattern in allowlist:
         if not _safe_declared_path(pattern, allow_glob=True):
@@ -130,7 +115,7 @@ def parse_phase(context: FieldContext, value: Any) -> PhaseConfig:
         phase=phase_id,
         allow_empty=False,
     )
-    validator = parse_validator(context, raw, phase_id)
+    validator = parse_validator(context, raw.get("validator"), phase_id)
     commands = parse_commands(context, raw, phase_id)
     transition_reasons = context.string_list(
         raw.get("transition_approval_conditions"), "transition_approval_conditions",
@@ -194,83 +179,11 @@ def parse_phase(context: FieldContext, value: Any) -> PhaseConfig:
 
 
 def parse_validator(
-    context: FieldContext, phase_raw: Mapping[str, Any], phase_id: str
+    context: FieldContext, value: Any, phase_id: str
 ) -> ValidatorConfig:
-    raw = phase_raw.get("validator")
-    required_headings_raw: Any = phase_raw.get("required_headings", [])
-    heading_occurrence_raw: Any = phase_raw.get(
-        "heading_occurrence", "exactly-once"
-    )
-    declared_path_raw: Any = phase_raw.get("validator_path")
-    if isinstance(raw, str):
-        validator_type = context.require_string(raw, "validator", phase=phase_id)
-    elif isinstance(raw, Mapping):
-        context.check_unknown(
-            raw,
-            {
-                "type",
-                "required_headings",
-                "heading_occurrence",
-                "path",
-                "schema",
-            },
-            phase=phase_id,
-        )
-        validator_type = context.require_string(
-            raw.get("type"), "validator.type", phase=phase_id
-        )
-        if "required_headings" in raw:
-            if "required_headings" in phase_raw:
-                context.fail(
-                    "conflicting-fields",
-                    "required_headings is declared twice",
-                    phase=phase_id,
-                    field="required_headings",
-                    value=required_headings_raw,
-                    remediation="declare headings either beside or inside validator",
-                )
-            required_headings_raw = raw["required_headings"]
-        if "heading_occurrence" in raw:
-            if "heading_occurrence" in phase_raw:
-                context.fail(
-                    "conflicting-fields",
-                    "heading_occurrence is declared twice",
-                    phase=phase_id,
-                    field="heading_occurrence",
-                    value=heading_occurrence_raw,
-                    remediation="declare it either beside or inside validator",
-                )
-            heading_occurrence_raw = raw["heading_occurrence"]
-        if "path" in raw and "schema" in raw:
-            context.fail(
-                "conflicting-fields",
-                "validator path and schema cannot both be declared",
-                phase=phase_id,
-                field="validator.path",
-                value=raw["path"],
-                remediation="declare one validator file path",
-            )
-        nested_path = raw.get("path", raw.get("schema"))
-        if nested_path is not None:
-            if declared_path_raw is not None:
-                context.fail(
-                    "conflicting-fields",
-                    "validator path is declared twice",
-                    phase=phase_id,
-                    field="validator_path",
-                    value=declared_path_raw,
-                    remediation="declare the path either beside or inside validator",
-                )
-            declared_path_raw = nested_path
-    else:
-        context.fail(
-            "invalid-field-type",
-            "validator must be a type string or table",
-            phase=phase_id,
-            field="validator",
-            value=raw,
-            remediation="use markdown, json, or file",
-        )
+    raw = context.require_mapping(value, "validator", phase=phase_id)
+    context.check_unknown(raw, {"type", "required_headings", "heading_occurrence", "path"}, phase=phase_id)
+    validator_type = context.require_string(raw.get("type"), "validator.type", phase=phase_id)
     if validator_type not in VALIDATOR_TYPES:
         context.fail(
             "invalid-validator",
@@ -281,7 +194,7 @@ def parse_validator(
             remediation=f"choose one of {', '.join(sorted(VALIDATOR_TYPES))}",
         )
     required_headings = context.string_list(
-        required_headings_raw,
+        raw.get("required_headings", []),
         "required_headings",
         phase=phase_id,
     )
@@ -292,10 +205,10 @@ def parse_validator(
             phase=phase_id,
             field="required_headings",
             value=required_headings,
-            remediation="remove the headings or use validator = 'markdown'",
+            remediation="remove the headings or set validator.type to 'markdown'",
         )
     heading_occurrence = context.require_string(
-        heading_occurrence_raw, "heading_occurrence", phase=phase_id
+        raw.get("heading_occurrence", "exactly-once"), "heading_occurrence", phase=phase_id
     )
     if heading_occurrence not in {"exactly-once", "at-least-once"}:
         context.fail(
@@ -306,33 +219,33 @@ def parse_validator(
             value=heading_occurrence,
             remediation="choose exactly-once or at-least-once",
         )
-    if validator_type != "markdown" and heading_occurrence_raw != "exactly-once":
+    if validator_type != "markdown" and heading_occurrence != "exactly-once":
         context.fail(
             "invalid-validator-rule",
             "heading_occurrence is supported only by the markdown validator",
             phase=phase_id,
             field="heading_occurrence",
             value=heading_occurrence,
-            remediation="remove the setting or use validator = 'markdown'",
+            remediation="remove the setting or set validator.type to 'markdown'",
         )
     declared_path: str | None = None
     resolved_path: Path | None = None
     json_schema: Mapping[str, Any] | None = None
-    if declared_path_raw is not None:
+    if "path" in raw:
         declared_path = context.require_string(
-            declared_path_raw, "validator_path", phase=phase_id
+            raw["path"], "validator.path", phase=phase_id
         )
         resolved_path = context.phase_dependency(
-            declared_path, "validator_path", phase=phase_id, workflow_owned="skill_source" in phase_raw,
+            declared_path, "validator.path", phase=phase_id,
         )
         if validator_type != "json":
             context.fail(
                 "invalid-validator-rule",
                 "a validator schema path is supported only by the JSON validator",
                 phase=phase_id,
-                field="validator_path",
+                field="validator.path",
                 value=declared_path,
-                remediation="remove the path or use validator = 'json'",
+                remediation="remove the path or set validator.type to 'json'",
             )
         try:
             json_schema = load_json_schema(resolved_path, read_bytes=context.read_bytes)
@@ -341,7 +254,7 @@ def parse_validator(
                 "unsupported-json-schema",
                 f"invalid JSON validator schema at {exc.location}: {exc}",
                 phase=phase_id,
-                field="validator_path",
+                field="validator.path",
                 value=declared_path,
                 remediation="use only type, required, properties, items, enum, pattern, and additionalProperties",
             )
@@ -358,20 +271,11 @@ def parse_validator(
 def parse_commands(
     context: FieldContext, raw: Mapping[str, Any], phase_id: str
 ) -> tuple[ValidationCommand, ...]:
-    if "commands" in raw and "validation_commands" in raw:
-        context.fail(
-            "conflicting-fields",
-            "commands and validation_commands cannot both be declared",
-            phase=phase_id,
-            field="commands",
-            value=raw["commands"],
-            remediation="declare only commands",
-        )
-    values = raw.get("commands", raw.get("validation_commands", []))
+    values = raw.get("commands", [])
     if not isinstance(values, list):
         context.fail(
             "invalid-field-type",
-            "commands must be an array of tables or argument arrays",
+            "commands must be an array of command tables",
             phase=phase_id,
             field="commands",
             value=values,
@@ -379,10 +283,7 @@ def parse_commands(
         )
     commands: list[ValidationCommand] = []
     for value in values:
-        if isinstance(value, list):
-            command_raw: Mapping[str, Any] = {"argv": value}
-        else:
-            command_raw = context.require_mapping(value, "commands", phase=phase_id)
+        command_raw = context.require_mapping(value, "commands", phase=phase_id)
         context.check_unknown(
             command_raw, {"argv", "timeout_seconds", "required"}, phase=phase_id
         )

@@ -4,7 +4,7 @@
 name: %{skill_name}
 description: %{description}
 license: MIT
-compatibility: Specromancy pipeline schema version 2.
+compatibility: Specromancy pipeline schema version 3.
 metadata:
   role: orchestrator
 ---

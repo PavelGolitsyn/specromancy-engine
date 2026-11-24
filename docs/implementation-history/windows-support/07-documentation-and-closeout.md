@@ -16,8 +16,8 @@ interpreter, filesystem, shell, and user-permission coverage.
   `harness-compatibility.md` where their guarantees or limitations need updates.
 - `docs/guides/authoring-pipelines.md`, `docs/guides/harnesses.md`,
   `tests/README.md`, and `examples/release-documentation/README.md`.
-- Canonical `.agents/skills/` or example skills only if invocation guidance
-  needs correction; regenerate all affected manifest-owned adapters afterward.
+- Canonical `workflow/skills/` or example skills if invocation guidance
+  needs correction. Regenerate affected manifest-owned adapters afterward.
 - This plan's stage statuses, `evidence/07-documentation-and-closeout.md`, and
   `docs/implementation-history/README.md`.
 
@@ -88,7 +88,7 @@ interpreter, filesystem, shell, and user-permission coverage.
    distribution verifier. Documentation/example bytes are in the sdist, so an
    earlier artifact set is not sufficient after these edits.
 3. Run all six CI jobs on the final revision. Compare counts and skip lists with
-   Stage 01 and explain differences. Review original fixture hashes, any separately
+   Stage 01 and explain differences. Review current-format fixture hashes, any separately
    added Windows expectations, public signatures/schemas/CLI codes, and generated
    ownership/provenance. Confirm no unrelated files changed.
 4. Review the completed changes against the repository instructions: standard
@@ -108,7 +108,7 @@ interpreter, filesystem, shell, and user-permission coverage.
 - [ ] PowerShell instructions and independent consumer use are executed.
 - [ ] Runtime errors preserve state and do not trigger permission repair,
       destination deletion, lock expiry, or repository cleanup.
-- [ ] Original compatibility fixtures preserved; native differences explicit.
+- [ ] Current-format replay and obsolete-format refusal verified, with native differences documented.
 - [ ] Adapters are reproducible and have no handwritten platform logic.
 - [ ] Current support statements match the available evidence and limitations.
 - [ ] Final evidence identifies a single tested tree and fresh distributions.

@@ -15,23 +15,24 @@ def observe_provenance(
     pipeline: PipelineConfig, manifest: RunRecord
 ) -> list[dict[str, Any]]:
     warnings: list[dict[str, Any]] = []
-    workflow_phases = {p.id: p for p in pipeline.phases if p.skill_source is not None}
+    resources = {
+        phase.id: {"skill": phase.skill_path, "template": phase.output_template_path}
+        for phase in pipeline.phases
+    }
     for visit in manifest["visits"]:
-        phase = workflow_phases.get(visit["phase_id"])
+        configured = resources.get(visit["phase_id"], {})
         for kind in ("skill", "template"):
             record = visit[kind]
             if record is None:
                 continue
             path = pipeline.repository_root / record["path"]
-            if phase is not None:
-                current = phase.skill_path if kind == "skill" else phase.output_template_path
-                if current != path:
-                    warnings.append({
-                        "code": "provenance-path-mismatch",
-                        "message": f"visit {visit['ordinal']} {kind} resolves to a different file",
-                        "details": {"path": record["path"]},
-                    })
-                    continue
+            if path != configured.get(kind):
+                warnings.append({
+                    "code": "provenance-path-mismatch",
+                    "message": f"visit {visit['ordinal']} {kind} has no matching configured file",
+                    "details": {"path": record["path"]},
+                })
+                continue
             try:
                 actual = sha256_file(path)
             except OSError as exc:

@@ -29,7 +29,7 @@ class InterruptionFixture:
         self.pipeline_path.write_text(
             textwrap.dedent(
                 f"""
-                schema_version = 2
+                schema_version = 3
                 id = "interruptions"
                 version = 1
                 start = "compose"
@@ -44,7 +44,7 @@ class InterruptionFixture:
                 output_name = "{{visit:03}}-result.md"
                 mutation = "read-only"
                 completion_criteria = ["Write a result."]
-                validator = "file"
+                validator = {{ type = "file" }}
                 transition_approval_conditions = []
                 action_approval_conditions = []
                 stop_conditions = []
